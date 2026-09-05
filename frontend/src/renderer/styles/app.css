@@ -209,7 +209,15 @@ body {
 
 /* ---- per-screen shell: fixed sidebar injected by screen-shell.js --------- */
 body.shell-mode {
-  padding-left: 256px; /* 232px sidebar + the body's own 24px gutter */
+  padding: 0 0 0 232px; /* flush against the 232px fixed sidebar - no gap */
+}
+/* the form sheet fills the pane instead of centring, so it sits flush against
+   the sidebar rather than floating with a gap on its left. */
+body.shell-mode .sheet {
+  max-width: none;
+  margin: 0;
+  border-left: none;
+  border-radius: 0;
 }
 .shell-sidebar {
   position: fixed;

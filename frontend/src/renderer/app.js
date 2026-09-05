@@ -1,24 +1,14 @@
-// Shell: login, then a role-filtered nav. Sales sees only Daily Sales Entry
-// and Payment Receipt (SDD 6.1). The module list + sidebar builder live in
-// lib/nav.js so the per-screen shell renders an identical sidebar.
+// Login page. On success (or an existing session) the app goes straight to the
+// default form — Daily Sales Entry — which carries the persistent sidebar
+// (lib/screen-shell.js). There is no separate "choose a module" landing screen.
 
-import { api, getToken, setToken } from "./lib/api.js";
-import { buildNav } from "./lib/nav.js";
+import { api, apiBase, getToken, setToken } from "./lib/api.js";
 
-const loginView = document.getElementById("login-view");
-const navView = document.getElementById("nav-view");
+const DEFAULT_SCREEN = "screens/daily-sales-entry/index.html";
 const loginError = document.getElementById("login-error");
 
-function renderNav(me) {
-  document.getElementById("who").textContent = `${me.full_name} (${me.role})`;
-  buildNav(document.getElementById("nav-links"), me.role);
-  loginView.hidden = true;
-  navView.hidden = false;
-}
-
-async function showSignedIn() {
-  const me = await api.me();
-  renderNav(me);
+function goToDefaultScreen() {
+  window.location.href = `${DEFAULT_SCREEN}?apiBase=${encodeURIComponent(apiBase)}`;
 }
 
 document.getElementById("login-form").addEventListener("submit", async (e) => {
@@ -29,7 +19,7 @@ document.getElementById("login-form").addEventListener("submit", async (e) => {
       document.getElementById("login-name").value.trim(),
       document.getElementById("password").value
     );
-    await showSignedIn();
+    goToDefaultScreen();
   } catch (err) {
     loginError.textContent = err.status === 401 ? "Invalid login name or password." : String(err.message || err);
   }
@@ -52,18 +42,7 @@ document.getElementById("forgot-link").addEventListener("click", async (e) => {
   }
 });
 
-document.getElementById("logout").addEventListener("click", async () => {
-  try {
-    await api.post("/auth/logout");
-  } catch {
-    /* ignore - clearing locally regardless */
-  }
-  setToken(null);
-  navView.hidden = true;
-  loginView.hidden = false;
-});
-
-// Resume an existing window session (set by a prior login before navigating).
+// Already signed in (token set by a prior login in this window)? Go straight in.
 if (getToken()) {
-  showSignedIn().catch(() => setToken(null));
+  api.me().then(goToDefaultScreen).catch(() => setToken(null));
 }

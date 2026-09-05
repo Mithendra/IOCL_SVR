@@ -50,6 +50,6 @@ test("admin reset link -> set a new password -> the user can sign in", async ({ 
   await page.fill("#login-name", user.login_name);
   await page.fill("#password", NEW_PW);
   await page.click("#login-form button[type=submit]");
-  await expect(page.locator("#nav-view")).toBeVisible();
-  await expect(page.locator("#who")).toContainText("Sales");
+  await expect(page.locator("#nav-links .nav-item").first()).toBeVisible();
+  await expect(page).toHaveURL(/daily-sales-entry/);
 });

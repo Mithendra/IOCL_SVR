@@ -27,7 +27,7 @@ async function login(page, user) {
   await page.fill("#login-name", user);
   await page.fill("#password", "demo1234");
   await page.click("#login-form button[type=submit]");
-  await expect(page.locator("#nav-view")).toBeVisible();
+  await expect(page.locator("#nav-links .nav-item").first()).toBeVisible();
 }
 
 async function openReport(page, user) {

@@ -30,7 +30,7 @@ async function loginManager(page) {
   await page.fill("#login-name", "mmanager");
   await page.fill("#password", "demo1234");
   await page.click("#login-form button[type=submit]");
-  await expect(page.locator("#nav-view")).toBeVisible();
+  await expect(page.locator("#nav-links .nav-item").first()).toBeVisible();
 }
 
 test("combine two submissions, verify both, then upload", async ({ page }) => {
