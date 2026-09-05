@@ -1399,3 +1399,58 @@ Commits: `886f7a3`, `17c8dc1`, `d610c5e`, `65585db`.
 `screens/*/index.html`, and `frontend/src/renderer/assets/iocl-logo.png`.
 
 ---
+
+## 109. Pre-UAT polish + remote-PC check fixes (2026-09-05)
+
+Everything since entry 108, ahead of the real-data UAT.
+
+- **Windows app icon.** The supplied lockup is 2116×743; Windows icons must be
+  square, so it's centred on a 1024×1024 white canvas at `frontend/build/icon.png`
+  and `build.win.icon` points at it — electron-builder generates the `.ico` for
+  taskbar / Start / shortcut / Search instead of the default Electron icon. A
+  square crop of just the round IndianOil badge would read sharper at 16–32 px if
+  wanted later. Commit `9d06c78`.
+- **Code-signing: wired cert-ready, ships unsigned.** No config change — when
+  `CSC_LINK` / `CSC_KEY_PASSWORD` are set electron-builder signs the exe +
+  installer automatically; when they aren't (today) the build is unsigned and the
+  user clicks through SmartScreen once. Documented in `installer/README.md`. An OV
+  code-signing cert can be added any time. Commit `6166b87`.
+- **Release checklist.** The version is hand-kept in three files
+  (`frontend/package.json`, `backend/pyproject.toml`,
+  `backend/src/svr_backend/__init__.py`) — documented that they move together,
+  with the check/build/tag steps, in `installer/README.md`. Commit `aed9037`.
+- **UAT / acceptance test cases** — `docs/03-Testing/UAT-Test-Cases.md`: Section A
+  deployment/infra smoke, Section B ~4–6 cases per form for all 12 modules
+  (grounded in the non-negotiable rules), Section C cross-module money flows,
+  Section D server-side RBAC matrix, go-live blocker list, sign-off block. OCR /
+  Excel / full backup-restore marked N/A (not in this build). Commit `b1a4c0e`.
+- **Remote-PC check fixes** (found on the USA test PC):
+  1. After login the app showed a "choose a module" placeholder instead of a
+     default form — it now goes straight to **Daily Sales Entry**, which carries
+     the persistent sidebar. The old `#nav-view` launcher markup is removed.
+  2. The opened form floated with a wide gap between it and the sidebar —
+     `body.shell-mode` now pads exactly the 232 px sidebar width and the form
+     fills the pane flush (no left border/radius, `margin:0`). Commit `a2188cc`.
+
+**Plan from here (confirmed with the client):** finish the remaining coding
+first, then a **real software install on the USA remote PC** and a **daily
+real-data UAT** — enter live business data each day, verify every calculation and
+cross-module integration against reality — then fix what that surfaces, then
+go-live. The gaps below are fixed *after* that coding pass and install, not now.
+
+**Known coding gaps (unchanged, for reference):**
+- **Daily Trial Balance (Module 12) — partial.** Sections 1/3/6/7 modelled;
+  Sections 2/4/5/8–11 are a free-form `manual_json` blob pending the ADR-1
+  decision (manual columns vs. computed roll-ups). Section 6 litres sign
+  (`diff − consumption`) + density deduction still need a cross-check against the
+  AUG11/AUG12 workbooks (UAT case 12.6).
+- Not built by scope: OCR / Tesseract, Excel import/export, bank-statement
+  reconciliation, 2FA enforcement, Employee Master insurance sections, and the
+  deferred full backup/restore module (entry 107).
+
+**Files updated:** `frontend/build/icon.png` (new), `frontend/package.json`,
+`installer/README.md`, `docs/03-Testing/UAT-Test-Cases.md` (new),
+`docs/03-Testing/Quick-Shell-Check.md` (new), `frontend/src/renderer/index.html`,
+`app.js`, `styles/app.css`, all 12 `frontend/tests/*.spec.js` login helpers.
+
+---
