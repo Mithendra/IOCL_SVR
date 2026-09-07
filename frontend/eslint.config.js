@@ -25,7 +25,8 @@ module.exports = [
       sourceType: "module",
       globals: {
         window: "readonly", document: "readonly", fetch: "readonly", console: "readonly",
-        localStorage: "readonly", setTimeout: "readonly", clearTimeout: "readonly", URLSearchParams: "readonly",
+        localStorage: "readonly", setTimeout: "readonly", clearTimeout: "readonly",
+        URLSearchParams: "readonly", URL: "readonly", FormData: "readonly",
       },
     },
   },

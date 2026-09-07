@@ -26,7 +26,7 @@ Module 12 (Daily Trial Balance) ships **partial** — see its row.
 | Area | State |
 |---|---|
 | Foundation: migrations, auth/session, RBAC, audit, calc engine, 23:59 IST carry-forward, APScheduler, Windows Services, per-component logging, field encryption at rest, email (memory/file/SMTP) | done |
-| **1. Daily Sales Entry** — per-pump/shift entry; locked Sell-rate + carried-reading + inventory-opening snapshot; calc engine; OCR/Excel stubbed `501` | done |
+| **1. Daily Sales Entry** — per-pump/shift entry; locked Sell-rate + carried-reading + inventory-opening snapshot; calc engine; **Excel import/export** (standard data layout, round-trips, recompute-and-flag on import); OCR stubbed `501` | done |
 | **2. Daily Sales Summary** — combines both pump submissions; per-pump verification; both-verified gate on upload to Trial Balance | done |
 | **3. Rate Master** — Owner-only append-only Buy/Sell rate versioning + change-log; Manager view-only | done |
 | **4. Inventory Tracking** — 5 oil SKUs; restock log; low-stock status; feeds Daily Sales Entry opening stock | done |
@@ -39,7 +39,7 @@ Module 12 (Daily Trial Balance) ships **partial** — see its row.
 | **11. Password Reset + email** — single-use emailed link (self-service + admin-initiated); backend-served reset page; SMTP/file/memory backends | done |
 | **12. Daily Trial Balance** — **partial.** Sections 1/3/6/7 modelled (SDD §9 formulas; Section 3 pulled read-only from Daily Sales Summary; finalize lock). Sections 2/4/5/8/9/10/11 stored as a `manual_json` blob pending SDD ADR-1. Formula sign of Section 6 litres + density deduction still need a workbook cross-check. | partial |
 | CI (`.github/workflows/ci.yml`), Windows installer (`installer/`) | done — PyInstaller-frozen backend + portable Tesseract (ADR-6) bundled into the NSIS installer; services registered/started on install, removed on uninstall. Code-signing path wired (`installer/sign.ps1`, `SVR_SIGN_METHOD`) but **dormant — no cert yet**; clean-VM validation is follow-on |
-| OCR pipeline (recognition + review), Excel import/export, external bank-statement reconciliation, 2FA enforcement, Employee Master insurance sections | not started — Tesseract **engine** is bundled (ADR-6, `/daily-sales-entry/ocr/status`); the pipeline that uses it is not built (`/ocr` → 501) |
+| OCR pipeline (recognition + review), external bank-statement reconciliation, 2FA enforcement, Employee Master insurance sections | not started — Tesseract **engine** is bundled (ADR-6, `/daily-sales-entry/ocr/status`); the pipeline that uses it is not built (`/ocr` → 501). Excel import/export is **done** (module 1). |
 
 ## Layout
 

@@ -57,14 +57,15 @@ Paths are relative to the repo root. `SDE` = Daily Sales Entry.
 | Calculation engine (authoritative) | `backend/src/svr_backend/calc/daily_sales_entry.py` |
 | Consumes | `carry_forward.py` (last-reading), `rates.py` (locked Sell rate), `inventory.py` (opening stock) |
 | Migration | `0002_daily_sales_entry.sql` |
-| Frontend screen | `frontend/src/renderer/screens/daily-sales-entry/{index.html,screen.js}` |
+| Excel I/O | `backend/src/svr_backend/excel/daily_sales_entry.py` — `GET /{id}/export-excel`, `GET /import-excel/template`, `POST /import-excel` (parse-only, recompute-and-flag per ADR-5). Standard data layout, **not** a visual replica (BRD-flagged, out of scope). |
+| Frontend screen | `frontend/src/renderer/screens/daily-sales-entry/{index.html,screen.js}` (Import/Export buttons wired; `lib/api.js` `upload`/`download`) |
 | Renderer calc mirror (UX only) | `frontend/src/renderer/lib/calc-mirror.js` |
-| Backend tests | `backend/tests/test_daily_sales_entry_api.py`, `test_calc_daily_sales_entry.py`, `test_ocr_status.py` |
+| Backend tests | `backend/tests/test_daily_sales_entry_api.py`, `test_calc_daily_sales_entry.py`, `test_ocr_status.py`, `test_excel_daily_sales_entry.py` |
 | Playwright | `frontend/tests/daily-sales-entry.spec.js` |
 | RBAC | Sales create/edit own · Manager/Owner full incl. delete |
 | Skill | `skills/daily-sales-entry/` |
 | OCR engine | bundled — `ADR-6`; `core/config.py` (`resolved_tesseract_cmd`), `ocr/runtime.py`, `GET /daily-sales-entry/ocr/status` |
-| Gaps | OCR recognition pipeline (`/ocr` → 501; engine is bundled), Excel import/export (→ 501) |
+| Gaps | OCR recognition pipeline (`/ocr` → 501; engine is bundled) |
 
 ## Module 2 — Daily Sales Summary  (mockup: `daily_sales_summary_branded.html`)
 

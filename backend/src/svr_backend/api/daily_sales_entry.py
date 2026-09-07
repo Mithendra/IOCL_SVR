@@ -14,7 +14,7 @@ import json
 import sqlite3
 from datetime import date
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, File, HTTPException, Response, UploadFile, status
 from pydantic import BaseModel, Field
 
 from svr_backend.calc.daily_sales_entry import OIL_KEYS, OIL_LABELS, compute_payload
@@ -24,6 +24,7 @@ from svr_backend.core.config import get_settings
 from svr_backend.core.db import transaction
 from svr_backend.core.rbac import get_db, get_principal, require
 from svr_backend.core.session import Principal
+from svr_backend.excel import blank_template, build_workbook, parse_workbook
 from svr_backend.inventory import on_hand_map
 from svr_backend.ocr.runtime import tesseract_version
 from svr_backend.rates import latest_effective_rates
@@ -406,14 +407,75 @@ def ocr_upload(_: Principal = Depends(get_principal)) -> None:
     )
 
 
-@router.post("/import-excel", status_code=status.HTTP_501_NOT_IMPLEMENTED)
-def import_excel(_: Principal = Depends(get_principal)) -> None:
-    raise HTTPException(status.HTTP_501_NOT_IMPLEMENTED, "Excel import not yet implemented")
+_XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
 
-@router.get("/{entry_id}/export-excel", status_code=status.HTTP_501_NOT_IMPLEMENTED)
-def export_excel(entry_id: int, _: Principal = Depends(get_principal)) -> None:
-    raise HTTPException(status.HTTP_501_NOT_IMPLEMENTED, "Excel export not yet implemented")
+def _xlsx_response(data: bytes, filename: str) -> Response:
+    return Response(
+        content=data,
+        media_type=_XLSX,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.get("/import-excel/template")
+def import_excel_template(
+    pump_serial: str | None = None, _: Principal = Depends(get_principal)
+) -> Response:
+    """A blank .xlsx to fill offline and feed back through POST /import-excel."""
+    return _xlsx_response(blank_template(pump_serial), "SVR-DailySalesEntry-template.xlsx")
+
+
+@router.post("/import-excel")
+async def import_excel(
+    file: UploadFile = File(...), _: Principal = Depends(get_principal)
+) -> dict:
+    """Parse an uploaded .xlsx into a form payload for human review (SDD ADR-5).
+
+    Does NOT save. The engine recomputes every total; `warnings` flags any cell
+    whose value disagreed with the recomputed one. The reviewer edits + Saves
+    through the normal POST/PUT path, which re-locks rates/readings.
+    """
+    raw = await file.read()
+    if not raw:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Empty file")
+    try:
+        payload, meta, warnings = parse_workbook(raw)
+    except HTTPException:
+        raise
+    except Exception as exc:  # surface any openpyxl parse failure as a 400
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, f"Could not read the spreadsheet: {exc}"
+        ) from exc
+    return {
+        "payload": payload,
+        "meta": meta,
+        "result": compute_payload(payload),
+        "warnings": warnings,
+    }
+
+
+@router.get("/{entry_id}/export-excel")
+def export_excel(
+    entry_id: int,
+    _: Principal = Depends(get_principal),
+    conn: sqlite3.Connection = Depends(get_db),
+) -> Response:
+    row = conn.execute(f"SELECT * FROM {TABLE} WHERE id = ?", (entry_id,)).fetchone()
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Entry not found")
+    data = build_workbook(
+        {
+            "shift_date": row["shift_date"],
+            "pump_serial": row["pump_serial"],
+            "submitted_by": row["submitted_by"],
+            "entry_mode": row["entry_mode"],
+            "payload": json.loads(row["payload"]),
+            "result": json.loads(row["result"]),
+        }
+    )
+    name = f"SVR-DSE-{row['shift_date']}-{row['pump_serial']}.xlsx"
+    return _xlsx_response(data, name)
 
 
 # ------------------------------------------------------------------------- tiny utils

@@ -36,6 +36,9 @@ _hiddenimports = [
     *collect_submodules("uvicorn"),
     # APScheduler resolves jobstores/executors/triggers by entry-point name
     *collect_submodules("apscheduler"),
+    # openpyxl (.xlsx import/export) pulls writers lazily
+    *collect_submodules("openpyxl"),
+    "et_xmlfile",
     # starlette runs on anyio; FastAPI form parsing needs python-multipart
     "anyio._backends._asyncio",
     "multipart",

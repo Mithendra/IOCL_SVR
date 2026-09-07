@@ -36,26 +36,76 @@ export function getToken() {
   return sessionToken;
 }
 
-async function request(method, path, body) {
-  const headers = { "Content-Type": "application/json" };
+function authHeaders(extra) {
+  const headers = extra ? { ...extra } : {};
   if (sessionToken) headers.Authorization = `Bearer ${sessionToken}`;
+  return headers;
+}
 
+function httpError(method, path, status, detail) {
+  const err = new Error(`${method} ${path} -> ${status}: ${detail}`);
+  err.status = status;
+  return err;
+}
+
+async function request(method, path, body) {
   const res = await fetch(apiBase + path, {
     method,
-    headers,
+    headers: authHeaders({ "Content-Type": "application/json" }),
     body: body === undefined ? undefined : JSON.stringify(body),
   });
 
   const text = await res.text();
   const data = text ? JSON.parse(text) : null;
   if (!res.ok) {
-    const detail = data && data.detail ? data.detail : res.statusText;
-    const err = new Error(`${method} ${path} -> ${res.status}: ${detail}`);
-    err.status = res.status;
+    const err = httpError(method, path, res.status, (data && data.detail) || res.statusText);
     err.data = data;
     throw err;
   }
   return data;
+}
+
+// Multipart upload (Excel/OCR import). Returns parsed JSON.
+async function upload(path, file) {
+  const fd = new FormData();
+  fd.append("file", file, file.name || "upload");
+  const res = await fetch(apiBase + path, { method: "POST", headers: authHeaders(), body: fd });
+  const text = await res.text();
+  const data = text ? JSON.parse(text) : null;
+  if (!res.ok) {
+    const err = httpError("POST", path, res.status, (data && data.detail) || res.statusText);
+    err.data = data;
+    throw err;
+  }
+  return data;
+}
+
+// GET a file and hand it to the browser as a download (Electron renderer).
+async function download(path, fallbackName) {
+  const res = await fetch(apiBase + path, { headers: authHeaders() });
+  if (!res.ok) {
+    let detail = res.statusText;
+    try {
+      const j = JSON.parse(await res.text());
+      detail = j.detail || detail;
+    } catch {
+      /* non-JSON error body */
+    }
+    throw httpError("GET", path, res.status, detail);
+  }
+  const blob = await res.blob();
+  const cd = res.headers.get("content-disposition") || "";
+  const m = cd.match(/filename="?([^"]+)"?/);
+  const name = (m && m[1]) || fallbackName || "download";
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  return name;
 }
 
 export const api = {
@@ -63,6 +113,8 @@ export const api = {
   post: (p, b) => request("POST", p, b),
   put: (p, b) => request("PUT", p, b),
   del: (p) => request("DELETE", p),
+  upload,
+  download,
 
   async login(loginName, password) {
     const out = await request("POST", "/auth/login", {

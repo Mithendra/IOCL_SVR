@@ -43,6 +43,8 @@ def create_app() -> FastAPI:
         allow_credentials=False,
         allow_methods=["*"],
         allow_headers=["*"],
+        # so the renderer's fetch() can read the download filename (Excel export)
+        expose_headers=["Content-Disposition"],
     )
 
     @app.get("/health", tags=["meta"])

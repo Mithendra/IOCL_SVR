@@ -83,9 +83,75 @@ test("theme swatch changes --io-accent; language toggle switches headings", asyn
   await expect(page.locator(".section-title").first()).toContainText("గ్యాస్ అమ్మకాలు");
 });
 
-test("OCR / Import buttons surface a 'not yet available' message", async ({ page }) => {
+test("Scan / Upload (OCR) surfaces a 'not yet available' message", async ({ page }) => {
   await login(page);
   await page.goto(SCREEN);
   await page.click("#scan-btn");
   await expect(page.locator("#save-status")).toContainText("not yet available");
+});
+
+test("Export to Excel downloads an .xlsx for a saved entry", async ({ page }) => {
+  await login(page);
+  await page.goto(SCREEN);
+  await page.fill("#hs-current", "1450.5");
+  await page.click("#save-btn");
+  await expect(page.locator("#save-status")).toContainText("Saved (entry #");
+
+  const [download] = await Promise.all([
+    page.waitForEvent("download"),
+    page.click("#export-btn"),
+  ]);
+  expect(download.suggestedFilename()).toMatch(/^SVR-DSE-.*\.xlsx$/);
+  await expect(page.locator("#save-status")).toContainText("Exported");
+});
+
+test("Export to Excel asks you to Save first on an unsaved form", async ({ page }) => {
+  await login(page);
+  await page.goto(SCREEN);
+  await page.click("#export-btn");
+  await expect(page.locator("#save-status")).toContainText("Save the entry first");
+});
+
+test("Import from Excel parses a workbook and populates the form", async ({ page }) => {
+  await login(page);
+  await page.goto(SCREEN);
+  // Make an entry, export it via the API to get a real workbook, then import it.
+  await page.fill("#hs-current", "1600.25");
+  await page.fill("#exp1", "200+50=250");
+  await page.click("#save-btn");
+  await expect(page.locator("#save-status")).toContainText("Saved (entry #");
+
+  const ctx = await request.newContext();
+  const token = (
+    await (
+      await ctx.post(`${apiBase}/auth/login`, {
+        data: { login_name: "gsales", password: "demo1234" },
+      })
+    ).json()
+  ).token;
+  const list = await (
+    await ctx.get(`${apiBase}/daily-sales-entry?pump_serial=12BC4523V-OFF`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+  ).json();
+  const id = list[0].id;
+  const xlsx = await (
+    await ctx.get(`${apiBase}/daily-sales-entry/${id}/export-excel`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+  ).body();
+  await ctx.dispose();
+
+  // Fresh screen, then import the workbook through the hidden file input.
+  await page.goto(SCREEN);
+  await page.setInputFiles('input[type="file"]', {
+    name: "day.xlsx",
+    mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    buffer: xlsx,
+  });
+  await expect(page.locator("#save-status")).toContainText("Imported");
+  await expect(page.locator("#hs-current")).toHaveValue("1600.25");
+  await expect(page.locator("#exp1")).toHaveValue("200+50=250");
+  // recompute ran: amount is populated
+  await expect(page.locator("#hs-amount")).not.toHaveValue("");
 });

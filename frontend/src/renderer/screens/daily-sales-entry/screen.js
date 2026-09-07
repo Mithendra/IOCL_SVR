@@ -201,6 +201,93 @@ async function stubAction(label, fn) {
   }
 }
 
+// ------------------------------------------------------------------- Excel import/export
+
+function ensureRows(selector, adder, n) {
+  while (document.querySelectorAll(selector).length < n) adder();
+}
+
+// Overlay the operator-editable fields from an imported payload. Last Shift
+// Reading / Rate / Opening Stock are backend-locked, so they are NOT touched
+// here - loadPrefill() owns them.
+function populateInputs(payload, meta) {
+  if (meta && meta.pump_serial) setVal("pump-serial", meta.pump_serial);
+  if (meta && meta.shift_date) setVal("shift-date", meta.shift_date);
+
+  setVal("hs-current", payload.hs && payload.hs.current);
+  setVal("ms-current", payload.ms && payload.ms.current);
+
+  (payload.oils || []).forEach((o, i) => {
+    if (OIL_KEYS[i]) setVal(`${OIL_KEYS[i]}-qty`, o.qty);
+  });
+
+  const exp = payload.expenses || [];
+  ["exp1", "exp2", "exp3"].forEach((id, i) => setVal(id, exp[i]));
+
+  const cards = payload.credit_card_amounts || [];
+  ensureRows(".cc-amount", addCcRow, cards.length);
+  document.querySelectorAll(".cc-amount").forEach((el, i) => {
+    el.value = cards[i] === undefined || cards[i] === null ? "" : cards[i];
+  });
+
+  const ncs = payload.new_credits || [];
+  ensureRows("#nc-rows tr", addNcRow, ncs.length);
+  document.querySelectorAll("#nc-rows tr").forEach((tr, i) => {
+    tr.querySelector(".nc-ltrs").value = ncs[i] && ncs[i].ltrs != null ? ncs[i].ltrs : "";
+    tr.querySelector(".nc-rate").value = ncs[i] && ncs[i].rate != null ? ncs[i].rate : "";
+  });
+
+  const ocs = payload.old_credit_amounts || [];
+  ensureRows(".oc-amount", addOcRow, ocs.length);
+  document.querySelectorAll(".oc-amount").forEach((el, i) => {
+    el.value = ocs[i] === undefined || ocs[i] === null ? "" : ocs[i];
+  });
+
+  setVal("pp-settled", payload.phone_pay_settled);
+  setVal("pp-unsettled", payload.phone_pay_unsettled);
+  setVal("night-cash", payload.night_cash);
+}
+
+async function exportExcel() {
+  const status = $("save-status");
+  if (!entryId) {
+    status.className = "status-line";
+    status.textContent = "Save the entry first, then Export to Excel.";
+    return;
+  }
+  try {
+    const name = await api.download(`/daily-sales-entry/${entryId}/export-excel`, "SVR-DSE.xlsx");
+    status.className = "status-line ok";
+    status.textContent = `Exported ${name}.`;
+  } catch (err) {
+    status.className = "status-line err";
+    status.textContent = `Export failed — ${err.message || err}`;
+  }
+}
+
+async function importExcel(file) {
+  const status = $("save-status");
+  status.className = "status-line";
+  status.textContent = "Reading spreadsheet…";
+  try {
+    const res = await api.upload("/daily-sales-entry/import-excel", file);
+    entryId = null; // an imported form is a new entry until saved
+    if (res.meta && res.meta.pump_serial) setVal("pump-serial", res.meta.pump_serial);
+    if (res.meta && res.meta.shift_date) setVal("shift-date", res.meta.shift_date);
+    await loadPrefill(); // rebuild oil rows + lock rates/readings for this pump+date
+    populateInputs(res.payload, res.meta); // then overlay the imported inputs
+    refresh();
+    const w = res.warnings || [];
+    status.className = w.length ? "status-line" : "status-line ok";
+    status.textContent = w.length
+      ? `Imported with ${w.length} note(s): ${w.join(" | ")} — review, then Save.`
+      : "Imported — review the values, then Save.";
+  } catch (err) {
+    status.className = "status-line err";
+    status.textContent = `Import failed — ${err.message || err}`;
+  }
+}
+
 // --------------------------------------------------------------------------- init
 
 function wireToggles() {
@@ -282,12 +369,19 @@ async function init() {
   $("scan-btn").addEventListener("click", () =>
     stubAction("Scan / Upload (OCR)", () => api.post("/daily-sales-entry/ocr"))
   );
-  $("import-btn").addEventListener("click", () =>
-    stubAction("Import from Excel", () => api.post("/daily-sales-entry/import-excel"))
-  );
-  $("export-btn").addEventListener("click", () =>
-    stubAction("Export to Excel", () => api.get("/daily-sales-entry/0/export-excel"))
-  );
+
+  const xlsxInput = document.createElement("input");
+  xlsxInput.type = "file";
+  xlsxInput.accept =
+    ".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+  xlsxInput.style.display = "none";
+  document.body.appendChild(xlsxInput);
+  xlsxInput.addEventListener("change", () => {
+    if (xlsxInput.files[0]) importExcel(xlsxInput.files[0]);
+    xlsxInput.value = "";
+  });
+  $("import-btn").addEventListener("click", () => xlsxInput.click());
+  $("export-btn").addEventListener("click", exportExcel);
 
   await loadPrefill();
 }
