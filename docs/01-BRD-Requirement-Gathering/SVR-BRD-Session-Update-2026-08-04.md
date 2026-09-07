@@ -1454,3 +1454,14 @@ go-live. The gaps below are fixed *after* that coding pass and install, not now.
 `app.js`, `styles/app.css`, all 12 `frontend/tests/*.spec.js` login helpers.
 
 ---
+
+## 110. GitHub Repository Renamed: SVR → IOCL_SVR (2026-09-07)
+
+Client-initiated change: the project repository was renamed from `SVR` to `IOCL_SVR` via GitHub's repository rename function (Settings → General → Repository name).
+
+- **Old URL:** `https://github.com/Mithendra/SVR`
+- **New URL:** `https://github.com/Mithendra/IOCL_SVR`
+- **Method:** In-place GitHub rename (not a fresh repository/re-upload) — this preserves full commit history (all 45 commits at time of rename), all branches, all files, issues, and contributor history intact. GitHub automatically redirects the old `SVR` URL to `IOCL_SVR`, so existing links/clones continue to work.
+- **Reasoning:** Client wanted the repository name to reflect the IOCL branding directly rather than the station's short name alone.
+- **Note:** An earlier attempt created a separate, empty repository literally named `IOCL_SVR` before the rename — this was deleted by the client to free up the name, after which the rename above was performed cleanly against the original, fully-populated `SVR` repository. No files or history were lost at any point in this process.
+- **Action needed:** Update Section 1 (Project Context) and the intro summary table's **Code Repository** field in `SVR-BRD-Requirement-Gathering.docx` to reference `https://github.com/Mithendra/IOCL_SVR` going forward. Any local clones/CI configs referencing the old `SVR` URL should be updated to the new name at convenience (the GitHub redirect prevents immediate breakage but is not guaranteed permanent if the old name is ever reclaimed by another user).
