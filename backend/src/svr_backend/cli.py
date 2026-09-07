@@ -64,6 +64,90 @@ def _seed_demo_users(conn) -> None:
         print(f"seeded user {login_name} ({role})")
 
 
+def run_create_user(argv: list[str] | None = None) -> int:
+    """Create a user from the command line.
+
+    The only way to make the FIRST account on a fresh production install - the
+    installer runs ``migrate`` with no demo seed, so ``users`` is empty and the
+    authenticated ``POST /users`` path can't be reached (SDD 4.1). Run once,
+    elevated, right after install:
+
+        svr-backend create-user --role Owner --name "R Owner" --login rowner
+    """
+    parser = argparse.ArgumentParser(
+        prog="svr-create-user", description="Create a user (bootstrap the first Owner)."
+    )
+    parser.add_argument("--name", required=True, help="Full name.")
+    parser.add_argument("--role", default="Owner", choices=("Sales", "Manager", "Owner"))
+    parser.add_argument("--login", help="Login name (default: derived from --name).")
+    parser.add_argument("--email", default="", help="Email (optional).")
+    parser.add_argument(
+        "--password",
+        help="Password. Omit to be prompted (not echoed); '-' reads one line from stdin.",
+    )
+    parser.add_argument("--db", help="SQLite path (default: from SVR_DB_PATH / config).")
+    args = parser.parse_args(argv)
+
+    import getpass
+
+    from svr_backend.core.audit import record_write
+    from svr_backend.core.db import connect, transaction
+    from svr_backend.core.security import hash_password
+    from svr_backend.users import derive_login_name, unique_login_name
+
+    if args.password == "-":
+        password = sys.stdin.readline().rstrip("\n")
+    elif args.password:
+        password = args.password
+    else:
+        password = getpass.getpass("Password: ")
+        if getpass.getpass("Confirm password: ") != password:
+            print("Passwords do not match.", file=sys.stderr)
+            return 2
+    if len(password) < get_settings().min_password_length:
+        print(
+            f"Password too short (min {get_settings().min_password_length}).", file=sys.stderr
+        )
+        return 2
+
+    db_path = args.db or str(get_settings().resolved_db_path())
+    conn = connect(db_path)
+    try:
+        if not conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='users'"
+        ).fetchone():
+            print(
+                f"Database at {db_path} is not initialised - run 'svr-backend migrate' first.",
+                file=sys.stderr,
+            )
+            return 1
+        base = args.login or derive_login_name(args.name)
+        if conn.execute("SELECT 1 FROM users WHERE login_name = ?", (base,)).fetchone():
+            print(f"Login name {base!r} already exists.", file=sys.stderr)
+            return 1
+        login_name = base if args.login else unique_login_name(conn, base)
+
+        cols = "login_name, full_name, email, role, password_hash, last_updated_by"
+        with transaction(conn):
+            cur = conn.execute(
+                f"INSERT INTO users ({cols}) VALUES (?, ?, ?, ?, ?, 'bootstrap')",
+                (login_name, args.name, args.email, args.role, hash_password(password)),
+            )
+            record_write(
+                conn,
+                table="users",
+                record_id=cur.lastrowid,
+                action="create",
+                actor="bootstrap",
+                new={"login_name": login_name, "full_name": args.name, "role": args.role},
+            )
+    finally:
+        conn.close()
+
+    print(f"Created {args.role} user: {login_name}")
+    return 0
+
+
 def run_backend(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="svr-backend", description="Run the loopback API.")
     parser.add_argument("--host", default=None)

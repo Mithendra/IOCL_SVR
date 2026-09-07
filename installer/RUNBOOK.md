@@ -137,11 +137,17 @@ If SmartScreen blocks it ("Unknown publisher") — expected, it's unsigned →
       **kept** (by design — a reinstall must resume cleanly).
 - [ ] Reinstall on top → still healthy, same DB.
 
-> **Seeding a first user:** there is no built-in admin bootstrap yet. For this
-> test, from an admin PowerShell on the VM:
-> `& "C:\Program Files\SVR IOCL Station\resources\backend\svr-backend.exe" migrate --seed-demo`
-> then log in as `oowner` / `demo1234` and create real users. (Bootstrapping the
-> first real Owner account is a separate open item — note it, don't fix it here.)
+> **First login:** production `migrate` seeds no accounts. Create the first
+> Owner from an elevated PowerShell on the VM:
+> `& "C:\Program Files\SVR IOCL Station\resources\backend\svr-backend.exe" create-user --role Owner --name "<Full Name>" --login <login>`
+> (prompts for the password). `first-run.ps1` prints this same line on a fresh
+> install. For a throwaway smoke test, `migrate --seed-demo` still works
+> (`oowner` / `demo1234`).
+>
+> **Before real-data testing:** log in as the Owner and enter the current IOCL
+> Buy/Sell rates in **Rate Master** — the seeded `rate_master` rows are
+> placeholders, and Daily Sales Entry locks whatever rate is effective when a
+> record is created.
 
 ---
 

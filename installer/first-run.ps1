@@ -102,11 +102,27 @@ if ([string]::IsNullOrWhiteSpace($existingKey)) {
 # --- 3. migrations -------------------------------------------------------------
 Write-Host "Applying migrations ..."
 if ($frozen) {
-  & $svrBackend migrate
+  $migOut = & $svrBackend migrate 2>&1
 } else {
-  & "svr-migrate"
+  $migOut = & "svr-migrate" 2>&1
 }
+$migOut | ForEach-Object { Write-Host "  $_" }
 if ($LASTEXITCODE -ne 0) { throw "migrations failed (exit $LASTEXITCODE)" }
+
+# Fresh DB -> no users exist yet (prod migrate does not seed demo accounts).
+# Someone must create the first Owner before anyone can log in.
+if (($migOut -join "`n") -match 'Applied [1-9]') {
+  $createUser = if ($frozen) { "`"$svrBackend`" create-user" } else { "svr-create-user" }
+  Write-Host ""
+  Write-Host "  ===================================================================="
+  Write-Host "  NEXT STEP - create the first Owner account (nobody can log in yet):"
+  Write-Host ""
+  Write-Host "     $createUser --role Owner --name `"<Full Name>`" --login <login>"
+  Write-Host ""
+  Write-Host "  Run it from an elevated PowerShell; it prompts for the password."
+  Write-Host "  ===================================================================="
+  Write-Host ""
+}
 
 # --- 4. Windows Services ------------------------------------------------------
 $svcWarnings = @()

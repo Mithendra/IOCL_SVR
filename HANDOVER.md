@@ -307,6 +307,7 @@ the build box). If the acceptance test fails, it is most likely one of these.
 ### Must do to be "deployable"
 | Item | Note |
 |---|---|
+| **First Owner account** | ✅ `svr-backend create-user --role Owner --name "<..>" --login <..>` (prompts for password). Production `migrate` seeds nothing, so this is the only way to get the first login; `first-run.ps1` prints the exact command on a fresh install. Covered by `backend/tests/test_cli_create_user.py`. |
 | **Acceptance test (§5)** | ✅ 5.1–5.6 confirmed on the testing PC (see §5.8), including a reboot. **5.7 uninstall deliberately deferred** to actual deployment/decommission time — not a blocker. |
 | **Fix whatever §6 surfaces** | ✅ Nothing bad surfaced — service registration, SCM start, and Machine env-var inheritance all confirmed working. |
 | **CI `build` job green** | ✅ Confirmed — every push from `0c61e9f` onward (through `ac020fa`) built successfully, artifact `svr-iocl-station-installer` present. |

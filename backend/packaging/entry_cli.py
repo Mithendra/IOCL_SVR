@@ -7,6 +7,7 @@ frozen build and a dev ``pip install -e .`` behave identically:
     svr-backend migrate [--db PATH] [--seed-demo]   -> svr_backend.cli:run_migrate
     svr-backend serve   [--host H] [--port N]        -> svr_backend.cli:run_backend
     svr-backend scheduler                            -> svr_backend.cli:run_scheduler
+    svr-backend create-user --name .. [--role ..]    -> svr_backend.cli:run_create_user
     svr-backend gen-key                              -> a fresh Fernet key for SVR_FIELD_KEY
     svr-backend selfcheck                            -> import the full app graph, exit 0
 
@@ -23,7 +24,7 @@ from __future__ import annotations
 
 import sys
 
-_USAGE = "usage: svr-backend {migrate|serve|scheduler|gen-key|selfcheck} [args...]"
+_USAGE = "usage: svr-backend {migrate|serve|scheduler|create-user|gen-key|selfcheck} [args...]"
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -49,6 +50,10 @@ def main(argv: list[str] | None = None) -> int:
         from svr_backend.cli import run_scheduler
 
         return run_scheduler(rest)
+    if cmd == "create-user":
+        from svr_backend.cli import run_create_user
+
+        return run_create_user(rest)
     if cmd == "gen-key":
         from svr_backend.core.crypto import generate_key
 

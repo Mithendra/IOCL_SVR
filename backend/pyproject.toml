@@ -40,6 +40,7 @@ build = [
 svr-backend = "svr_backend.cli:run_backend"
 svr-scheduler = "svr_backend.cli:run_scheduler"
 svr-migrate = "svr_backend.cli:run_migrate"
+svr-create-user = "svr_backend.cli:run_create_user"
 
 [tool.setuptools.packages.find]
 where = ["src"]

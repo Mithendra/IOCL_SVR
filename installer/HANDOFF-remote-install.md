@@ -137,7 +137,18 @@ exact error + the relevant `C:\ProgramData\SVR-IOCL\logs\*.log` lines.
 
 The OCR **pipeline** (scan image → parsed entry → human review) is not built —
 `POST /daily-sales-entry/ocr` still returns `501`. This session only proves the
-**engine** ships and resolves. Also out of scope: code-signing, real-data multi-day
-UAT, and the first-real-Owner-account bootstrap (there's no admin bootstrap flow
-yet — for testing, seed with
-`svr-backend.exe migrate --seed-demo` then log in as `oowner` / `demo1234`).
+**engine** ships and resolves. Also out of scope: code-signing (path is wired,
+dormant) and real-data multi-day UAT.
+
+**First login on a fresh install:** production `migrate` seeds no accounts, so
+create the first Owner (elevated PowerShell, after install):
+
+```powershell
+& "C:\Program Files\SVR IOCL Station\resources\backend\svr-backend.exe" `
+    create-user --role Owner --name "<Full Name>" --login <login>
+```
+
+It prompts for the password. `first-run.ps1` prints this same command when it
+sees a fresh DB. For a quick throwaway test you can still use
+`svr-backend.exe migrate --seed-demo` (`oowner` / `demo1234`), but real-data
+testing should start from a real `create-user` Owner.
