@@ -16,13 +16,15 @@ Read this first, then [`CLAUDE.md`](CLAUDE.md) and
   (Daily Trial Balance) ships partial — see the README table.
 - **Packaging is code-complete and builds cleanly** on a dev machine: a single
   NSIS installer (`SVR-IOCL-Station-Setup-<version>.exe`) that bundles a
-  PyInstaller-frozen backend, so the target PC needs **no Python and no Node**.
-- **Packaging IS validated on the testing PC** (updated 2026-09-04 — see §5.8
-  below for the results). Reboot survives, services auto-start, the app
-  auto-launches, forms load and save. §5.7 (uninstall) is deliberately
-  **deferred, not skipped** — the testing PC stays installed for continued
-  use; uninstall gets verified when that machine is actually decommissioned
-  or at real deployment time.
+  PyInstaller-frozen backend **plus a portable Tesseract OCR engine** (SDD ADR-6),
+  so the target PC needs **no Python, no Node, and no separate OCR install**.
+- **Packaging IS validated on a target PC.** 2026-09-04 (§5.8): frozen backend,
+  reboot survival, services auto-start, app auto-launch, forms load/save.
+  2026-09-07 (§5.9): re-validated on a Tesseract-bundled rebuild —
+  `GET /daily-sales-entry/ocr/status` reports the engine present and runnable
+  out-of-the-box; §5.7 uninstall was run for the first time, surfaced a teardown
+  defect (services "marked for deletion", per-user-only shortcut removal), which
+  is **fixed in commit `a5ef26e`** and awaits a re-run on the next installer build.
 
 ### What the packaging session delivered (commit history around 2026-08-29)
 
@@ -195,6 +197,59 @@ SCM start + Machine env-var inheritance) is now confirmed working end-to-end,
 across a reboot. The earlier `log_config=None` fix (commits `abe737f`/`eac2a38`)
 turned out not to be needed to reproduce this — logging worked without it on this
 install — but it stays in the codebase as cheap defensive hygiene.
+
+---
+
+### 5.9 Results (remote PC, 2026-09-07) — Tesseract rebuild + first real uninstall
+
+Re-validation pass on a fresh installer built from `main` after the OCR-engine
+bundling (`3c4cd42`, SDD ADR-6) and freeze hardening (`442affb`). Scope and steps:
+[`installer/HANDOFF-remote-install.md`](installer/HANDOFF-remote-install.md) §2 (D)
++ [`installer/RUNBOOK.md`](installer/RUNBOOK.md).
+
+| Check | Result |
+|---|---|
+| Freeze `selfcheck` (full app graph imports inside the frozen exe) | ✅ passed |
+| Installer built + Tesseract present (`resources\backend\` + `resources\tesseract\`) | ✅ built; both resource trees present. Exact `.exe` version/size not recorded here — capture on the next build. |
+| D1 — `GET /daily-sales-entry/ocr/status` | ✅ `bundled: true`, `cmd` under `…\resources\tesseract\tesseract.exe`, real `tesseract` version reported, `pipeline: "not-implemented"` — OCR engine present & runnable out-of-the-box |
+| D2 — `SVR_TESSERACT_CMD` / `SVR_TESSDATA_PREFIX` (Machine) | ✅ set, pointing at real files under the install dir |
+| D3 — `/health`, services, reboot | ✅ `/health` 200; both services `Running`/`Automatic`; reboot brought everything back unattended (consistent with §5.8) |
+| **D4 — §5.7 uninstall (run for the first time)** | ⚠️ **bug found + fixed** — see below |
+| Reinstall-over | ✅ same DB, still healthy |
+
+#### Uninstaller bug (found 2026-09-07, fixed same day — commit `a5ef26e`)
+
+The first real run of the uninstall teardown left residue. Root causes, all in
+`installer/uninstall.ps1`:
+
+1. `(Get-Service …).WaitForStatus("Stopped", …)` threw when the service object had
+   already gone, aborting the rest of that service's teardown.
+2. A service that didn't stop in time was `sc delete`d while still running →
+   **"marked for deletion"**, so it lingered in `services.msc` until a reboot,
+   while the script still printed "removed".
+3. The Startup shortcut was removed only from the Startup folder of the account
+   running the (elevated) uninstaller — so it **stayed in the real operator's
+   Startup folder and the app kept auto-launching after uninstall**.
+4. No failure was surfaced — the uninstaller reported success regardless.
+
+**Fix (`a5ef26e`):** poll-for-Stopped with a null guard; kill the service process
+if it won't stop so the delete takes effect immediately; verify each service is
+actually gone before reporting success; remove the shortcut from **every** user
+profile's Startup **and** the all-users Startup; `exit 3` on anything left behind,
+with `installer.nsh` showing a message box on code 3 (mirrors the install side).
+Data tree + `SVR_FIELD_KEY` / `SVR_DATA_DIR` / `SVR_DB_PATH` / `SVR_LOG_DIR` are
+still deliberately kept.
+
+**Not yet re-verified:** the fix ships inside the installer (`extraFiles`), so the
+installed copy on the remote PC still has the old script. Re-run §5.7 against the
+**next** installer build (or after copying the fixed `uninstall.ps1` over
+`<INSTDIR>\installer\uninstall.ps1` and running it elevated) and update this row.
+
+**Net effect:** OCR engine bundling (ADR-6) is confirmed working end-to-end on a
+clean install — `ocr/status` reports the engine present and runnable with no extra
+setup. Core install/reboot behaviour is unchanged from §5.8. §5.7 uninstall was
+exercised for the first time, surfaced a real teardown defect, and that defect is
+fixed in code pending a re-run on a rebuilt installer.
 
 ---
 
