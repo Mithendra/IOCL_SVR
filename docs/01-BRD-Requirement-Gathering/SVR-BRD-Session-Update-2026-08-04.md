@@ -1455,7 +1455,6 @@ go-live. The gaps below are fixed *after* that coding pass and install, not now.
 
 ---
 
-<<<<<<< HEAD
 ## 110. GitHub Repository Renamed: SVR → IOCL_SVR (2026-09-07)
 
 Client-initiated change: the project repository was renamed from `SVR` to `IOCL_SVR` via GitHub's repository rename function (Settings → General → Repository name).
@@ -1466,8 +1465,7 @@ Client-initiated change: the project repository was renamed from `SVR` to `IOCL_
 - **Reasoning:** Client wanted the repository name to reflect the IOCL branding directly rather than the station's short name alone.
 - **Note:** An earlier attempt created a separate, empty repository literally named `IOCL_SVR` before the rename — this was deleted by the client to free up the name, after which the rename above was performed cleanly against the original, fully-populated `SVR` repository. No files or history were lost at any point in this process.
 - **Action needed:** Update Section 1 (Project Context) and the intro summary table's **Code Repository** field in `SVR-BRD-Requirement-Gathering.docx` to reference `https://github.com/Mithendra/IOCL_SVR` going forward. Any local clones/CI configs referencing the old `SVR` URL should be updated to the new name at convenience (the GitHub redirect prevents immediate breakage but is not guaranteed permanent if the old name is ever reclaimed by another user).
-=======
-## 110. Trial Balance Audit, ADR-1/ADR-2 Confirmed and Implemented, All SDD §19 Open Items Closed (2026-09-06 – 2026-09-07)
+## 111. Trial Balance Audit, ADR-1/ADR-2 Confirmed and Implemented, All SDD §19 Open Items Closed (2026-09-06 – 2026-09-07)
 
 Closes out every item that was still open going into coding, across both the
 calc engine and the Daily Trial Balance carry-forward workflow, backend and
@@ -1572,4 +1570,3 @@ frontend both.
 `docs/03-Testing/UAT-Test-Cases.md`.
 
 ---
->>>>>>> 1ae6c01 (Trial Balance audit, ADR-1/ADR-2 implementation)
