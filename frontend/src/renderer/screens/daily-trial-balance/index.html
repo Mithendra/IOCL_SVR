@@ -16,13 +16,18 @@
         </div>
         <div class="header-right"><div class="doc-tag" id="status-tag">draft</div></div>
       </div>
-      <div class="last-updated-bar"><span>Signed in as: <b id="who">&mdash;</b></span></div>
+      <div class="last-updated-bar">
+        <span>Signed in as: <b id="who">&mdash;</b></span>
+        <span id="role-tag" style="margin-left:10px;font-weight:600"></span>
+      </div>
 
       <div class="body-pad">
-        <p style="font-size:11px;color:var(--io-red);margin:0 0 8px" id="adr1">
+        <p style="font-size:11px;color:var(--io-blue-dark);margin:0 0 8px" id="adr1">
           Sections 1, 3, 6, 7 are modelled with the SDD §9 formulas. Sections 2/4/5/8/9/10/11 are
-          captured as a manual JSON block pending SDD ADR-1 (manual columns vs computed rollups).
+          captured as a manual JSON block — confirmed 2026-09-06 as the final design (SDD ADR-1),
+          not an interim one.
         </p>
+        <p style="font-size:11px;color:var(--io-blue-dark);margin:0 0 8px" id="carry-info"></p>
 
         <div class="meta-grid">
           <div class="field"><label for="tb-date">Date</label><input type="date" id="tb-date" /></div>
@@ -66,14 +71,29 @@
             <div class="summary-row net"><span>7.3 Trial Balance Total</span><span id="s7-3">—</span></div>
           </div>
 
-          <div class="section-title">Other sections — manual (pending ADR-1)</div>
+          <div class="section-title">Sections 2/4/5/8/9/10/11 — manual (SDD ADR-1, final)</div>
           <textarea id="manual-json" rows="6" style="width:100%;box-sizing:border-box;font-family:monospace;font-size:12px"></textarea>
 
           <div class="export-bar">
             <button type="button" class="export-btn" id="save-btn">Save</button>
-            <button type="button" class="export-btn secondary" id="finalize-btn">Finalize</button>
           </div>
           <p id="save-status" class="status-line"></p>
+
+          <div id="finalize-block" class="section-title">Close &amp; Sign Off (Manager / Owner)</div>
+          <div id="finalize-fields" class="meta-grid">
+            <div class="field">
+              <label for="projected-total">Today's Projected Trial Balance (optional, from Section 7/8)</label>
+              <input id="projected-total" placeholder="leave blank to skip the variance check" />
+            </div>
+            <div class="field">
+              <label for="finalize-reason">Reason (required only if the difference exceeds ±₹100)</label>
+              <input id="finalize-reason" placeholder="e.g. power bill paid from till today" />
+            </div>
+          </div>
+          <div class="export-bar">
+            <button type="button" class="export-btn secondary" id="finalize-btn">Close &amp; Sign Off</button>
+          </div>
+          <p id="finalize-status" class="status-line"></p>
         </div>
 
         <p style="margin-top:18px"><a href="../../index.html">&larr; Back to menu</a></p>

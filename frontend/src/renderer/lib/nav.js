@@ -1,14 +1,19 @@
 // Shared module list + sidebar builder. Used by the post-login launcher
 // (app.js) and by the per-screen shell (screen-shell.js) so the sidebar is
-// identical everywhere. Order confirmed with the client (BRD entry 106);
-// RBAC unchanged from the original app.js.
+// identical everywhere. Order confirmed with the client (BRD entry 106).
+// RBAC here is a convenience (which links a role even sees) - the backend
+// enforces the real rule independently on every write (SDD non-negotiable).
+// daily-trial-balance's roles were widened 2026-09-06 for ADR-2's maker-checker
+// model; see that screen's own canFinalize() for the finer-grained gate.
 
 import { apiBase } from "./api.js";
 
 export const MODULES = [
   { key: "daily-sales-entry", label: "Daily Sales Entry", href: "screens/daily-sales-entry/index.html", roles: ["Sales", "Manager", "Owner"] },
   { key: "daily-sales-summary", label: "Daily Sales Summary", href: "screens/daily-sales-summary/index.html", roles: ["Sales", "Manager", "Owner"] },
-  { key: "daily-trial-balance", label: "Daily Trial Balance", href: "screens/daily-trial-balance/index.html", roles: ["Manager", "Owner"] },
+  // ADR-2, confirmed 2026-09-06: Sales is the maker (entry/save); Close & Sign
+  // Off (finalize) stays Manager/Owner only, gated inside the screen itself.
+  { key: "daily-trial-balance", label: "Daily Trial Balance", href: "screens/daily-trial-balance/index.html", roles: ["Sales", "Manager", "Owner"] },
   { key: "credit-remittance-master", label: "Credit / Remittance Master", href: "screens/credit-remittance-master/index.html", roles: ["Manager", "Owner"] },
   { key: "payment-receipt", label: "Payment Receipt", href: "screens/payment-receipt/index.html", roles: ["Sales", "Manager", "Owner"] },
   { key: "inventory-tracking", label: "Inventory Tracking", href: "screens/inventory-tracking/index.html", roles: ["Manager", "Owner"] },

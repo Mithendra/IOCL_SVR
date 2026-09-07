@@ -190,19 +190,21 @@ Paths are relative to the repo root. `SDE` = Daily Sales Entry.
 | Playwright | `frontend/tests/password-reset.spec.js` |
 | Prod config | `SVR_EMAIL_BACKEND=smtp` + `SVR_SMTP_*` + `SVR_APP_BASE_URL` |
 
-## Module 12 — Daily Trial Balance  (mockup: `daily_trial_balance_branded.html`) — PARTIAL
+## Module 12 — Daily Trial Balance  (mockup: `daily_trial_balance_branded.html`)
 
 | Part | Path |
 |---|---|
 | Backend router | `backend/src/svr_backend/api/daily_trial_balance.py` |
 | Calculation engine (SDD §9) | `backend/src/svr_backend/calc/daily_trial_balance.py` |
 | Consumes | `summary.py` (Section 3 consumption), `rates.py` (Buy rate), `params.py` (density deduction) |
-| Migration | `0011_daily_trial_balance.sql` |
+| Migration | `0011_daily_trial_balance.sql`, `0012_daily_trial_balance_carry_forward.sql` (ADR-2) |
 | Frontend screen | `frontend/src/renderer/screens/daily-trial-balance/{index.html,screen.js}` |
 | Backend tests | `backend/tests/test_daily_trial_balance_api.py` |
 | Playwright | `frontend/tests/daily-trial-balance.spec.js` |
-| RBAC | Sales blocked · Manager/Owner full · `finalize` locks the date |
-| **Gaps** | Only Sections **1, 3, 6, 7** modelled. Sections 2/4/5/8/9/10/11 live in a `manual_json` blob pending **SDD ADR-1** (manual columns vs computed rollups). Section 6 stock-value litres sign and the density deduction are transcribed from SDD prose but **not yet cross-checked against the AUG11/AUG12 workbooks** (CLAUDE.md). |
+| RBAC | Sales = maker (`GET`/`PUT`) · Manager/Owner = checker, full + `finalize` (ADR-2, ADR-2-implemented 2026-09-06) |
+| Carry-forward | ADR-2, implemented 2026-09-06 in full: `finalize` gates on the previous day being closed, auto-creates + seeds the next day via `prev_trial_balance_id`, and runs the ±₹100 variance/escalation check. Multi-day gap handling (holidays/skipped days) — **RESOLVED with client 2026-09-06, no code change**: sequential one-by-one catch-up is the confirmed final design; see ADR-2 "Point 5". |
+| Frontend RBAC | **Closed out 2026-09-07**: `nav.js` widened to show the module to Sales too (maker); the screen itself hides the Close & Sign Off block/fields/button unless `me.role` is Manager/Owner (`canFinalize()`, mirrors `rate-master/screen.js`) and shows a role tag; adds `projected_total`/`reason` finalize inputs and a `carried_from`/`variance_amount`/`variance_reason` display line. Playwright spec rewritten to match; full frontend suite (31/31) verified before push. |
+| **Gaps** | Only Sections **1, 3, 6, 7** modelled. Sections 2/4/5/8/9/10/11 live in a `manual_json` blob — **CONFIRMED 2026-09-06 as the final design (SDD ADR-1)**, not pending. Section 6 stock-value litres and Benefit/Loss were cross-checked against AUG11/AUG12/SEP05/SEP06 real workbooks 2026-09-06 and corrected (CLAUDE.md, audit doc) — no longer an open question. No remaining gaps on this module. |
 
 ---
 

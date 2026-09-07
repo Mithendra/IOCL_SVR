@@ -1,6 +1,14 @@
-// Daily Trial Balance screen (SDD 5.8 / 9). Manager + Owner. Sections 1/6/7 are
-// computed by the backend engine; Section 3 consumption is pulled from Daily Sales
-// Summary; the remaining sections are a manual JSON block pending SDD ADR-1.
+// Daily Trial Balance screen (SDD 5.8 / 9). Sections 1/6/7 are computed by the
+// backend engine; Section 3 consumption is pulled from Daily Sales Summary; the
+// remaining sections (confirmed 2026-09-06 as the final design, SDD ADR-1) are a
+// manual JSON block.
+//
+// RBAC (maker-checker, ADR-2, confirmed 2026-09-06): Sales is the maker - can
+// view and save (GET/PUT), same as Manager/Owner. Close & Sign Off (finalize) is
+// checker-only (Manager/Owner) - the fields and button for it are hidden entirely
+// for Sales, mirroring the Rate Master screen's canEdit() pattern; the backend
+// enforces this independently either way (SDD non-negotiable: server-side RBAC on
+// every write).
 
 import { api, getToken } from "../../lib/api.js";
 
@@ -8,6 +16,12 @@ const $ = (id) => document.getElementById(id);
 const txt = (id, v) => {
   $(id).textContent = v === null || v === undefined ? "—" : v;
 };
+
+let me = null;
+
+function canFinalize() {
+  return me && (me.role === "Manager" || me.role === "Owner");
+}
 
 function render(view) {
   $("status-tag").textContent = view.status;
@@ -40,12 +54,26 @@ function render(view) {
       ? `Section 3 consumption pulled from Daily Sales Summary (HS ${view.pulled.s3_hs_consumption ?? "—"} / MS ${view.pulled.s3_ms_consumption ?? "—"} L).`
       : "No Daily Sales Summary for this date yet — Section 3 consumption is unavailable, so the derived columns stay blank.";
 
+  // ADR-2: this day's system-generated carry-forward link, and the variance/
+  // escalation outcome recorded at Close & Sign Off (blank until finalized).
+  const carryParts = [];
+  if (view.carried_from) carryParts.push(`Carried forward from ${view.carried_from}.`);
+  if (view.variance_amount !== null && view.variance_amount !== undefined) {
+    carryParts.push(`Difference — Actual Reported Minus Projected: ${view.variance_amount}.`);
+  }
+  if (view.variance_reason) carryParts.push(`Reason: ${view.variance_reason}`);
+  $("carry-info").textContent = carryParts.join(" ");
+
   const locked = view.status === "finalized";
   for (const id of ["hs-y", "hs-c", "ms-y", "ms-c", "cash-bv", "manual-json"]) {
     $(id).disabled = locked;
   }
   $("save-btn").disabled = locked;
-  $("finalize-btn").disabled = locked;
+  if (canFinalize()) {
+    $("finalize-btn").disabled = locked;
+    $("projected-total").disabled = locked;
+    $("finalize-reason").disabled = locked;
+  }
   $("body").style.display = "block";
 }
 
@@ -98,15 +126,24 @@ async function save() {
 }
 
 async function finalize() {
-  const st = $("save-status");
-  if (!window.confirm("Finalize this date's Trial Balance? It cannot be edited afterwards.")) return;
+  const st = $("finalize-status");
+  if (!window.confirm("Close & Sign Off this date's Trial Balance? It cannot be edited afterwards.")) return;
+  const projectedRaw = $("projected-total").value.trim();
+  const reasonRaw = $("finalize-reason").value.trim();
+  const body = {
+    projected_total: projectedRaw ? Number(projectedRaw) : null,
+    reason: reasonRaw || null,
+  };
   try {
-    render(await api.post(`/daily-trial-balance/${$("tb-date").value}/finalize`));
+    render(await api.post(`/daily-trial-balance/${$("tb-date").value}/finalize`, body));
     st.className = "status-line ok";
-    st.textContent = "Finalized.";
+    st.textContent = "Closed & Signed Off. Tomorrow's entry has been created and seeded.";
   } catch (err) {
     st.className = "status-line err";
-    st.textContent = `Finalize failed — ${err.message || err}`;
+    // A 422 here means the +/-Rs100 threshold was breached with no reason entered
+    // (ADR-2 Decision step 1) - err.message already carries the backend's exact
+    // variance figure, so the maker/checker can read it and fill in Reason above.
+    st.textContent = `Close & Sign Off failed — ${err.message || err}`;
   }
 }
 
@@ -115,7 +152,6 @@ async function init() {
     window.location.href = "../../index.html";
     return;
   }
-  let me;
   try {
     me = await api.me();
   } catch {
@@ -124,6 +160,16 @@ async function init() {
   }
   $("who").textContent = `${me.full_name} (${me.role})`;
   $("tb-date").value = new Date().toISOString().slice(0, 10);
+
+  if (!canFinalize()) {
+    $("role-tag").textContent = "Maker — entry & save only";
+    $("finalize-block").style.display = "none";
+    $("finalize-fields").style.display = "none";
+    $("finalize-btn").style.display = "none";
+  } else {
+    $("role-tag").textContent = "Checker — can Close & Sign Off";
+  }
+
   $("load-btn").addEventListener("click", load);
   $("save-btn").addEventListener("click", save);
   $("finalize-btn").addEventListener("click", finalize);

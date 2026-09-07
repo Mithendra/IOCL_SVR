@@ -1455,6 +1455,7 @@ go-live. The gaps below are fixed *after* that coding pass and install, not now.
 
 ---
 
+<<<<<<< HEAD
 ## 110. GitHub Repository Renamed: SVR → IOCL_SVR (2026-09-07)
 
 Client-initiated change: the project repository was renamed from `SVR` to `IOCL_SVR` via GitHub's repository rename function (Settings → General → Repository name).
@@ -1465,3 +1466,110 @@ Client-initiated change: the project repository was renamed from `SVR` to `IOCL_
 - **Reasoning:** Client wanted the repository name to reflect the IOCL branding directly rather than the station's short name alone.
 - **Note:** An earlier attempt created a separate, empty repository literally named `IOCL_SVR` before the rename — this was deleted by the client to free up the name, after which the rename above was performed cleanly against the original, fully-populated `SVR` repository. No files or history were lost at any point in this process.
 - **Action needed:** Update Section 1 (Project Context) and the intro summary table's **Code Repository** field in `SVR-BRD-Requirement-Gathering.docx` to reference `https://github.com/Mithendra/IOCL_SVR` going forward. Any local clones/CI configs referencing the old `SVR` URL should be updated to the new name at convenience (the GitHub redirect prevents immediate breakage but is not guaranteed permanent if the old name is ever reclaimed by another user).
+=======
+## 110. Trial Balance Audit, ADR-1/ADR-2 Confirmed and Implemented, All SDD §19 Open Items Closed (2026-09-06 – 2026-09-07)
+
+Closes out every item that was still open going into coding, across both the
+calc engine and the Daily Trial Balance carry-forward workflow, backend and
+frontend both.
+
+- **SEP06 Trial Balance audit — two real formula bugs found and fixed.**
+  Cross-checked Section 6 (Stock Value) and Section 1 (Benefit/Loss) against
+  AUG11, AUG12, SEP05 and SEP06 real workbook data (client-validated on SEP06).
+  Section 6 Stock Value litres was wrongly computed as `diff − consumption`
+  (produced negative litres and corrupted the Section 7 grand total) — corrected
+  to the raw IOCL current reading. Section 1 Benefit/Loss used `cons + diff`
+  instead of the correct `cons + computer_pump_diff` — also fixed. Both in
+  `backend/src/svr_backend/calc/daily_trial_balance.py`, covered by
+  `test_daily_trial_balance_api.py`; full workings in the new
+  `docs/01-BRD-Requirement-Gathering/SVR-Trial-Balance-Audit-2026-09-06.md`. The
+  density-deduction question from entry 109 did not surface as a separate bug —
+  `deduct_testing = cons − testing` already matched real data.
+- **ADR-1 (Trial Balance normalization) — confirmed: Manual Blob, final.**
+  Client confirmed 2026-09-06 that Sections 2, 4, 5, 8, 9, 10, 11 (Load/Unload
+  Details, Cash & Bank Balances, Cash/Book Value Reconciliation, Projected Trial
+  Balance, Daily Management Reporting, Daily Mgr Calculation, Old/New Credit
+  Sales Details) stay as the free-form `manual_json` blob already built — not an
+  interim state pending a future decision. Sections 1, 3, 6, 7 remain the only
+  server-computed sections. Live-workbook row numbers for each section (SEP06
+  tab, whose printed labels no longer match ADR-1's own numbering) recorded in
+  the audit doc's second addendum.
+- **ADR-2 (Close & Sign Off carry-forward) — implemented in full,** replacing
+  the old hand-typed-cell-reference carry-forward that caused the SEP02 skip-day
+  bug and the frozen-reference bug documented in the project's design-decisions
+  doc. New migration `0012_daily_trial_balance_carry_forward.sql` adds
+  `prev_trial_balance_id` (a real FK, never a human-typed date/cell reference),
+  `variance_amount`, `variance_reason`. `finalize_trial_balance` now: gates on
+  the previous day being Closed & Signed Off; on success, auto-creates and seeds
+  the next day's draft from this day's own **Reported** (never Projected)
+  values; runs the ±₹100 variance/escalation check from the original workbook's
+  "#OK Anything Above Rs 100 Call/inform mgmt" comment, now an actual gate — a
+  breach requires a Reason before sign-off, a difference within ±₹100 doesn't.
+  RBAC widened: Sales is now the **maker** (`GET`/`PUT` — entry and save);
+  `finalize` (Close & Sign Off) stays **checker-only**, Manager/Owner. Multi-day
+  gap handling (holidays/skipped days) — confirmed 2026-09-06 the desired
+  behavior is exactly what's built: the maker fills each missed day in sequence
+  before reaching today, one at a time, no bulk/skip-ahead close (ADR-2's own
+  "Point 5" note has the client's words verbatim). Full backend suite verified
+  green (94 passed, ruff-clean) in a from-scratch sandbox venv before pushing.
+- **Frontend closed out to match** (2026-09-07): `lib/nav.js` widened
+  `daily-trial-balance`'s sidebar visibility to Sales too (was Manager/Owner
+  only — stale from before ADR-2). The screen itself
+  (`screens/daily-trial-balance/{index.html,screen.js}`) now shows a role tag
+  ("Maker — entry & save only" vs "Checker — can Close & Sign Off"), hides the
+  Close & Sign Off block/fields/button entirely for Sales via a `canFinalize()`
+  gate mirroring `rate-master/screen.js`'s pattern (server-side RBAC is still
+  the real enforcement), adds the `projected_total`/`reason` inputs the
+  `finalize` endpoint now accepts, and displays `carried_from` /
+  `variance_amount` / `variance_reason` once a day loads. The stale "pending
+  ADR-1" wording was corrected throughout. `frontend/tests/daily-trial-balance.spec.js`
+  rewritten to match (Sales sees the nav link but not the finalize controls;
+  Manager finalizes and the next day shows the carry-forward line). Verified
+  by running the real Playwright suite (31/31 passed, all 12 spec files, not
+  just this one) in a from-scratch sandbox + pre-installed Chromium before
+  pushing — same rigor as the backend check. `eslint .` clean on the changed
+  files.
+- **Three other SDD §19 items closed, no code changes needed, decisions only:**
+  Electron-as-a-Windows-Service vs. per-user startup item — confirmed the
+  current design (Backend + Scheduler as services, Electron on a per-user
+  Startup-folder shortcut) is correct as built; the remote-PC reboot test on
+  file (entry 109-era `HANDOVER.md` §5.6) already proves zero-human-action
+  startup. One deployment-time note, not a code task: Windows auto-logon (or a
+  passwordless local account) needs setting up per station PC at install time,
+  same as on the tested PC. Retired Administrator role — confirmed exactly
+  three roles is final, `ROLES = ("Sales", "Manager", "Owner")` is correct as
+  built. Rate Master effective-dating — confirmed the already-built behavior
+  (append-only, `latest_effective_rates(conn, as_of)` resolves the rate in
+  force on a given date, Daily Sales Entry locks its rate at creation time) is
+  exactly what's wanted; rates change roughly twice a year, entered manually by
+  the Owner.
+- **Design-decisions doc's last open item resolved** (2026-09-07): "real-time"
+  for the Projected Trial Balance figure means a manual, optional, one-time
+  entry at Close & Sign Off (what's built), not a continuously live-updating
+  projection from streaming Daily Sales/Receipts during the day. Closes the
+  "Open items / not yet decided" section of
+  `docs/claude/daily-trial-balance-app-design-decisions.md` (Cowork project
+  doc).
+- **Documentation pass, this entry:** `CLAUDE.md`'s "Open items (SDD §19)"
+  section now has every bullet struck through and resolved.
+  `docs/02-System-Design-Architecture/IMPLEMENTATION-MAP.md`'s Module 12 row
+  dropped its "PARTIAL" tag and gained a Carry-forward row and a Frontend RBAC
+  row. `docs/03-Testing/UAT-Test-Cases.md`'s Section B‑12 rewritten (maker/
+  checker split, ADR-1 wording, three new carry-forward/variance cases 12.7–
+  12.9), Section D's RBAC matrix and D‑1 updated for Sales's widened access,
+  and go-live blocker 12.6 checked off.
+
+**Files updated:** `backend/src/svr_backend/migrations/0012_daily_trial_balance_carry_forward.sql`
+(new), `backend/src/svr_backend/api/daily_trial_balance.py`,
+`backend/src/svr_backend/calc/daily_trial_balance.py`,
+`backend/tests/test_daily_trial_balance_api.py`,
+`frontend/src/renderer/lib/nav.js`,
+`frontend/src/renderer/screens/daily-trial-balance/{index.html,screen.js}`,
+`frontend/tests/daily-trial-balance.spec.js`, `CLAUDE.md`,
+`docs/01-BRD-Requirement-Gathering/SVR-Trial-Balance-Audit-2026-09-06.md` (new),
+`docs/02-System-Design-Architecture/ADR-2-Daily-Trial-Balance-Close-and-Carry-Forward.md`,
+`docs/02-System-Design-Architecture/IMPLEMENTATION-MAP.md`,
+`docs/03-Testing/UAT-Test-Cases.md`.
+
+---
+>>>>>>> 1ae6c01 (Trial Balance audit, ADR-1/ADR-2 implementation)

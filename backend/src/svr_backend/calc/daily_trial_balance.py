@@ -3,9 +3,14 @@ and 7. Section 3 is pulled read-only from Daily Sales Summary; Sections 2/4/5/8/
 10/11 are not modelled here yet (SDD ADR-1 pending).
 
 Every formula below is transcribed from SDD Section 9 and the BRD session log
-(items 30, 53, 54). Per CLAUDE.md these still need a final cross-check against the
-AUG11/AUG12 workbooks before the module is called production-ready - the one sign
-convention that is genuinely ambiguous in the sources is flagged inline.
+(items 30, 53, 54).
+
+Cross-checked 2026-09-06 against real filled workbooks (AUG11, AUG12, and the
+SEP05/SEP06 tabs of the client's live Trial Balance workbook - SEP06 explicitly
+client-validated). Two formulas did not match any real data and have been
+corrected accordingly - see the inline notes on `stock_ltrs` and `benefit_loss`
+in `_fuel()` below for the evidence. Everything else (`diff`, `computer_pump_diff`,
+`deduct_testing`) matched real data exactly and needed no change.
 """
 
 from __future__ import annotations
@@ -56,20 +61,28 @@ def _fuel(yesterday: Number, current: Number, consumption: Number,
         return line
     diff = parse_amt(yesterday) - parse_amt(current)          # SDD 9 r1: Yesterday - Current
     line.diff = round4(diff)
+
+    # Section 6 Stock Value litres = today's current IOCL reading, taken verbatim -
+    # NOT a diff/consumption calculation. Confirmed against every real filled
+    # workbook checked (AUG11, AUG12, SEP05, SEP06 - client-validated on SEP06):
+    # the Stock Value section's Ltrs cell is a plain `=C3`/`=C4` reference back to
+    # the current reading at the top of Section 1. The previous formula here
+    # (`diff - cons`, guessed from an ambiguous BRD session-log note) produced
+    # negative litres against real numbers and has been replaced.
+    line.stock_ltrs = round4(parse_amt(current))
+    if not is_blank(buy_rate):
+        line.stock_amount = round4(line.stock_ltrs * parse_amt(buy_rate))
+
     if is_blank(consumption):
         return line
     cons = parse_amt(consumption)                              # pulled from Section 3
     line.consumption = round4(cons)
     line.computer_pump_diff = round4(cons - diff)              # SDD 9 r1
-    line.benefit_loss = round4(cons + diff)                    # SDD 9 r1
+    # Benefit/Loss = Consumption + Computer/Pump Diff. Confirmed against AUG11 and
+    # AUG12 (G3 = E3 + F3 on both tabs). Previously coded as `cons + diff`, which
+    # matched neither workbook.
+    line.benefit_loss = round4(cons + line.computer_pump_diff)
     line.deduct_testing = round4(cons - testing)              # SDD 9 r1 (=10 per fuel)
-    # Section 6 Stock Value litres. Session log 30: "IOCL consumption (Sec.1)
-    # minus summarised pump consumption (Sec.3)" -> diff - cons. SDD 9 r1's
-    # "Computer/Pump Diff = Consumption - Diff" is the opposite sign; the sources
-    # conflict, so this is PROVISIONAL and isolated to this one line.
-    line.stock_ltrs = round4(diff - cons)
-    if not is_blank(buy_rate):
-        line.stock_amount = round4(line.stock_ltrs * parse_amt(buy_rate))
     return line
 
 

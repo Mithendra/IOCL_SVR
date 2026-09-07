@@ -167,16 +167,19 @@ per-form field reference in
 | 11.4 | Complete the reset | user | Open the emailed link, set a new password | Backend-served reset page; link is **single-use** and time-limited; after setting, the user can sign in with the new password; the old link no longer works | |
 | 11.5 | Email delivery | Owner | Confirm the SMTP settings are real (not the dev `memory`/`file` backend) for production | Real emails arrive; if not configured, this is a **go-live blocker** | |
 
-### B‑12  Daily Trial Balance  *(PARTIAL build)*
+### B‑12  Daily Trial Balance  *(maker–checker, ADR-2 — confirmed complete 2026-09-07)*
 
 | ID | Scenario | Role | Steps | Expected | Result |
 |---|---|---|---|---|---|
-| 12.1 | Sales blocked | Sales | Sidebar | Not present for Sales | |
+| 12.1 | Sales is the maker | Sales | Sidebar, then open the module | **Present** for Sales (widened 2026-09-06 for ADR-2); can enter Section 1 inputs and Save; the "Close & Sign Off" block/fields/button are hidden entirely — Sales cannot finalize | |
 | 12.2 | Section 3 is pulled, read-only | Manager | After a Daily Sales Summary upload (2.3/2.5), open Trial Balance | Section 3 shows that combined verified data and cannot be hand-edited | |
 | 12.3 | Sections 1 / 6 / 7 compute | Manager | Enter Section 1 inputs | Computed columns fill; **Stock Value uses the Buy Rate** (not the Sell Rate that Daily Sales Entry uses) | |
-| 12.4 | Sections 2/4/5/8–11 free-form | Manager | Enter values in those sections | Accepted as free-form manual entries (stored as-is; no roll-up yet) | |
-| 12.5 | Finalize lock | Manager | Finalize the day | Locked against further edits after finalization | |
-| 12.6 | Section 6 sign / density check | Owner | Cross-check the Section 6 litres sign (`diff − consumption`) and the density deduction against the AUG11/AUG12 workbook figures | Matches the workbook — **flag any mismatch, this reconciliation is still open** | |
+| 12.4 | Sections 2/4/5/8–11 manual | Manager | Enter values in the manual-JSON block | Accepted and round-trips as-is — this is the **confirmed final design (SDD ADR-1, "Manual Blob")**, not an interim state; no computed roll-up is expected here | |
+| 12.5 | Close & Sign Off (checker only) | Manager or Owner | Finalize the day | Record locks against further edits; the checker-only fields (**Today's Projected Trial Balance**, optional; **Reason**, required only on breach) appear only for Manager/Owner, never for Sales | |
+| 12.6 | Section 6 sign / density check | — | Cross-check the Section 6 litres sign and the density deduction against AUG11/AUG12/SEP05/SEP06 | **RESOLVED 2026-09-06** — Section 6 Stock Value litres corrected to the raw IOCL reading (was wrongly `diff − consumption`), Section 1 Benefit/Loss corrected to use `computer_pump_diff`; both fixed in `calc/daily_trial_balance.py` and covered by `test_daily_trial_balance_api.py`. Full evidence: `SVR-Trial-Balance-Audit-2026-09-06.md`. No longer an open reconciliation — re-run this case only as a regression check. | |
+| 12.7 | Cannot skip an unclosed day | Sales or Manager | With date D open (not finalized), try to open/save date D+2 | Refused — the gate only allows the next date once the earlier one is Closed & Signed Off | |
+| 12.8 | Auto-carry-forward | Manager or Owner | Close & Sign Off date D | Date D+1's draft is auto-created and seeded from D's own **Reported** (not Projected) values via a system FK — no hand-typed date/cell reference anywhere; opening D+1 shows "Carried forward from D" | |
+| 12.9 | Variance/escalation gate | Manager or Owner | Enter a Projected total that differs from the Actual Reported figure by more than ±₹100, then Close & Sign Off with no Reason | Refused with a message naming the exact variance; entering a Reason allows it through. A difference within ±₹100 needs no reason. | |
 
 ---
 
@@ -202,7 +205,7 @@ direct save is refused (RBAC is enforced on the backend, not just the screen).
 |---|---|---|---|
 | Daily Sales Entry | create/save | view/save | view/save |
 | Daily Sales Summary | view | view + verify + upload | same |
-| Daily Trial Balance | none | enter + finalize | same |
+| Daily Trial Balance | enter/save (maker) | enter/save + Close & Sign Off (checker) | same |
 | Rate Master | none | **view-only** | full edit + push |
 | Inventory Tracking | none | edit | edit + reorder levels |
 | Manage Users | none | user CRUD | user CRUD (+ last-Owner guard) |
@@ -214,7 +217,7 @@ direct save is refused (RBAC is enforced on the backend, not just the screen).
 
 | ID | Check | Result |
 |---|---|---|
-| D‑1 | Sales sees only: Daily Sales Entry, Daily Sales Summary, Payment Receipt | |
+| D‑1 | Sales sees only: Daily Sales Entry, Daily Sales Summary, Payment Receipt, Daily Trial Balance (maker: enter/save, no Close & Sign Off) | |
 | D‑2 | Manager sees everything except the Owner-only edit rights above | |
 | D‑3 | Owner sees everything | |
 | D‑4 | A blocked save, attempted directly, is refused by the backend (not only hidden in the UI) | |
@@ -227,7 +230,7 @@ direct save is refused (RBAC is enforced on the backend, not just the screen).
 - [ ] B‑11.5 — real SMTP configured, reset emails actually arrive
 - [ ] A‑5 — `SVR_FIELD_KEY` set (or encrypted employee data will not survive a restart)
 - [ ] C‑2 and C‑6 — the money numbers flow correctly and Sell/Buy rate are used in the right places
-- [ ] 12.6 — Section 6 sign / density deduction reconciled against the workbooks, **or** a written decision to accept the partial Trial Balance for now
+- [x] 12.6 — Section 6 sign / density deduction reconciled against the workbooks — **done 2026-09-06**, see `SVR-Trial-Balance-Audit-2026-09-06.md`
 
 ## Sign-off
 

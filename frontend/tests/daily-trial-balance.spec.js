@@ -36,9 +36,22 @@ async function login(page, user) {
   await expect(page.locator("#nav-links .nav-item").first()).toBeVisible();
 }
 
-test("Sales has no Daily Trial Balance nav link", async ({ page }) => {
+test("Sales sees the Daily Trial Balance nav link (maker) but not the Close & Sign Off controls", async ({
+  page,
+}) => {
   await login(page, "gsales");
-  await expect(page.locator('#nav-links a[data-module="daily-trial-balance"]')).toHaveCount(0);
+  // ADR-2, confirmed 2026-09-06: Sales is the maker - the module is visible to
+  // them now, unlike the pre-ADR-2 design this test used to assert.
+  await expect(page.locator('#nav-links a[data-module="daily-trial-balance"]')).toHaveCount(1);
+
+  await page.goto(SCREEN);
+  await expect(page.locator("#body")).toBeVisible();
+  await expect(page.locator("#role-tag")).toHaveText("Maker — entry & save only");
+  await expect(page.locator("#finalize-block")).toBeHidden();
+  await expect(page.locator("#finalize-fields")).toBeHidden();
+  await expect(page.locator("#finalize-btn")).toBeHidden();
+  // Save (the maker's own action) stays available.
+  await expect(page.locator("#save-btn")).toBeVisible();
 });
 
 test("Manager enters Section 1, sees computed columns + pulled Section 3, then finalizes", async ({
@@ -47,6 +60,8 @@ test("Manager enters Section 1, sees computed columns + pulled Section 3, then f
   await login(page, "mmanager");
   await page.goto(SCREEN);
   await expect(page.locator("#body")).toBeVisible();
+  await expect(page.locator("#role-tag")).toHaveText("Checker — can Close & Sign Off");
+  await expect(page.locator("#finalize-block")).toBeVisible();
 
   await page.fill("#tb-date", DATE);
   await page.click("#load-btn");
@@ -71,4 +86,12 @@ test("Manager enters Section 1, sees computed columns + pulled Section 3, then f
   await expect(page.locator("#status-tag")).toHaveText("finalized");
   await expect(page.locator("#hs-c")).toBeDisabled();
   await expect(page.locator("#save-btn")).toBeDisabled();
+
+  // ADR-2: finalizing auto-creates and seeds tomorrow's draft from today's
+  // Reported (not Projected) values, with the carry-forward link shown.
+  const tomorrow = new Date(DATE + "T00:00:00Z");
+  tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
+  await page.fill("#tb-date", tomorrow.toISOString().slice(0, 10));
+  await page.click("#load-btn");
+  await expect(page.locator("#carry-info")).toContainText(`Carried forward from ${DATE}`);
 });
