@@ -46,7 +46,7 @@ Its job is to mirror the real station PC, so keep it **clean of build tools**.
 1. **Administrator rights** on the box (the installer registers Windows Services).
 2. **Claude Code — native install** (`https://claude.ai/download`). Runs without
    Node or VS Code; this is how the next session runs here.
-3. **Git** — to `git clone https://github.com/Mithendra/SVR.git` so the session
+3. **Git** — to `git clone https://github.com/Mithendra/IOCL_SVR.git` so the session
    can read this file + the scripts + logs. (Or just copy the project folder over
    and skip Git.) Everything is on **`main`** — there is no PR to merge, just clone.
 4. **The installer `.exe`** — see §3. It is **not** in the repo.
