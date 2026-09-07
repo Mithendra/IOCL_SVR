@@ -36,12 +36,23 @@ _hiddenimports = [
     *collect_submodules("uvicorn"),
     # APScheduler resolves jobstores/executors/triggers by entry-point name
     *collect_submodules("apscheduler"),
-    # pywin32 service plumbing
+    # starlette runs on anyio; FastAPI form parsing needs python-multipart
+    "anyio._backends._asyncio",
+    "multipart",
+    "python_multipart",
+    # argon2-cffi password hashing (compiled backend)
+    "argon2",
+    # pywin32 service plumbing - the DLL-backed modules a frozen ServiceFramework
+    # touches at install/start time, not just the obvious ones
     "win32timezone",
     "servicemanager",
     "win32serviceutil",
     "win32service",
     "win32event",
+    "win32api",
+    "win32con",
+    "pywintypes",
+    "pythoncom",
 ]
 
 _common = dict(

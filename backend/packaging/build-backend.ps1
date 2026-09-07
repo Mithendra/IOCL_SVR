@@ -61,6 +61,12 @@ try {
   Write-Host "Smoke: serve --help"
   & $svrBackend serve --help | Out-Null
   if ($LASTEXITCODE -ne 0) { throw "svr-backend.exe serve --help failed ($LASTEXITCODE)" }
+  # Force the whole app graph (every router + starlette/anyio/pydantic/cryptography/
+  # argon2) to import inside the frozen exe - catches a missing hidden-import here,
+  # at build time, instead of as a dead backend on the station PC.
+  Write-Host "Smoke: selfcheck (full app import)"
+  & $svrBackend selfcheck
+  if ($LASTEXITCODE -ne 0) { throw "svr-backend.exe selfcheck failed ($LASTEXITCODE)" }
   Remove-Item -Force $smokeDb -ErrorAction SilentlyContinue
 
   Write-Host ""

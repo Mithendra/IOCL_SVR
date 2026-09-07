@@ -40,6 +40,10 @@ CI's `build` job (`.github/workflows/ci.yml`) runs the same steps (with
 `installer/vendor/` restored from an `actions/cache` keyed on the pinned version)
 and uploads the `.exe` artifact.
 
+**First build + test-VM install: follow [`RUNBOOK.md`](RUNBOOK.md)** — step-by-step
+with a pass/fail checklist (services, reboot, `ocr/status`, uninstall) and the
+known first-build risks.
+
 ## Releasing a new version
 
 The version number is kept by hand in three places — bump all three together:
