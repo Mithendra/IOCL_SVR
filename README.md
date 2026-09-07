@@ -38,8 +38,8 @@ Module 12 (Daily Trial Balance) ships **partial** — see its row.
 | **10. Yearly Sales Report** — FY (Apr–Mar) summary; revenue/salaries/opex computed live; Owner-entered COGS + IOCL commission; CA disclaimer | done |
 | **11. Password Reset + email** — single-use emailed link (self-service + admin-initiated); backend-served reset page; SMTP/file/memory backends | done |
 | **12. Daily Trial Balance** — **partial.** Sections 1/3/6/7 modelled (SDD §9 formulas; Section 3 pulled read-only from Daily Sales Summary; finalize lock). Sections 2/4/5/8/9/10/11 stored as a `manual_json` blob pending SDD ADR-1. Formula sign of Section 6 litres + density deduction still need a workbook cross-check. | partial |
-| CI (`.github/workflows/ci.yml`), Windows installer (`installer/`) | done — PyInstaller-frozen backend bundled into the NSIS installer; services registered/started on install, removed on uninstall. Tesseract bundling + code-signing are follow-on |
-| OCR pipeline (Tesseract), Excel import/export, external bank-statement reconciliation, 2FA enforcement, Employee Master insurance sections | not started |
+| CI (`.github/workflows/ci.yml`), Windows installer (`installer/`) | done — PyInstaller-frozen backend + portable Tesseract (ADR-6) bundled into the NSIS installer; services registered/started on install, removed on uninstall. Code-signing + clean-VM validation are follow-on |
+| OCR pipeline (recognition + review), Excel import/export, external bank-statement reconciliation, 2FA enforcement, Employee Master insurance sections | not started — Tesseract **engine** is bundled (ADR-6, `/daily-sales-entry/ocr/status`); the pipeline that uses it is not built (`/ocr` → 501) |
 
 ## Layout
 

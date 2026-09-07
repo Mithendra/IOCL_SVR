@@ -19,6 +19,9 @@ node_modules/
 frontend/dist/
 frontend/out/
 installer/output/
+
+# Third-party redistributable staged at build time (SDD ADR-6), not committed
+installer/vendor/
 playwright-report/
 test-results/
 

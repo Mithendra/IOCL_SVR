@@ -59,11 +59,12 @@ Paths are relative to the repo root. `SDE` = Daily Sales Entry.
 | Migration | `0002_daily_sales_entry.sql` |
 | Frontend screen | `frontend/src/renderer/screens/daily-sales-entry/{index.html,screen.js}` |
 | Renderer calc mirror (UX only) | `frontend/src/renderer/lib/calc-mirror.js` |
-| Backend tests | `backend/tests/test_daily_sales_entry_api.py`, `test_calc_daily_sales_entry.py` |
+| Backend tests | `backend/tests/test_daily_sales_entry_api.py`, `test_calc_daily_sales_entry.py`, `test_ocr_status.py` |
 | Playwright | `frontend/tests/daily-sales-entry.spec.js` |
 | RBAC | Sales create/edit own · Manager/Owner full incl. delete |
 | Skill | `skills/daily-sales-entry/` |
-| Gaps | OCR (`/ocr` → 501), Excel import/export (→ 501) |
+| OCR engine | bundled — `ADR-6`; `core/config.py` (`resolved_tesseract_cmd`), `ocr/runtime.py`, `GET /daily-sales-entry/ocr/status` |
+| Gaps | OCR recognition pipeline (`/ocr` → 501; engine is bundled), Excel import/export (→ 501) |
 
 ## Module 2 — Daily Sales Summary  (mockup: `daily_sales_summary_branded.html`)
 

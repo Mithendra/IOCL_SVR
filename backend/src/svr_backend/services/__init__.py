@@ -1,7 +1,8 @@
 """Windows Service hosts (SDD 7.1 / 14).
 
 Two services only - Backend and Scheduler. SQLite gets none (it is a file opened
-in-process) and Tesseract gets none (a library invoked on demand) - SDD ADR-2.
+in-process) and Tesseract gets none (a binary shelled out to on demand) - SDD
+ADR-2 / ADR-6.
 The Electron frontend is registered as a per-user startup item, not a service
 (SDD 19 item 23).
 

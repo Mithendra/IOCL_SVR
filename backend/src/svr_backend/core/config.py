@@ -57,11 +57,21 @@ class Settings(BaseSettings):
     reset_token_ttl_minutes: int = 60
     min_password_length: int = 8
 
+    # OCR engine (SDD ADR-6). The installer bundles a portable Tesseract under
+    # <INSTDIR>\resources\tesseract\ and sets both vars machine-wide in first-run.ps1.
+    # Unset in dev: resolved_tesseract_cmd() falls back to a bare "tesseract" on PATH.
+    tesseract_cmd: Path | None = None
+    tessdata_prefix: Path | None = None
+
     def resolved_db_path(self) -> Path:
         return self.db_path or (self.data_dir / "svr.sqlite")
 
     def resolved_log_dir(self) -> Path:
         return self.log_dir or (self.data_dir / "logs")
+
+    def resolved_tesseract_cmd(self) -> str:
+        """Path to the bundled tesseract.exe, or a bare 'tesseract' for dev/PATH."""
+        return str(self.tesseract_cmd) if self.tesseract_cmd else "tesseract"
 
 
 @lru_cache

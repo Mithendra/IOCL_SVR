@@ -1,18 +1,25 @@
 # installer/
 
 Packaging + first-run setup for the SVR IOCL Station desktop app. The output is a
-single NSIS `.exe` that needs **no Python and no Node** on the target PC.
+single NSIS `.exe` that needs **no Python and no Node** on the target PC, and
+**no separate OCR install** — Tesseract rides inside it (SDD ADR-6).
 
 ## Build
 
 ```powershell
-# from the repo root, after `npm ci` in frontend/
+# from the repo root, after `npm ci` in frontend/  (7-Zip also required)
 installer\build-all.ps1
 ```
 
-That runs two steps:
+That runs three steps:
 
-1. **`backend/packaging/build-backend.ps1`** — PyInstaller one-dir freeze →
+1. **`installer/fetch-tesseract.ps1`** — stages the portable Tesseract payload
+   into `installer/vendor/tesseract/` (git-ignored; ~30 MB; version + SHA-256
+   pinned in the script). No-op once staged. Air-gapped: `-SourcePath` a
+   pre-downloaded setup exe, or hand-place `tesseract.exe` + `tessdata/eng` +
+   `tessdata/osd` + `LICENSE` there. See **OCR / Tesseract** below.
+
+2. **`backend/packaging/build-backend.ps1`** — PyInstaller one-dir freeze →
    `backend/packaging/dist/svr-backend/`, containing three console exes that share
    one runtime (`MERGE` in `svr_backend.spec`):
 
@@ -22,13 +29,16 @@ That runs two steps:
    | `svr-backend-service.exe` | `SVR-IOCL-Backend` Windows Service host |
    | `svr-scheduler-service.exe` | `SVR-IOCL-Scheduler` Windows Service host |
 
-2. **`npm run dist`** (electron-builder, NSIS) — bundles that folder as
-   `resources/backend/` (`extraResources`), ships `first-run.ps1` + `uninstall.ps1`
-   to `<INSTDIR>\installer\` (`extraFiles`), and wires the install/uninstall hooks
-   from `frontend/build/installer.nsh`. Output: `installer/output/SVR-IOCL-Station-Setup-*.exe`.
+3. **`npm run dist`** (electron-builder, NSIS) — bundles the frozen backend as
+   `resources/backend/` and the staged Tesseract as `resources/tesseract/`
+   (`extraResources`), ships `first-run.ps1` + `uninstall.ps1` to
+   `<INSTDIR>\installer\` (`extraFiles`), and wires the install/uninstall hooks
+   from `frontend/build/installer.nsh`. Output:
+   `installer/output/SVR-IOCL-Station-Setup-*.exe`.
 
-CI's `build` job (`.github/workflows/ci.yml`) runs the same two steps and uploads
-the `.exe` artifact.
+CI's `build` job (`.github/workflows/ci.yml`) runs the same steps (with
+`installer/vendor/` restored from an `actions/cache` keyed on the pinned version)
+and uploads the `.exe` artifact.
 
 ## Releasing a new version
 
@@ -89,17 +99,21 @@ distributed more widely or IOCL requires it. Never commit the `.pfx` to the repo
 1. Creates the data + per-component log tree under `C:\ProgramData\SVR-IOCL`
    (SDD 14.3).
 2. Persists `SVR_DATA_DIR` / `SVR_DB_PATH` / `SVR_LOG_DIR` as **machine**
-   environment variables (so the SCM-started services see them), and generates
-   `SVR_FIELD_KEY` (Fernet, SDD 13.3) once if unset.
+   environment variables (so the SCM-started services see them), generates
+   `SVR_FIELD_KEY` (Fernet, SDD 13.3) once if unset, and points
+   `SVR_TESSERACT_CMD` / `SVR_TESSDATA_PREFIX` at the bundled
+   `resources\tesseract\` (SDD ADR-6).
 3. Applies SQLite migrations (`svr-backend.exe migrate`).
 4. Registers **both Windows Services** `--startup auto` and starts them.
 5. Adds the Electron frontend as a per-user Startup-folder shortcut (SDD 19
    item 23 — not a service).
 
 On uninstall, `customUnInstall` runs **`uninstall.ps1`**: stops + deletes both
-services and removes the Startup shortcut. It deliberately **keeps
-`C:\ProgramData\SVR-IOCL`** (DB, nightly backups, logs) and the machine env vars
-so a reinstall resumes cleanly.
+services, removes the Startup shortcut, and clears
+`SVR_TESSERACT_CMD` / `SVR_TESSDATA_PREFIX` (they point into the deleted
+`<INSTDIR>`). It deliberately **keeps `C:\ProgramData\SVR-IOCL`** (DB, nightly
+backups, logs) and the data-tree env vars (incl. `SVR_FIELD_KEY`) so a reinstall
+resumes cleanly.
 
 ## Service model (SDD §7.1 / ADR-2)
 
@@ -109,15 +123,33 @@ so a reinstall resumes cleanly.
 | `SVR-IOCL-Scheduler` | APScheduler 23:59 IST carry-forward + daily SQLite backup | Automatic |
 
 SQLite gets no service (a file, opened in-process). Tesseract gets no service (a
-library invoked on demand).
+binary shelled out to on demand — SDD ADR-2 / ADR-6).
+
+## OCR / Tesseract (bundled — SDD ADR-6)
+
+The OCR **engine** ships inside the installer; the OCR **pipeline** (scan →
+parsed entry → human review) is a separate module, not yet built, so
+`POST /daily-sales-entry/ocr` still returns `501`. What is wired now:
+
+| Piece | Where |
+|---|---|
+| Staging script | `installer/fetch-tesseract.ps1` — pinned version + SHA-256; `-SourcePath` / hand-place for air-gapped |
+| Staged payload | `installer/vendor/tesseract/` — `tesseract.exe` + `*.dll` + `tessdata/{eng,osd}.traineddata` + `LICENSE`; git-ignored |
+| Bundled into | `<INSTDIR>\resources\tesseract\` via `frontend/package.json` → `build.extraResources` |
+| Runtime pointers | `SVR_TESSERACT_CMD`, `SVR_TESSDATA_PREFIX` — machine env, set by `first-run.ps1`, cleared by `uninstall.ps1` |
+| Backend resolver | `svr_backend/core/config.py` (`resolved_tesseract_cmd()`) + `svr_backend/ocr/runtime.py` (`is_available()`, `tesseract_version()`) |
+| Health check | `GET /daily-sales-entry/ocr/status` → `{bundled, cmd, version}` — use it in clean-VM validation |
+
+Language data is **`eng` + `osd` only** — the shift sheets are English headings
+with Western-Arabic digits (the Telugu toggle is a UI label swap). `tel` is not
+shipped; revisit only if a form is hand-filled in Telugu numerals.
 
 ## Still follow-on (not in this packaging pass)
 
-1. **Bundle Tesseract OCR** (SDD ADR-6) — folder + `SVR_TESSERACT_PATH` config
-   key; lands with the OCR module (not started).
-2. **Authenticode code-signing** of the exe + installer, and auto-update.
-3. **Clean-VM validation** — install on a fresh Windows 11 VM: both services
+1. **Authenticode code-signing** of the exe + installer, and auto-update.
+2. **Clean-VM validation** — install on a fresh Windows 11 VM: both services
    `Automatic` + `Running` in `services.msc`; `C:\ProgramData\SVR-IOCL\logs\`
-   populated; `svr.sqlite` migrated; the Startup shortcut opens the app and it
-   reaches the backend; reboot re-launches everything; uninstall removes the
-   services but keeps the data tree.
+   populated; `svr.sqlite` migrated; `GET /daily-sales-entry/ocr/status` reports
+   `bundled: true`; the Startup shortcut opens the app and it reaches the
+   backend; reboot re-launches everything; uninstall removes the services +
+   Tesseract env vars but keeps the data tree.

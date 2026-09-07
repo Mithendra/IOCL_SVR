@@ -69,6 +69,17 @@ Set-MachineEnv "SVR_DATA_DIR" $DataDir
 Set-MachineEnv "SVR_DB_PATH"  $dbPath
 Set-MachineEnv "SVR_LOG_DIR"  $logDir
 
+# Bundled Tesseract (SDD ADR-6). Point the backend at the copy electron-builder
+# shipped under resources\tesseract\ so Scan/Upload needs no separate install.
+$tessExe  = Join-Path $InstallDir "resources\tesseract\tesseract.exe"
+$tessData = Join-Path $InstallDir "resources\tesseract\tessdata"
+if (Test-Path $tessExe) {
+  Set-MachineEnv "SVR_TESSERACT_CMD"   $tessExe
+  Set-MachineEnv "SVR_TESSDATA_PREFIX" $tessData
+} else {
+  Write-Warning "Bundled Tesseract not found at $tessExe - OCR (Scan/Upload) will be unavailable until reinstalled with it."
+}
+
 # Fernet key for field encryption at rest (SDD 13.3). Generate once, then leave alone
 # - regenerating would orphan every previously-encrypted employee bank field.
 $existingKey = [Environment]::GetEnvironmentVariable("SVR_FIELD_KEY", "Machine")

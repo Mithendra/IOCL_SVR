@@ -20,10 +20,12 @@ from pydantic import BaseModel, Field
 from svr_backend.calc.daily_sales_entry import OIL_KEYS, OIL_LABELS, compute_payload
 from svr_backend.carry_forward import carried_last_readings
 from svr_backend.core.audit import record_write
+from svr_backend.core.config import get_settings
 from svr_backend.core.db import transaction
 from svr_backend.core.rbac import get_db, get_principal, require
 from svr_backend.core.session import Principal
 from svr_backend.inventory import on_hand_map
+from svr_backend.ocr.runtime import tesseract_version
 from svr_backend.rates import latest_effective_rates
 
 router = APIRouter(prefix="/daily-sales-entry", tags=["daily-sales-entry"])
@@ -378,9 +380,30 @@ def delete_entry(
         )
 
 
+@router.get("/ocr/status")
+def ocr_status(_: Principal = Depends(get_principal)) -> dict:
+    """Whether the bundled Tesseract (SDD ADR-6) is present and runnable.
+
+    Lets the post-install / clean-VM check confirm OCR shipped without a real
+    scan. `bundled` is False in dev (no SVR_TESSERACT_CMD, no tesseract on PATH).
+    """
+    version = tesseract_version()
+    cmd = get_settings().resolved_tesseract_cmd()
+    return {
+        "bundled": version is not None,
+        "cmd": cmd,
+        "version": version,
+        "pipeline": "not-implemented",
+    }
+
+
 @router.post("/ocr", status_code=status.HTTP_501_NOT_IMPLEMENTED)
 def ocr_upload(_: Principal = Depends(get_principal)) -> None:
-    raise HTTPException(status.HTTP_501_NOT_IMPLEMENTED, "OCR pipeline not yet implemented")
+    raise HTTPException(
+        status.HTTP_501_NOT_IMPLEMENTED,
+        "OCR recognition pipeline not yet implemented "
+        "(the Tesseract engine is bundled - see GET /daily-sales-entry/ocr/status)",
+    )
 
 
 @router.post("/import-excel", status_code=status.HTTP_501_NOT_IMPLEMENTED)

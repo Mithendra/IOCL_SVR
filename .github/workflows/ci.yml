@@ -79,13 +79,24 @@ jobs:
       - name: Freeze backend (PyInstaller one-dir -> backend/packaging/dist/svr-backend)
         shell: pwsh
         run: ./backend/packaging/build-backend.ps1 -SkipInstall
+      # Portable Tesseract (SDD ADR-6). Cached on the pinned version so the
+      # UB Mannheim download is a rare cold path. -SkipHashCheck until the
+      # SHA-256 is pinned in fetch-tesseract.ps1 (packaging session).
+      - name: Cache staged Tesseract
+        uses: actions/cache@v4
+        with:
+          path: installer/vendor/tesseract
+          key: tesseract-5.3.3.20231005-w64
+      - name: Stage Tesseract (SDD ADR-6)
+        shell: pwsh
+        run: ./installer/fetch-tesseract.ps1 -SkipHashCheck
       - name: Install frontend deps
         working-directory: frontend
         run: npm ci
       - name: Fetch Electron binary
         working-directory: frontend
         run: node node_modules/electron/install.js
-      - name: Package Electron app (frozen backend bundled as resources/backend/)
+      - name: Package Electron app (frozen backend + Tesseract bundled as resources/)
         working-directory: frontend
         run: npm run dist
       - name: Upload installer artifact
@@ -94,5 +105,4 @@ jobs:
           name: svr-iocl-station-installer
           path: installer/output/*.exe
           if-no-files-found: warn
-      # Tesseract OCR bundling (installer/README.md item 2) is still follow-on - it
-      # lands with the OCR module. Authenticode code-signing is not wired here.
+      # Authenticode code-signing is not wired here (installer/README.md follow-on 1).

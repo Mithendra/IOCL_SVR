@@ -50,7 +50,15 @@ Remove-SvrService "SVR-IOCL-Scheduler" $schedSvcExe
 $lnk = Join-Path ([Environment]::GetFolderPath("Startup")) "SVR IOCL Station.lnk"
 if (Test-Path $lnk) { Remove-Item -Force $lnk; Write-Host "  removed Startup shortcut." }
 
-# Machine env vars we created (leave SVR_FIELD_KEY? no - if data is kept, the key
-# must be kept too, or kept records become unreadable). Keep them all.
+# Machine env vars: drop the ones that point into the now-deleted InstallDir
+# (Tesseract, SDD ADR-6). Keep SVR_FIELD_KEY / SVR_DATA_DIR / SVR_DB_PATH /
+# SVR_LOG_DIR - they point at the retained data tree, and losing SVR_FIELD_KEY
+# would make every encrypted employee bank field unreadable on reinstall.
+foreach ($stale in @("SVR_TESSERACT_CMD", "SVR_TESSDATA_PREFIX")) {
+  if ([Environment]::GetEnvironmentVariable($stale, "Machine")) {
+    [Environment]::SetEnvironmentVariable($stale, $null, "Machine")
+    Write-Host "  removed machine env $stale (pointed into InstallDir)."
+  }
+}
 Write-Host "  keeping machine config + data tree at $DataDir (DB, backups, logs)."
 Write-Host "Done."

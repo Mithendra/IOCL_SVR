@@ -25,7 +25,8 @@
     "directories": { "output": "../installer/output" },
     "files": ["src/**/*", "package.json"],
     "extraResources": [
-      { "from": "../backend/packaging/dist/svr-backend", "to": "backend" }
+      { "from": "../backend/packaging/dist/svr-backend", "to": "backend" },
+      { "from": "../installer/vendor/tesseract", "to": "tesseract" }
     ],
     "extraFiles": [
       { "from": "../installer/first-run.ps1", "to": "installer/first-run.ps1" },
