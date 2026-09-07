@@ -47,10 +47,20 @@ try {
 
   $distRoot = Join-Path $packagingDir "dist\svr-backend"
   $svrBackend = Join-Path $distRoot "svr-backend.exe"
-  foreach ($exe in @("svr-backend.exe", "svr-backend-service.exe", "svr-scheduler-service.exe")) {
+  $ourExes = @("svr-backend.exe", "svr-backend-service.exe", "svr-scheduler-service.exe")
+  foreach ($exe in $ourExes) {
     $p = Join-Path $distRoot $exe
     if (-not (Test-Path $p)) { throw "expected $exe missing from $distRoot" }
   }
+
+  # --- code-sign our 3 exes ------------------------------------------------------
+  # electron-builder signs the Electron app + installer but never sees inside
+  # extraResources, so the frozen backend exes are signed here. No-ops with no
+  # cert configured (installer/sign.ps1). tesseract.exe is left as its publisher
+  # shipped it.
+  $signPs1 = Join-Path $backendDir "..\installer\sign.ps1" | Resolve-Path
+  $exePaths = $ourExes | ForEach-Object { Join-Path $distRoot $_ }
+  & $signPs1 -Path $exePaths
 
   # --- smoke -----------------------------------------------------------------
   $smokeDb = Join-Path $env:TEMP "svr-freeze-smoke.sqlite"

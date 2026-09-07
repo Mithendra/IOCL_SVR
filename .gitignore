@@ -22,6 +22,12 @@ installer/output/
 
 # Third-party redistributable staged at build time (SDD ADR-6), not committed
 installer/vendor/
+
+# Code-signing material - never commit a private key
+*.pfx
+*.cer
+*.p12
+*.snk
 playwright-report/
 test-results/
 

@@ -49,3 +49,7 @@ Write-Host ""
 Get-ChildItem (Join-Path $repo "installer\output") -Filter *.exe | ForEach-Object {
   Write-Host "Installer: $($_.FullName)  ($([math]::Round($_.Length / 1MB, 1)) MB)"
 }
+
+Write-Host ""
+Write-Host "== Signature check (informational) =="
+& (Join-Path $PSScriptRoot "verify-signatures.ps1")

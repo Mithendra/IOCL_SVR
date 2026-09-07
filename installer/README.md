@@ -69,31 +69,55 @@ The installer filename tracks `frontend/package.json`'s version
 `backend/__init__.py`'s `__version__`, so keeping the three in step is what makes
 the running backend, the API, and the installer all report the same number.
 
-## Code-signing (cert-ready, currently unsigned)
+## Code-signing (wired, dormant — no cert yet)
 
-The build is **wired for Authenticode signing but ships unsigned** — no config
-change is needed either way, electron-builder decides from the environment:
+The whole signing path is built and **no-ops until a cert is configured**, so
+today's build ships **unsigned**: on a fresh PC SmartScreen shows "Unknown
+publisher" and the user clicks *More info → Run anyway* once; the app installs
+and runs normally.
 
-- **No cert** (today): `build-all.ps1` / `npm run dist` produce an **unsigned**
-  installer. On a fresh PC, SmartScreen shows "Unknown publisher" and the user
-  clicks *More info → Run anyway* once. The app still installs and runs normally.
-- **With a cert**: set two environment variables before the build and
-  electron-builder signs the app exe + the installer automatically:
+**How it's wired.** One switch — `installer/sign.ps1` — signs both the Electron
+side (via the `frontend/build/sign-hook.js` hook that electron-builder's
+`win.sign` calls per file) and the **3 frozen backend exes** (from
+`build-backend.ps1`, since electron-builder never sees inside `extraResources`).
+`tesseract.exe` is left as its publisher signed it. `installer/verify-signatures.ps1`
+(run at the end of `build-all.ps1` and in CI) reports Authenticode status.
 
-  ```powershell
-  $env:CSC_LINK          = "C:\path\to\svr-codesign.pfx"   # the certificate file
-  $env:CSC_KEY_PASSWORD  = "<pfx password>"
-  installer\build-all.ps1
-  ```
+**Turn it on** by setting `SVR_SIGN_METHOD` (+ the matching vars) before
+`installer\build-all.ps1`. Timestamp URL: `SVR_SIGN_TIMESTAMP_URL`
+(default `http://timestamp.digicert.com`).
 
-  Nothing else changes. `signtool` and a timestamp server are handled by
-  electron-builder (the signature stays valid after the cert expires).
+| `SVR_SIGN_METHOD` | Needs | Notes |
+|---|---|---|
+| `none` *(default)* | — | leaves everything unsigned, exits 0 |
+| `pfx` | `CSC_LINK` = path to `.pfx`, `CSC_KEY_PASSWORD` | legacy `.pfx` on disk; most CAs no longer issue these (June 2023 key-storage rules) |
+| `store` | `SVR_SIGN_CERT_SHA1` (thumbprint) *or* `SVR_SIGN_CERT_SUBJECT`; `SVR_SIGN_CERT_USER_STORE=1` if in `CurrentUser\My` | cert already in the Windows store — a **hardware token** (DigiCert/Sectigo/SSL.com OV/EV, ~$200–600/yr, must be plugged in) **or a self-signed cert** |
+| `azure-trusted-signing` | `SVR_ATS_DLIB` (path to the trusted-signing dlib), `SVR_ATS_ENDPOINT`, `SVR_ATS_ACCOUNT`, `SVR_ATS_CERT_PROFILE`, `AZURE_TENANT_ID` / `AZURE_CLIENT_ID` / `AZURE_CLIENT_SECRET` | Microsoft's managed service, ~$10/mo, no token, CI-friendly; needs an Azure subscription + one-time identity validation |
 
-Getting a cert: an **OV code-signing certificate** from a CA (DigiCert, Sectigo,
-GlobalSign, …) after they verify the dealership's business registration — roughly
-a yearly subscription. For a single on-prem station with a handful of known
-users, staying unsigned is a reasonable choice; sign if the app is ever
-distributed more widely or IOCL requires it. Never commit the `.pfx` to the repo.
+CI (`.github/workflows/ci.yml` `build` job) passes all of these through from repo
+**secrets** — unset ⇒ unsigned. For `pfx` in CI, base64 a secret and decode it to
+a file first (commented step in the workflow).
+
+### Self-signed (the $0 option for this deployment)
+
+Because the deployer controls every station PC, a self-signed cert trusted on
+those machines removes the "Unknown publisher" prompt at no cost (no SmartScreen
+reputation; useless off-network). Fully scripted:
+
+```powershell
+installer\new-selfsigned-cert.ps1        # creates the cert, exports .cer/.pfx, prints the rest
+```
+
+It prints the exact build env vars and the elevated `certutil -addstore Root` /
+`-addstore TrustedPublisher` commands to run on each station PC. `*.pfx` / `*.cer`
+are git-ignored — **never commit a private key**.
+
+### Verify
+
+```powershell
+installer\verify-signatures.ps1              # informational
+installer\verify-signatures.ps1 -RequireSigned   # exit 1 if anything is unsigned (release gate)
+```
 
 ## What the installer does on the target
 
@@ -150,7 +174,8 @@ shipped; revisit only if a form is hand-filled in Telugu numerals.
 
 ## Still follow-on (not in this packaging pass)
 
-1. **Authenticode code-signing** of the exe + installer, and auto-update.
+1. **Obtain a code-signing cert** and flip `SVR_SIGN_METHOD` on (the path is
+   wired — see "Code-signing" above). Also: auto-update.
 2. **Clean-VM validation** — install on a fresh Windows 11 VM: both services
    `Automatic` + `Running` in `services.msc`; `C:\ProgramData\SVR-IOCL\logs\`
    populated; `svr.sqlite` migrated; `GET /daily-sales-entry/ocr/status` reports

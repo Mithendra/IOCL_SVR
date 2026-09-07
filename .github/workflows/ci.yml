@@ -60,6 +60,22 @@ jobs:
   build:
     needs: [backend, frontend]
     runs-on: windows-latest
+    # Code-signing (installer/README.md "Code-signing"). All unset by default ->
+    # installer/sign.ps1 no-ops and the build ships unsigned. To sign, add the
+    # matching repo secrets; for method=pfx, decode CSC_LINK to a file first
+    # (see the commented step below).
+    env:
+      SVR_SIGN_METHOD: ${{ secrets.SVR_SIGN_METHOD }}
+      SVR_SIGN_CERT_SHA1: ${{ secrets.SVR_SIGN_CERT_SHA1 }}
+      SVR_SIGN_CERT_SUBJECT: ${{ secrets.SVR_SIGN_CERT_SUBJECT }}
+      SVR_SIGN_TIMESTAMP_URL: ${{ secrets.SVR_SIGN_TIMESTAMP_URL }}
+      CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+      SVR_ATS_ENDPOINT: ${{ secrets.SVR_ATS_ENDPOINT }}
+      SVR_ATS_ACCOUNT: ${{ secrets.SVR_ATS_ACCOUNT }}
+      SVR_ATS_CERT_PROFILE: ${{ secrets.SVR_ATS_CERT_PROFILE }}
+      AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+      AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+      AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -76,6 +92,16 @@ jobs:
           svr-migrate --db "$RUNNER_TEMP/build.sqlite" --seed-demo
           svr-backend --help
           svr-scheduler --help
+      # For method=pfx: decode a base64 secret to a file and point CSC_LINK at it.
+      # - name: Materialise signing cert
+      #   if: ${{ secrets.CSC_LINK_BASE64 != '' }}
+      #   shell: pwsh
+      #   run: |
+      #     [IO.File]::WriteAllBytes("$env:RUNNER_TEMP\cert.pfx",
+      #       [Convert]::FromBase64String($env:CSC_LINK_BASE64))
+      #     "CSC_LINK=$env:RUNNER_TEMP\cert.pfx" | Out-File $env:GITHUB_ENV -Append
+      #   env:
+      #     CSC_LINK_BASE64: ${{ secrets.CSC_LINK_BASE64 }}
       - name: Freeze backend (PyInstaller one-dir -> backend/packaging/dist/svr-backend)
         shell: pwsh
         run: ./backend/packaging/build-backend.ps1 -SkipInstall
@@ -99,10 +125,12 @@ jobs:
       - name: Package Electron app (frozen backend + Tesseract bundled as resources/)
         working-directory: frontend
         run: npm run dist
+      - name: Signature check (informational until a cert is configured)
+        shell: pwsh
+        run: ./installer/verify-signatures.ps1
       - name: Upload installer artifact
         uses: actions/upload-artifact@v4
         with:
           name: svr-iocl-station-installer
           path: installer/output/*.exe
           if-no-files-found: warn
-      # Authenticode code-signing is not wired here (installer/README.md follow-on 1).

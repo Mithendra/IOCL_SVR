@@ -314,7 +314,7 @@ the build box). If the acceptance test fails, it is most likely one of these.
 ### Should do for a real release
 | Item | Note |
 |---|---|
-| **Code-signing (Authenticode)** | Removes the SmartScreen warning; needs an OV/EV cert or org PKI. Wire into `frontend/package.json` › `build.win` (`certificateFile`/`certificateSubjectName`). |
+| **Code-signing (Authenticode)** | Path is **wired and dormant** (commit — see below): `installer/sign.ps1` signs the Electron app + installer (via `frontend/build/sign-hook.js` on `build.win.sign`) *and* the 3 frozen backend exes (from `build-backend.ps1`); `installer/verify-signatures.ps1` reports status; CI passes signing secrets through. **What's left: get a cert** and set `SVR_SIGN_METHOD` (`pfx` \| `store` \| `azure-trusted-signing`). $0 option: `installer/new-selfsigned-cert.ps1` + trust it on the station PCs. See `installer/README.md` "Code-signing". |
 | **App + installer icon** | `frontend/build/icon.ico` (electron-builder currently logs "default Electron icon is used"). |
 | **`author` field** in `frontend/package.json` | electron-builder warns; feeds NSIS publisher metadata. |
 | **Version-sync / release steps** | `frontend/package.json`, `backend/pyproject.toml`, `svr_backend.__version__` are hand-kept at `0.1.0`. Document a bump+build+tag process. |
@@ -323,7 +323,7 @@ the build box). If the acceptance test fails, it is most likely one of these.
 | Item | Why it waits |
 |---|---|
 | **Tesseract OCR bundling** (SDD ADR-6, `SVR_TESSERACT_PATH`) | The OCR module isn't built — Daily Sales Entry OCR/Excel endpoints return `501`. Bundle it *with* that module, verified against a real scanned sheet. |
-| **Auto-update** (electron-updater) | Needs (a) an update-feed host, (b) code-signing done first, (c) a design for updating the frozen backend + re-registering services. All three are open decisions. |
+| **Auto-update** (electron-updater) | Needs (a) an update-feed host, (b) code-signing switched on (path is wired — just needs a cert), (c) a design for updating the frozen backend + re-registering services. All three are open decisions. |
 
 ---
 

@@ -10,12 +10,12 @@ module.exports = [
     ignores: ["node_modules/**", "../installer/output/**", "playwright-report/**", "test-results/**"],
   },
   {
-    files: ["src/main/**/*.js", "eslint.config.js"],
+    files: ["src/main/**/*.js", "build/**/*.js", "eslint.config.js"],
     languageOptions: {
       sourceType: "commonjs",
       globals: {
-        require: "readonly", module: "writable", process: "readonly", __dirname: "readonly",
-        console: "readonly", setTimeout: "readonly", clearTimeout: "readonly",
+        require: "readonly", module: "writable", exports: "writable", process: "readonly",
+        __dirname: "readonly", console: "readonly", setTimeout: "readonly", clearTimeout: "readonly",
       },
     },
   },

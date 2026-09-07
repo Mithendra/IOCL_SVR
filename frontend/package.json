@@ -32,7 +32,11 @@
       { "from": "../installer/first-run.ps1", "to": "installer/first-run.ps1" },
       { "from": "../installer/uninstall.ps1", "to": "installer/uninstall.ps1" }
     ],
-    "win": { "target": "nsis", "icon": "build/icon.png" },
+    "win": {
+      "target": "nsis",
+      "icon": "build/icon.png",
+      "sign": "build/sign-hook.js"
+    },
     "nsis": {
       "oneClick": false,
       "perMachine": true,
