@@ -24,4 +24,7 @@
   nsExec::ExecToLog 'powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$INSTDIR\installer\uninstall.ps1" -InstallDir "$INSTDIR"'
   Pop $0
   DetailPrint "SVR-IOCL: uninstall.ps1 exit code $0"
+  ${If} $0 == 3
+    MessageBox MB_ICONEXCLAMATION|MB_OK "SVR-IOCL teardown did not fully complete (code 3).$\r$\nA Windows Service is likely 'marked for deletion' - reboot to finish removing it, or re-run installer\uninstall.ps1 as Administrator."
+  ${EndIf}
 !macroend
