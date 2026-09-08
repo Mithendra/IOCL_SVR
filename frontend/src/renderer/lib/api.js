@@ -121,6 +121,12 @@ export const api = {
       login_name: loginName,
       password,
     });
+    // A 2FA account gets no token here - the caller must call loginTotp() next.
+    if (!out.totp_required) setToken(out.token);
+    return out;
+  },
+  async loginTotp(challenge, code) {
+    const out = await request("POST", "/auth/login/totp", { challenge, code });
     setToken(out.token);
     return out;
   },

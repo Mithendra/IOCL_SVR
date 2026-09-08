@@ -6,23 +6,56 @@ import { api, apiBase, getToken, setToken } from "./lib/api.js";
 
 const DEFAULT_SCREEN = "screens/daily-sales-entry/index.html";
 const loginError = document.getElementById("login-error");
+const loginForm = document.getElementById("login-form");
+const totpForm = document.getElementById("totp-form");
+const totpError = document.getElementById("totp-error");
+let pendingChallenge = null;
 
 function goToDefaultScreen() {
   window.location.href = `${DEFAULT_SCREEN}?apiBase=${encodeURIComponent(apiBase)}`;
 }
 
-document.getElementById("login-form").addEventListener("submit", async (e) => {
+function showTotpStep(challenge) {
+  pendingChallenge = challenge;
+  loginForm.hidden = true;
+  totpForm.hidden = false;
+  totpError.textContent = "";
+  document.getElementById("totp-code").focus();
+}
+
+loginForm.addEventListener("submit", async (e) => {
   e.preventDefault();
   loginError.textContent = "";
   try {
-    await api.login(
+    const out = await api.login(
       document.getElementById("login-name").value.trim(),
       document.getElementById("password").value
     );
+    if (out.totp_required) showTotpStep(out.challenge);
+    else goToDefaultScreen();
+  } catch (err) {
+    loginError.textContent =
+      err.status === 401 ? "Invalid login name or password." : String(err.message || err);
+  }
+});
+
+totpForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  totpError.textContent = "";
+  try {
+    await api.loginTotp(pendingChallenge, document.getElementById("totp-code").value.trim());
     goToDefaultScreen();
   } catch (err) {
-    loginError.textContent = err.status === 401 ? "Invalid login name or password." : String(err.message || err);
+    totpError.textContent =
+      err.status === 401 ? "That code was wrong or expired — sign in again." : String(err.message || err);
   }
+});
+
+document.getElementById("totp-cancel").addEventListener("click", () => {
+  pendingChallenge = null;
+  totpForm.hidden = true;
+  loginForm.hidden = false;
+  document.getElementById("password").value = "";
 });
 
 document.getElementById("forgot-link").addEventListener("click", async (e) => {

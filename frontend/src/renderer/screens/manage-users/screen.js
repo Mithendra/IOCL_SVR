@@ -17,13 +17,14 @@ function deriveLogin(name) {
 }
 
 function readForm() {
+  // 2FA is not set here: users enable it themselves (Security page); admins only
+  // CLEAR it, via the per-row "Clear 2FA" button (PUT { totp_enabled: false }).
   return {
     full_name: $("u-name").value.trim(),
     email: $("u-email").value.trim(),
     cell_phone: $("u-phone").value.trim() || null,
     role: $("u-role").value,
     status: $("u-status").value,
-    totp_enabled: $("u-totp").value === "1",
   };
 }
 
@@ -35,7 +36,7 @@ function resetForm() {
   for (const id of ["u-name", "u-email", "u-phone", "u-login"]) $(id).value = "";
   $("u-role").value = "Sales";
   $("u-status").value = "Active";
-  $("u-totp").value = "0";
+  $("u-totp-state").textContent = "—";
 }
 
 function startEdit(u) {
@@ -49,7 +50,7 @@ function startEdit(u) {
   $("u-login").value = u.login_name;
   $("u-role").value = u.role;
   $("u-status").value = u.status;
-  $("u-totp").value = u.totp_enabled ? "1" : "0";
+  $("u-totp-state").textContent = u.totp_enabled ? "On" : "Off";
 }
 
 function renderList(rows) {
@@ -73,6 +74,7 @@ function renderList(rows) {
     };
     actions.appendChild(mkBtn("Edit", () => startEdit(u)));
     actions.appendChild(mkBtn("Reset Password", () => resetPassword(u.id)));
+    if (u.totp_enabled) actions.appendChild(mkBtn("Clear 2FA", () => clearTotp(u.id, u.login_name)));
     actions.appendChild(mkBtn("Delete", () => removeUser(u.id, u.login_name)));
     body.appendChild(tr);
   }
@@ -120,6 +122,20 @@ async function resetPassword(id) {
   } catch (err) {
     st.className = "status-line err";
     st.textContent = `Reset failed — ${err.message || err}`;
+  }
+}
+
+async function clearTotp(id, login) {
+  if (!window.confirm(`Turn OFF two-factor auth for ${login}? They'll sign in with just their password until they re-enable it.`)) return;
+  const st = $("form-status");
+  try {
+    await api.put(`/users/${id}`, { totp_enabled: false });
+    await load();
+    st.className = "status-line ok";
+    st.textContent = `2FA cleared for ${login}.`;
+  } catch (err) {
+    st.className = "status-line err";
+    st.textContent = `Clear 2FA failed — ${err.message || err}`;
   }
 }
 

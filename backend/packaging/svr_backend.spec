@@ -39,6 +39,8 @@ _hiddenimports = [
     # openpyxl (.xlsx import/export) pulls writers lazily
     *collect_submodules("openpyxl"),
     "et_xmlfile",
+    # pyotp (two-factor auth)
+    *collect_submodules("pyotp"),
     # starlette runs on anyio; FastAPI form parsing needs python-multipart
     "anyio._backends._asyncio",
     "multipart",

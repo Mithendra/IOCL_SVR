@@ -116,6 +116,7 @@ Paths are relative to the repo root. `SDE` = Daily Sales Entry.
 | Playwright | `frontend/tests/manage-users.spec.js` |
 | RBAC | Manager/Owner only · last-active-Owner guard · no self-delete |
 | Related | reset button → Module 11 |
+| **2FA (TOTP)** | `backend/src/svr_backend/totp.py`, `api/auth.py` (`/auth/login/totp`, `/auth/2fa/{status,setup,activate,disable}`), migration `0013_totp_challenge.sql`, `core/session.py` (`check_password`/`issue_session`). Secret Fernet-encrypted via `core/crypto`. Self-enroll: `screens/security/{index.html,screen.js}` (nav key `security`, all roles). Admin clears a locked-out user via `PUT /users/{id} {totp_enabled:false}` ("Clear 2FA" button); admin **cannot** enable (422). Tests: `test_totp.py`, `two-factor.spec.js` (+ `totpCode` in `tests/_helpers.js`). |
 
 ## Module 6 — Credit / Remittance Master  (mockup: `credit_remittance_master_branded.html`; supersedes retired `new_credit_entry`, `record_repayment`)
 

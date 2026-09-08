@@ -40,7 +40,6 @@ class UserCreate(BaseModel):
     cell_phone: str | None = None
     role: str
     status: str = "Active"
-    totp_enabled: bool = False
     login_name: str | None = None  # optional manual override
 
 
@@ -50,6 +49,8 @@ class UserUpdate(BaseModel):
     cell_phone: str | None = None
     role: str | None = None
     status: str | None = None
+    # An admin may only CLEAR 2FA here (lockout recovery). Users turn it ON from
+    # their own Security page - passing True is a 422.
     totp_enabled: bool | None = None
 
 
@@ -94,11 +95,11 @@ def create_user(
             INSERT INTO users
                 (login_name, full_name, email, cell_phone, role, status, totp_enabled,
                  password_hash, last_updated_by)
-            VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?)
+            VALUES (?, ?, ?, ?, ?, ?, 0, NULL, ?)
             """,
             (
                 login_name, body.full_name, body.email, body.cell_phone,
-                body.role, body.status, int(body.totp_enabled), principal.login_name,
+                body.role, body.status, principal.login_name,
             ),
         )
         record_write(
@@ -130,15 +131,23 @@ def update_user(
             "Cannot demote or disable the last active Owner",
         )
 
+    if body.totp_enabled is True:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            "A user enables 2FA from their own Security page; an admin can only clear it here.",
+        )
+
     fields = {
         "full_name": body.full_name,
         "email": body.email if body.email is not None else None,
         "cell_phone": body.cell_phone,
         "role": body.role,
         "status": body.status,
-        "totp_enabled": int(body.totp_enabled) if body.totp_enabled is not None else None,
     }
     updates = {k: v for k, v in fields.items() if v is not None}
+    if body.totp_enabled is False:  # admin clears a locked-out user's 2FA
+        updates["totp_enabled"] = 0
+        updates["totp_secret"] = None
     if not updates:
         return public_user(row)
 
@@ -149,11 +158,12 @@ def update_user(
             f"last_updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?",
             (*updates.values(), principal.login_name, user_id),
         )
+        audited = [k for k in updates if k != "totp_secret"]  # never log the secret
         record_write(
             conn, table="users", record_id=user_id, action="update",
             actor=principal.login_name,
-            old={k: row[k] for k in updates},
-            new=updates,
+            old={k: row[k] for k in audited},
+            new={k: updates[k] for k in audited},
         )
     return public_user(_get_or_404(conn, user_id))
 

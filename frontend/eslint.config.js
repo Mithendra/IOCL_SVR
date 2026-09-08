@@ -36,7 +36,7 @@ module.exports = [
       sourceType: "commonjs",
       globals: {
         require: "readonly", module: "writable", process: "readonly", __dirname: "readonly",
-        console: "readonly", setTimeout: "readonly", URL: "readonly",
+        console: "readonly", setTimeout: "readonly", URL: "readonly", Buffer: "readonly",
         // referenced inside page.evaluate() callbacks (executed in the browser)
         window: "readonly", document: "readonly", getComputedStyle: "readonly",
       },

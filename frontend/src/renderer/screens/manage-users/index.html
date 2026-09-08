@@ -42,7 +42,12 @@
           </tr>
           <tr>
             <td>Two-Factor Authentication</td>
-            <td><select id="u-totp"><option value="0">Disabled</option><option value="1">Enabled</option></select></td>
+            <td>
+              <span id="u-totp-state">&mdash;</span>
+              <span style="font-size:11px;color:var(--io-blue-dark)">
+                — users turn 2FA on from their own Security page; use "Clear 2FA" in the list to reset a locked-out user
+              </span>
+            </td>
           </tr>
         </table>
         <div class="export-bar">

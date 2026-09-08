@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>SVR - Security (2FA)</title>
+    <link rel="stylesheet" href="../../styles/app.css" />
+  </head>
+  <body>
+    <div class="sheet">
+      <div class="flamebar"></div>
+      <div class="header">
+        <div class="header-logo"><img src="../../assets/iocl-logo.png" alt="IndianOil" /></div>
+        <div>
+          <p>Ponnur &nbsp;&bull;&nbsp; Security — Two-Factor Authentication</p>
+        </div>
+        <div class="header-right">
+          <div class="doc-tag" id="role-tag">Your account</div>
+        </div>
+      </div>
+
+      <div class="last-updated-bar">
+        <span>Signed in as: <b id="who">&mdash;</b></span>
+        <span style="margin-left:16px">2FA: <b id="state">&mdash;</b></span>
+      </div>
+
+      <div class="body-pad">
+        <p style="font-size:13px;color:var(--io-blue-dark);max-width:60ch">
+          Two-factor authentication adds a 6-digit code from an authenticator app
+          (Google Authenticator, Authy, Microsoft Authenticator …) on top of your
+          password. If you lose your device, an Owner or Manager can switch it off
+          for you from Manage Users.
+        </p>
+
+        <!-- OFF: start enrollment -->
+        <div id="panel-off" hidden>
+          <div class="export-bar">
+            <button type="button" class="export-btn" id="start-btn">Turn on 2FA</button>
+          </div>
+        </div>
+
+        <!-- ENROLLING: show secret + confirm with a code -->
+        <div id="panel-setup" hidden>
+          <div class="section-title">1. Add SVR to your authenticator app</div>
+          <p style="font-size:13px">Scan this, or type the setup key in by hand:</p>
+          <p><b>Setup key:</b> <code id="secret" style="font-size:15px;letter-spacing:1px"></code></p>
+          <p style="font-size:12px;color:var(--io-blue-dark);word-break:break-all">
+            <b>otpauth URI:</b> <span id="uri"></span>
+          </p>
+          <div class="section-title">2. Enter the current code to confirm</div>
+          <div class="meta-grid">
+            <div class="field">
+              <label for="activate-code">6-digit code</label>
+              <input id="activate-code" inputmode="numeric" pattern="[0-9 ]*" maxlength="9" />
+            </div>
+          </div>
+          <div class="export-bar">
+            <button type="button" class="export-btn" id="activate-btn">Confirm &amp; turn on</button>
+            <button type="button" class="export-btn secondary" id="cancel-btn">Cancel</button>
+          </div>
+        </div>
+
+        <!-- ON: disable -->
+        <div id="panel-on" hidden>
+          <p style="color:#157347;font-weight:700">2FA is on for your account.</p>
+          <div class="section-title">Turn off 2FA</div>
+          <div class="meta-grid">
+            <div class="field">
+              <label for="disable-code">Enter a current code to turn it off</label>
+              <input id="disable-code" inputmode="numeric" pattern="[0-9 ]*" maxlength="9" />
+            </div>
+          </div>
+          <div class="export-bar">
+            <button type="button" class="export-btn secondary" id="disable-btn">Turn off 2FA</button>
+          </div>
+        </div>
+
+        <p id="sec-status" class="status-line"></p>
+        <p style="margin-top:18px"><a href="../../index.html">&larr; Back to menu</a></p>
+      </div>
+    </div>
+
+    <script type="module" src="../../lib/screen-shell.js"></script>
+    <script type="module" src="./screen.js"></script>
+  </body>
+</html>

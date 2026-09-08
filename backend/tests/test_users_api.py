@@ -69,11 +69,23 @@ def test_update_and_delete_a_user_with_audit(client, auth_headers, conn):
 
     upd = client.put(
         f"/users/{uid}",
-        json={"role": "Manager", "cell_phone": "+91 90000 11111", "totp_enabled": True},
+        json={"role": "Manager", "cell_phone": "+91 90000 11111"},
         headers=auth_headers("Owner"),
     ).json()
     assert upd["role"] == "Manager"
-    assert upd["totp_enabled"] is True
+    # An admin may only CLEAR 2FA here (turning it on is 422); see test_totp.py.
+    assert (
+        client.put(
+            f"/users/{uid}", json={"totp_enabled": True}, headers=auth_headers("Owner")
+        ).status_code
+        == 422
+    )
+    assert (
+        client.put(
+            f"/users/{uid}", json={"totp_enabled": False}, headers=auth_headers("Owner")
+        ).status_code
+        == 200
+    )
 
     assert client.delete(f"/users/{uid}", headers=auth_headers("Manager")).status_code == 204
     assert conn.execute("SELECT COUNT(*) c FROM users WHERE id = ?", (uid,)).fetchone()["c"] == 0

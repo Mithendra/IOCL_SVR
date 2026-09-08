@@ -21,6 +21,7 @@ export const MODULES = [
   { key: "monthly-expenses", label: "Monthly Expenses", href: "screens/monthly-expenses/index.html", roles: ["Manager", "Owner"] },
   { key: "employee-master", label: "Employee Master", href: "screens/employee-master/index.html", roles: ["Manager", "Owner"] },
   { key: "yearly-sales-report", label: "Yearly Sales Report", href: "screens/yearly-sales-report/index.html", roles: ["Manager", "Owner"] },
+  { key: "security", label: "Security (2FA)", href: "screens/security/index.html", roles: ["Sales", "Manager", "Owner"] },
 ];
 
 // Renders after a divider, in its own "Admin" group.
@@ -43,6 +44,7 @@ const ICONS = {
   "employee-master": '<rect x="5" y="3" width="14" height="18" rx="2"/><circle cx="12" cy="10" r="2.6"/><path d="M8 17c.7-2 2-3 4-3s3.3 1 4 3"/>',
   "yearly-sales-report": '<rect x="3" y="5" width="18" height="15" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="8" y1="3" x2="8" y2="7"/><line x1="16" y1="3" x2="16" y2="7"/><path d="M6.5 16l3-3 2.5 2 4.5-5"/>',
   "manage-users": '<circle cx="9" cy="8" r="3"/><path d="M3 20c0-3.3 2.7-5.5 6-5.5s6 2.2 6 5.5"/><circle cx="17" cy="9" r="2.4"/><path d="M15.5 14.2c2.6.3 4.5 2.2 4.5 5.3"/>',
+  "security": '<rect x="5" y="10" width="14" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/><circle cx="12" cy="15" r="1.5"/>',
 };
 
 function navLink(mod, hrefPrefix, activeKey) {

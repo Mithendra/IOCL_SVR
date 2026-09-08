@@ -57,6 +57,11 @@ class Settings(BaseSettings):
     reset_token_ttl_minutes: int = 60
     min_password_length: int = 8
 
+    # Two-factor auth (TOTP). The login challenge issued after the password step
+    # is valid for this long before the 6-digit code must be entered.
+    totp_challenge_ttl_minutes: int = 5
+    totp_issuer: str = "SVR IOCL Station"
+
     # OCR engine (SDD ADR-6). The installer bundles a portable Tesseract under
     # <INSTDIR>\resources\tesseract\ and sets both vars machine-wide in first-run.ps1.
     # Unset in dev: resolved_tesseract_cmd() falls back to a bare "tesseract" on PATH.

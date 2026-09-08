@@ -11,12 +11,15 @@ import sqlite3
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
+from svr_backend import totp
+from svr_backend.core.audit import record_write
 from svr_backend.core.config import get_settings
+from svr_backend.core.crypto import decrypt, encrypt
+from svr_backend.core.db import transaction
 from svr_backend.core.email import echo_link_in_response
 from svr_backend.core.rbac import _token_from_headers, get_db, get_principal
 from svr_backend.core.security import hash_password
-from svr_backend.core.session import Principal
-from svr_backend.core.session import login as do_login
+from svr_backend.core.session import Principal, check_password, issue_session
 from svr_backend.core.session import logout as do_logout
 from svr_backend.reset import consume_token, issue_token, reset_link, send_reset_email
 
@@ -29,9 +32,20 @@ class LoginRequest(BaseModel):
 
 
 class LoginResponse(BaseModel):
-    token: str
+    token: str = ""
     role: str
     full_name: str
+    totp_required: bool = False
+    challenge: str | None = None
+
+
+class TotpLoginRequest(BaseModel):
+    challenge: str
+    code: str
+
+
+class TotpCodeRequest(BaseModel):
+    code: str
 
 
 class MeResponse(BaseModel):
@@ -39,20 +53,57 @@ class MeResponse(BaseModel):
     login_name: str
     full_name: str
     role: str
+    totp_enabled: bool = False
+
+
+_BAD_CREDS = HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid login name or password")
+_BAD_CODE = HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid or expired code")
 
 
 @router.post("/login", response_model=LoginResponse)
 def login(body: LoginRequest, conn: sqlite3.Connection = Depends(get_db)) -> LoginResponse:
-    token = do_login(conn, body.login_name, body.password)
-    if token is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid login name or password",
+    row = check_password(conn, body.login_name, body.password)
+    if row is None:
+        raise _BAD_CREDS
+    if row["totp_enabled"] and row["totp_secret"]:
+        conn.execute("BEGIN")
+        try:
+            challenge = totp.issue_challenge(conn, row["id"])
+            conn.execute("COMMIT")
+        except Exception:
+            conn.execute("ROLLBACK")
+            raise
+        return LoginResponse(
+            role=row["role"], full_name=row["full_name"], totp_required=True, challenge=challenge
         )
-    principal = conn.execute(
-        "SELECT role, full_name FROM users WHERE login_name = ?", (body.login_name,)
-    ).fetchone()
-    return LoginResponse(token=token, role=principal["role"], full_name=principal["full_name"])
+    token = issue_session(conn, row["id"])
+    return LoginResponse(token=token, role=row["role"], full_name=row["full_name"])
+
+
+@router.post("/login/totp", response_model=LoginResponse)
+def login_totp(body: TotpLoginRequest, conn: sqlite3.Connection = Depends(get_db)) -> LoginResponse:
+    """Second step for a 2FA account: exchange the challenge + a valid code for a session."""
+    conn.execute("BEGIN")
+    try:
+        user_id = totp.consume_challenge(conn, body.challenge)
+        if user_id is None:
+            conn.execute("ROLLBACK")
+            raise _BAD_CODE
+        row = conn.execute(
+            "SELECT role, full_name, totp_secret FROM users WHERE id = ? AND status = 'Active'",
+            (user_id,),
+        ).fetchone()
+        if row is None or not totp.verify_code(decrypt(row["totp_secret"]), body.code):
+            conn.execute("ROLLBACK")
+            raise _BAD_CODE
+        token = issue_session(conn, user_id)
+        conn.execute("COMMIT")
+    except HTTPException:
+        raise
+    except Exception:
+        conn.execute("ROLLBACK")
+        raise
+    return LoginResponse(token=token, role=row["role"], full_name=row["full_name"])
 
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
@@ -66,13 +117,111 @@ def logout(
 
 
 @router.get("/me", response_model=MeResponse)
-def me(principal: Principal = Depends(get_principal)) -> MeResponse:
+def me(
+    principal: Principal = Depends(get_principal),
+    conn: sqlite3.Connection = Depends(get_db),
+) -> MeResponse:
+    row = conn.execute(
+        "SELECT totp_enabled FROM users WHERE id = ?", (principal.user_id,)
+    ).fetchone()
     return MeResponse(
         user_id=principal.user_id,
         login_name=principal.login_name,
         full_name=principal.full_name,
         role=principal.role,
+        totp_enabled=bool(row and row["totp_enabled"]),
     )
+
+
+# ------------------------------------------------------------------ 2FA self-service
+
+
+@router.get("/2fa/status")
+def totp_status(
+    principal: Principal = Depends(get_principal),
+    conn: sqlite3.Connection = Depends(get_db),
+) -> dict:
+    row = conn.execute(
+        "SELECT totp_enabled, totp_secret FROM users WHERE id = ?", (principal.user_id,)
+    ).fetchone()
+    enabled = bool(row and row["totp_enabled"])
+    return {"enabled": enabled, "pending": bool(row and row["totp_secret"]) and not enabled}
+
+
+@router.post("/2fa/setup")
+def totp_setup(
+    principal: Principal = Depends(get_principal),
+    conn: sqlite3.Connection = Depends(get_db),
+) -> dict:
+    """Generate a new secret (stored, not yet active). Call /2fa/activate with a code."""
+    row = conn.execute(
+        "SELECT totp_enabled FROM users WHERE id = ?", (principal.user_id,)
+    ).fetchone()
+    if row and row["totp_enabled"]:
+        raise HTTPException(status.HTTP_409_CONFLICT, "2FA is already active; disable it first")
+    secret = totp.new_secret()
+    with transaction(conn):
+        conn.execute(
+            "UPDATE users SET totp_secret = ?, totp_enabled = 0, "
+            "last_updated_by = ?, last_updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') "
+            "WHERE id = ?",
+            (encrypt(secret), principal.login_name, principal.user_id),
+        )
+    return {"secret": secret, "otpauth_uri": totp.provisioning_uri(secret, principal.login_name)}
+
+
+@router.post("/2fa/activate", status_code=status.HTTP_204_NO_CONTENT)
+def totp_activate(
+    body: TotpCodeRequest,
+    principal: Principal = Depends(get_principal),
+    conn: sqlite3.Connection = Depends(get_db),
+) -> None:
+    row = conn.execute(
+        "SELECT totp_secret, totp_enabled FROM users WHERE id = ?", (principal.user_id,)
+    ).fetchone()
+    if not row or not row["totp_secret"]:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Run /auth/2fa/setup first")
+    if not totp.verify_code(decrypt(row["totp_secret"]), body.code):
+        raise _BAD_CODE
+    with transaction(conn):
+        conn.execute(
+            "UPDATE users SET totp_enabled = 1, "
+            "last_updated_by = ?, last_updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') "
+            "WHERE id = ?",
+            (principal.login_name, principal.user_id),
+        )
+        record_write(
+            conn, table="users", record_id=principal.user_id, action="update",
+            actor=principal.login_name, new={"totp_enabled": True},
+        )
+
+
+@router.post("/2fa/disable", status_code=status.HTTP_204_NO_CONTENT)
+def totp_disable(
+    body: TotpCodeRequest,
+    principal: Principal = Depends(get_principal),
+    conn: sqlite3.Connection = Depends(get_db),
+) -> None:
+    """Turn 2FA off from your own account (needs a current code). An Owner/Manager
+    can also clear it for a locked-out user from Manage Users."""
+    row = conn.execute(
+        "SELECT totp_secret, totp_enabled FROM users WHERE id = ?", (principal.user_id,)
+    ).fetchone()
+    if not row or not row["totp_enabled"]:
+        return
+    if not totp.verify_code(decrypt(row["totp_secret"]), body.code):
+        raise _BAD_CODE
+    with transaction(conn):
+        conn.execute(
+            "UPDATE users SET totp_enabled = 0, totp_secret = NULL, "
+            "last_updated_by = ?, last_updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') "
+            "WHERE id = ?",
+            (principal.login_name, principal.user_id),
+        )
+        record_write(
+            conn, table="users", record_id=principal.user_id, action="update",
+            actor=principal.login_name, new={"totp_enabled": False},
+        )
 
 
 class ResetRequest(BaseModel):

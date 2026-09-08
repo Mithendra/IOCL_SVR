@@ -27,24 +27,44 @@ def _now() -> datetime:
     return datetime.now(UTC)
 
 
-def login(conn: sqlite3.Connection, login_name: str, password: str) -> str | None:
-    """Return a fresh session token, or ``None`` if the credentials are rejected."""
+def check_password(
+    conn: sqlite3.Connection, login_name: str, password: str
+) -> sqlite3.Row | None:
+    """The password step alone. Returns the user row (incl. totp_* columns) or None.
+
+    No session is created - callers decide whether to issue one directly
+    (``issue_session``) or to demand a second factor first.
+    """
     row = conn.execute(
-        "SELECT id, password_hash, status FROM users WHERE login_name = ?",
+        "SELECT id, password_hash, status, role, full_name, totp_enabled, totp_secret "
+        "FROM users WHERE login_name = ?",
         (login_name,),
     ).fetchone()
     if row is None or row["status"] != "Active":
         return None
     if not verify_password(password, row["password_hash"]):
         return None
+    return row
 
+
+def issue_session(conn: sqlite3.Connection, user_id: int) -> str:
     token = secrets.token_urlsafe(32)
     expires = _now() + timedelta(minutes=get_settings().session_ttl_minutes)
     conn.execute(
         "INSERT INTO sessions (token, user_id, expires_at) VALUES (?, ?, ?)",
-        (token, row["id"], expires.strftime(_ISO)),
+        (token, user_id, expires.strftime(_ISO)),
     )
     return token
+
+
+def login(conn: sqlite3.Connection, login_name: str, password: str) -> str | None:
+    """Password-only login: a fresh session token, or ``None`` if rejected.
+
+    Does NOT consider 2FA - the /auth/login endpoint layers that on. Kept for
+    callers/tests that just need "valid password -> session".
+    """
+    row = check_password(conn, login_name, password)
+    return issue_session(conn, row["id"]) if row is not None else None
 
 
 def resolve(conn: sqlite3.Connection, token: str | None) -> Principal | None:
