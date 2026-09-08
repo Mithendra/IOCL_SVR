@@ -7,7 +7,9 @@ returns them masked (``****1234``); the single-employee endpoint decrypts in ful
 
 Payroll Run: gross = days_worked x daily_wage; net = gross - advance_deduction.
 The run total feeds Monthly Expenses' Bi-weekly Salary category (SDD 5.15).
-Insurance (mockup sections 3-5) is follow-on.
+
+Insurance (mockup sections 3-5): two yearly-premium registers (accidental /
+health) plus a computed Annual Premium Summary. ``insurance_router`` below.
 """
 
 from __future__ import annotations
@@ -27,6 +29,9 @@ from svr_backend.core.session import Principal
 router = APIRouter(prefix="/employees", tags=["employees"])
 # Separate prefix so /payroll-runs/list etc. never collide with /employees/{id}.
 payroll_router = APIRouter(prefix="/payroll-runs", tags=["payroll"])
+insurance_router = APIRouter(prefix="/employee-insurance", tags=["employee-insurance"])
+
+INSURANCE_KINDS = ("accidental", "health")
 
 
 class EmployeeIn(BaseModel):
@@ -62,6 +67,23 @@ class PayrollRunIn(BaseModel):
     period_end: str
     pay_date: str | None = None
     lines: list[PayrollLineIn]
+
+
+class InsuranceIn(BaseModel):
+    kind: str  # 'accidental' | 'health'
+    employee_name: str = Field(min_length=1)
+    provider: str | None = None
+    policy_number: str | None = None
+    yearly_premium: float = Field(ge=0, default=0)
+    renewal_date: str | None = None
+
+
+class InsuranceUpdate(BaseModel):
+    employee_name: str | None = None
+    provider: str | None = None
+    policy_number: str | None = None
+    yearly_premium: float | None = Field(default=None, ge=0)
+    renewal_date: str | None = None
 
 
 def _emp_public(row: sqlite3.Row, *, reveal: bool) -> dict:
@@ -303,3 +325,156 @@ def create_payroll_run(
             new={"pay_date": pay_date, "net_total": net_total, "lines": len(computed)},
         )
     return get_payroll_run(run_id, principal, conn)
+
+
+# ------------------------------------------------------ insurance (mockup 3-5)
+
+
+_INS_TABLE = "employee_insurance"
+
+
+def _insurance_public(row: sqlite3.Row) -> dict:
+    return dict(row)
+
+
+def _resolve_employee_id(conn: sqlite3.Connection, name: str) -> int | None:
+    hit = conn.execute(
+        "SELECT id FROM employee WHERE name = ? COLLATE NOCASE", (name.strip(),)
+    ).fetchone()
+    return hit["id"] if hit else None
+
+
+@insurance_router.get("")
+def list_insurance(
+    kind: str | None = None,
+    _: Principal = Depends(require("Manager", "Owner")),
+    conn: sqlite3.Connection = Depends(get_db),
+) -> list[dict]:
+    if kind is not None and kind not in INSURANCE_KINDS:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY, f"kind must be one of {INSURANCE_KINDS}"
+        )
+    clause = " WHERE kind = ?" if kind else ""
+    params = [kind] if kind else []
+    rows = conn.execute(
+        f"SELECT * FROM {_INS_TABLE}{clause} ORDER BY kind, employee_name, id", params
+    ).fetchall()
+    return [_insurance_public(r) for r in rows]
+
+
+@insurance_router.get("/summary")
+def insurance_summary(
+    _: Principal = Depends(require("Manager", "Owner")),
+    conn: sqlite3.Connection = Depends(get_db),
+) -> dict:
+    """Mockup section 5 - Annual Premium Summary."""
+    rows = conn.execute(
+        f"SELECT kind, COALESCE(SUM(yearly_premium), 0) AS total FROM {_INS_TABLE} GROUP BY kind"
+    ).fetchall()
+    by_kind = {r["kind"]: round(r["total"], 4) for r in rows}
+    accidental = by_kind.get("accidental", 0.0)
+    health = by_kind.get("health", 0.0)
+    return {
+        "accidental_total": accidental,
+        "health_total": health,
+        "grand_total": round(accidental + health, 4),
+    }
+
+
+@insurance_router.post("", status_code=status.HTTP_201_CREATED)
+def create_insurance(
+    body: InsuranceIn,
+    principal: Principal = Depends(require("Manager", "Owner")),
+    conn: sqlite3.Connection = Depends(get_db),
+) -> dict:
+    if body.kind not in INSURANCE_KINDS:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY, f"kind must be one of {INSURANCE_KINDS}"
+        )
+    emp_id = _resolve_employee_id(conn, body.employee_name)
+    with transaction(conn):
+        cur = conn.execute(
+            f"""
+            INSERT INTO {_INS_TABLE}
+                (kind, employee_id, employee_name, provider, policy_number,
+                 yearly_premium, renewal_date, last_updated_by)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                body.kind, emp_id, body.employee_name.strip(), body.provider,
+                body.policy_number, body.yearly_premium, body.renewal_date,
+                principal.login_name,
+            ),
+        )
+        record_write(
+            conn, table=_INS_TABLE, record_id=cur.lastrowid, action="create",
+            actor=principal.login_name,
+            new={"kind": body.kind, "employee_name": body.employee_name,
+                 "yearly_premium": body.yearly_premium},
+        )
+    row = conn.execute(f"SELECT * FROM {_INS_TABLE} WHERE id = ?", (cur.lastrowid,)).fetchone()
+    return _insurance_public(row)
+
+
+@insurance_router.put("/{insurance_id}")
+def update_insurance(
+    insurance_id: int,
+    body: InsuranceUpdate,
+    principal: Principal = Depends(require("Manager", "Owner")),
+    conn: sqlite3.Connection = Depends(get_db),
+) -> dict:
+    row = conn.execute(
+        f"SELECT * FROM {_INS_TABLE} WHERE id = ?", (insurance_id,)
+    ).fetchone()
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Insurance record not found")
+
+    fields = {
+        "employee_name": body.employee_name.strip() if body.employee_name else None,
+        "provider": body.provider,
+        "policy_number": body.policy_number,
+        "yearly_premium": body.yearly_premium,
+        "renewal_date": body.renewal_date,
+    }
+    updates = {k: v for k, v in fields.items() if v is not None}
+    if "employee_name" in updates:
+        updates["employee_id"] = _resolve_employee_id(conn, updates["employee_name"])
+    if not updates:
+        return _insurance_public(row)
+
+    set_sql = ", ".join(f"{k} = ?" for k in updates)
+    with transaction(conn):
+        conn.execute(
+            f"UPDATE {_INS_TABLE} SET {set_sql}, last_updated_by = ?, "
+            f"last_updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?",
+            (*updates.values(), principal.login_name, insurance_id),
+        )
+        record_write(
+            conn, table=_INS_TABLE, record_id=insurance_id, action="update",
+            actor=principal.login_name,
+            old={k: row[k] for k in updates}, new=updates,
+        )
+    updated = conn.execute(
+        f"SELECT * FROM {_INS_TABLE} WHERE id = ?", (insurance_id,)
+    ).fetchone()
+    return _insurance_public(updated)
+
+
+@insurance_router.delete("/{insurance_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_insurance(
+    insurance_id: int,
+    principal: Principal = Depends(require("Manager", "Owner")),
+    conn: sqlite3.Connection = Depends(get_db),
+) -> None:
+    row = conn.execute(
+        f"SELECT * FROM {_INS_TABLE} WHERE id = ?", (insurance_id,)
+    ).fetchone()
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Insurance record not found")
+    with transaction(conn):
+        conn.execute(f"DELETE FROM {_INS_TABLE} WHERE id = ?", (insurance_id,))
+        record_write(
+            conn, table=_INS_TABLE, record_id=insurance_id, action="delete",
+            actor=principal.login_name,
+            old={"kind": row["kind"], "employee_name": row["employee_name"]},
+        )

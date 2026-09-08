@@ -71,6 +71,46 @@
           <div class="summary-row net"><span>Net Pay Total</span><span id="r-net">—</span></div>
         </div>
 
+        <div class="section-title">3. Accidental Insurance (Yearly)</div>
+        <table>
+          <tr>
+            <td><input id="acc-name" placeholder="Employee Name" /></td>
+            <td><input id="acc-provider" placeholder="Insurance Provider" /></td>
+            <td><input id="acc-policy" placeholder="Policy Number" /></td>
+            <td><input id="acc-premium" placeholder="Yearly Premium" /></td>
+            <td><input type="date" id="acc-renewal" /></td>
+            <td><button type="button" class="add-row-btn" style="margin:0" data-ins-add="accidental">+ Add row</button></td>
+          </tr>
+        </table>
+        <table style="margin-top:6px">
+          <tr><th>Employee</th><th>Provider</th><th>Policy #</th><th>Yearly Premium</th><th>Renewal</th><th></th></tr>
+          <tbody id="acc-rows"></tbody>
+        </table>
+
+        <div class="section-title">4. Health Insurance (Yearly)</div>
+        <table>
+          <tr>
+            <td><input id="hea-name" placeholder="Employee Name" /></td>
+            <td><input id="hea-provider" placeholder="Insurance Provider" /></td>
+            <td><input id="hea-policy" placeholder="Policy Number" /></td>
+            <td><input id="hea-premium" placeholder="Yearly Premium" /></td>
+            <td><input type="date" id="hea-renewal" /></td>
+            <td><button type="button" class="add-row-btn" style="margin:0" data-ins-add="health">+ Add row</button></td>
+          </tr>
+        </table>
+        <table style="margin-top:6px">
+          <tr><th>Employee</th><th>Provider</th><th>Policy #</th><th>Yearly Premium</th><th>Renewal</th><th></th></tr>
+          <tbody id="hea-rows"></tbody>
+        </table>
+        <p id="ins-status" class="status-line"></p>
+
+        <div class="summary-box">
+          <h3>5. Annual Premium Summary</h3>
+          <div class="summary-row"><span>Total Accidental Insurance Premium (all employees)</span><span id="ins-acc-total">—</span></div>
+          <div class="summary-row"><span>Total Health Insurance Premium (all employees)</span><span id="ins-hea-total">—</span></div>
+          <div class="summary-row net"><span>Grand Total — Annual Insurance Cost</span><span id="ins-grand">—</span></div>
+        </div>
+
         <p style="margin-top:18px"><a href="../../index.html">&larr; Back to menu</a></p>
       </div>
     </div>

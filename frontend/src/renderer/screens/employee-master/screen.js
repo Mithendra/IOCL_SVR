@@ -164,6 +164,87 @@ async function runPayroll() {
   }
 }
 
+// --------------------------------------------------------------- insurance (3-5)
+
+const INS = {
+  accidental: { rows: "acc-rows", name: "acc-name", provider: "acc-provider",
+                policy: "acc-policy", premium: "acc-premium", renewal: "acc-renewal" },
+  health: { rows: "hea-rows", name: "hea-name", provider: "hea-provider",
+            policy: "hea-policy", premium: "hea-premium", renewal: "hea-renewal" },
+};
+
+function insStatus(msg, kind) {
+  const el = $("ins-status");
+  el.className = kind ? `status-line ${kind}` : "status-line";
+  el.textContent = msg || "";
+}
+
+function renderInsRows(kind, list) {
+  const body = $(INS[kind].rows);
+  body.innerHTML = "";
+  for (const r of list) {
+    const tr = document.createElement("tr");
+    tr.innerHTML =
+      `<td>${r.employee_name}</td><td>${r.provider || ""}</td><td>${r.policy_number || ""}</td>` +
+      `<td>${r.yearly_premium}</td><td>${r.renewal_date || ""}</td><td></td>`;
+    const del = document.createElement("button");
+    del.type = "button";
+    del.className = "add-row-btn";
+    del.style.margin = "0";
+    del.textContent = "Delete";
+    del.addEventListener("click", () => removeIns(r.id));
+    tr.lastElementChild.appendChild(del);
+    body.appendChild(tr);
+  }
+}
+
+async function loadInsurance() {
+  const [acc, hea, summary] = await Promise.all([
+    api.get("/employee-insurance?kind=accidental"),
+    api.get("/employee-insurance?kind=health"),
+    api.get("/employee-insurance/summary"),
+  ]);
+  renderInsRows("accidental", acc);
+  renderInsRows("health", hea);
+  $("ins-acc-total").textContent = summary.accidental_total;
+  $("ins-hea-total").textContent = summary.health_total;
+  $("ins-grand").textContent = summary.grand_total;
+}
+
+async function addIns(kind) {
+  const f = INS[kind];
+  const body = {
+    kind,
+    employee_name: $(f.name).value.trim(),
+    provider: $(f.provider).value.trim() || null,
+    policy_number: $(f.policy).value.trim() || null,
+    yearly_premium: Number($(f.premium).value || 0),
+    renewal_date: $(f.renewal).value || null,
+  };
+  if (!body.employee_name) {
+    insStatus("Employee Name is required.", "err");
+    return;
+  }
+  try {
+    await api.post("/employee-insurance", body);
+    for (const k of ["name", "provider", "policy", "premium", "renewal"]) $(f[k]).value = "";
+    await loadInsurance();
+    insStatus("Insurance row added.", "ok");
+  } catch (err) {
+    insStatus(`Add failed — ${err.message || err}`, "err");
+  }
+}
+
+async function removeIns(id) {
+  try {
+    await api.del(`/employee-insurance/${id}`);
+    await loadInsurance();
+    insStatus("Removed.", "ok");
+  } catch (err) {
+    insStatus(`Delete failed — ${err.message || err}`, "err");
+  }
+}
+
 async function init() {
   if (!getToken()) {
     window.location.href = "../../index.html";
@@ -182,7 +263,11 @@ async function init() {
   $("save-btn").addEventListener("click", save);
   $("cancel-btn").addEventListener("click", resetForm);
   $("run-btn").addEventListener("click", runPayroll);
+  document.querySelectorAll("[data-ins-add]").forEach((b) => {
+    b.addEventListener("click", () => addIns(b.dataset.insAdd));
+  });
   await load();
+  await loadInsurance();
 }
 
 init();

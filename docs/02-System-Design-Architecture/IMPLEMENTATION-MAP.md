@@ -144,14 +144,15 @@ Paths are relative to the repo root. `SDE` = Daily Sales Entry.
 
 | Part | Path |
 |---|---|
-| Backend routers | `backend/src/svr_backend/api/employees.py` — `router` (employees) **and** `payroll_router` (`/payroll-runs`) |
+| Backend routers | `backend/src/svr_backend/api/employees.py` — `router` (employees), `payroll_router` (`/payroll-runs`), `insurance_router` (`/employee-insurance`) |
 | Encryption | `backend/src/svr_backend/core/crypto.py` (bank account / IFSC / branch) |
-| Migration | `0007_employee_master.sql` (employee, payroll_run, payroll_run_line) |
-| Frontend screen | `frontend/src/renderer/screens/employee-master/{index.html,screen.js}` |
-| Backend tests | `backend/tests/test_employees_api.py` |
+| Migration | `0007_employee_master.sql` (employee, payroll_run, payroll_run_line); `0014_employee_insurance.sql` (employee_insurance) |
+| Frontend screen | `frontend/src/renderer/screens/employee-master/{index.html,screen.js}` (sections 1–2 + insurance 3–5) |
+| Backend tests | `backend/tests/test_employees_api.py`, `test_employee_insurance.py` |
 | Playwright | `frontend/tests/employee-master.spec.js` |
 | RBAC | Sales blocked · Manager/Owner full |
-| Gaps | Insurance sections 3–5 (Accidental / Health / Annual Premium Summary) not built |
+| Insurance (mockup 3–5) | `/employee-insurance` CRUD (`kind` = accidental \| health; employee linked by name, `ON DELETE SET NULL`) + `/employee-insurance/summary` (§5 Annual Premium Summary: accidental_total + health_total = grand_total). |
+| Gaps | — |
 
 ## Module 9 — Payment Receipt  (mockup: `payment_receipt_branded.html`)
 

@@ -1,6 +1,6 @@
 "use strict";
 
-const { test, expect } = require("@playwright/test");
+const { test, expect, request } = require("@playwright/test");
 const { apiBase } = require("./_helpers");
 
 const SCREEN = `/screens/employee-master/index.html?apiBase=${encodeURIComponent(apiBase)}`;
@@ -52,4 +52,51 @@ test("Manager adds an employee (bank data masked in list, revealed on edit) and 
 
   await expect(page.locator("#run-status")).toContainText("recorded");
   await expect(page.locator("#r-net")).toContainText("6700"); // 7200 - 500
+});
+
+test("Manager records accidental + health insurance; section 5 summary totals up", async ({ page }) => {
+  // The e2e DB is shared and this suite has retries: 1 - start from a clean
+  // insurance table so exact totals are deterministic.
+  const ctx = await request.newContext();
+  const token = (
+    await (
+      await ctx.post(`${apiBase}/auth/login`, {
+        data: { login_name: "mmanager", password: "demo1234" },
+      })
+    ).json()
+  ).token;
+  const hdr = { Authorization: `Bearer ${token}` };
+  for (const r of await (await ctx.get(`${apiBase}/employee-insurance`, { headers: hdr })).json()) {
+    await ctx.delete(`${apiBase}/employee-insurance/${r.id}`, { headers: hdr });
+  }
+  await ctx.dispose();
+
+  await login(page, "mmanager");
+  await page.goto(SCREEN);
+
+  await page.fill("#acc-name", "Insurance Tester");
+  await page.fill("#acc-provider", "New India Assurance");
+  await page.fill("#acc-policy", "ACC-77");
+  await page.fill("#acc-premium", "1800");
+  await page.click('[data-ins-add="accidental"]');
+  await expect(page.locator("#acc-rows tr").filter({ hasText: "Insurance Tester" })).toContainText("1800");
+
+  await page.fill("#hea-name", "Insurance Tester");
+  await page.fill("#hea-provider", "Star Health");
+  await page.fill("#hea-premium", "3200");
+  await page.click('[data-ins-add="health"]');
+  await expect(page.locator("#hea-rows tr").filter({ hasText: "Star Health" })).toContainText("3200");
+
+  await expect(page.locator("#ins-acc-total")).toHaveText("1800");
+  await expect(page.locator("#ins-hea-total")).toHaveText("3200");
+  await expect(page.locator("#ins-grand")).toHaveText("5000");
+
+  // delete the accidental row -> summary drops
+  await page
+    .locator("#acc-rows tr")
+    .filter({ hasText: "Insurance Tester" })
+    .getByRole("button", { name: "Delete" })
+    .click();
+  await expect(page.locator("#ins-acc-total")).toHaveText("0");
+  await expect(page.locator("#ins-grand")).toHaveText("3200");
 });
