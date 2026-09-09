@@ -41,9 +41,11 @@ $ErrorActionPreference = "Stop"
 # --- the pin (bump deliberately; SDD ADR-6) ---------------------------------
 $TesseractVersion = "5.3.3.20231005"
 $SetupUrl  = "https://digi.bib.uni-mannheim.de/tesseract/tesseract-ocr-w64-setup-$TesseractVersion.exe"
-# TODO(packaging session): replace with the real SHA-256 the first successful
-# download prints, then commit. Until then callers must pass -SkipHashCheck.
-$SetupSha256 = "REPLACE_WITH_PINNED_SHA256"
+# The UB Mannheim mirror 403s the default PowerShell WebRequest agent.
+$UserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+# SHA-256 of tesseract-ocr-w64-setup-5.3.3.20231005.exe from the UB Mannheim
+# mirror, verified 2026-09-09. Bump this whenever $TesseractVersion changes.
+$SetupSha256 = "79af1f9153b8ff988baffaa164fc70799950078f887e2c93dc3fa7efed674b21"
 
 $vendorDir = Join-Path $PSScriptRoot "vendor\tesseract"
 $tessExe   = Join-Path $vendorDir "tesseract.exe"
@@ -95,7 +97,7 @@ $setupExe = if ($SourcePath) { (Resolve-Path $SourcePath).Path } else { Join-Pat
 if (-not $SourcePath) {
   Write-Host "Downloading Tesseract $TesseractVersion ..."
   Write-Host "  $SetupUrl"
-  Invoke-WebRequest -Uri $SetupUrl -OutFile $setupExe -UseBasicParsing
+  Invoke-WebRequest -Uri $SetupUrl -OutFile $setupExe -UseBasicParsing -UserAgent $UserAgent
 }
 
 # --- verify the pin ----------------------------------------------------------

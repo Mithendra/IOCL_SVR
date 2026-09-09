@@ -14,8 +14,9 @@ installer\build-all.ps1
 That runs three steps:
 
 1. **`installer/fetch-tesseract.ps1`** — stages the portable Tesseract payload
-   into `installer/vendor/tesseract/` (git-ignored; ~30 MB; version + SHA-256
-   pinned in the script). No-op once staged. Air-gapped: `-SourcePath` a
+   into `installer/vendor/tesseract/` (git-ignored; **~175 MB** — see ADR-6
+   "Consequences"; version + SHA-256 pinned + verified). No-op once staged.
+   Air-gapped: `-SourcePath` a
    pre-downloaded setup exe, or hand-place `tesseract.exe` + `tessdata/eng` +
    `tessdata/osd` + `LICENSE` there. See **OCR / Tesseract** below.
 

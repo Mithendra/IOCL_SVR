@@ -61,7 +61,7 @@ Concretely:
    ```
 
 2. **Not in the PyInstaller freeze.** `backend/packaging/svr_backend.spec` stays
-   Python-only. Freezing a 30 MB native binary + language data into every backend
+   Python-only. Freezing a large native binary + language data into every backend
    rebuild is the wrong layer: it bloats and slows every backend iteration,
    couples the OCR engine's version to the backend's, and muddies the
    redistribution story. The freeze already knows how to *not* own things that
@@ -119,9 +119,16 @@ Concretely:
 
 ## Consequences
 
-- Installer grows by **~30 MB** (`tesseract.exe` + runtime DLLs + `eng`/`osd`
-  data). Acceptable for a once-per-station download.
-- The Tesseract version is **pinned in `fetch-tesseract.ps1`** (URL + SHA-256).
+- Installer grows by **~175 MB** (measured 2026-09-09): the UB Mannheim build's
+  `libtesseract-5.dll` alone is ~95 MB and `libicudt73.dll` ~31 MB, plus
+  ~40 runtime DLLs, `eng`/`osd` data, and `tesseract.exe`. The original ~30 MB
+  estimate was wrong. With the frozen backend (~70 MB) and Electron (~90 MB) the
+  installer lands near **~330 MB**. Reduction options if that is too large: a
+  stripped build (msys2 / conda-forge ships a ~20 MB `libtesseract`), running
+  `strip --strip-unneeded` on the DLLs at stage time, or not bundling the engine
+  until the OCR pipeline module is actually built (`/ocr` is `501` today).
+- The Tesseract version is **pinned in `fetch-tesseract.ps1`** (URL + SHA-256:
+  `79af1f91…674b21`, verified 2026-09-09).
   Upgrading it is a deliberate one-line change + a new hash, not an implicit
   "whatever the CA/mirror serves today".
 - Apache-2.0 `LICENSE` for Tesseract ships in `resources\tesseract\` to satisfy

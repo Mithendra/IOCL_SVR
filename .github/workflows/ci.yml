@@ -106,8 +106,8 @@ jobs:
         shell: pwsh
         run: ./backend/packaging/build-backend.ps1 -SkipInstall
       # Portable Tesseract (SDD ADR-6). Cached on the pinned version so the
-      # UB Mannheim download is a rare cold path. -SkipHashCheck until the
-      # SHA-256 is pinned in fetch-tesseract.ps1 (packaging session).
+      # UB Mannheim download is a rare cold path; the SHA-256 is pinned in
+      # fetch-tesseract.ps1, so the download is verified.
       - name: Cache staged Tesseract
         uses: actions/cache@v4
         with:
@@ -115,7 +115,7 @@ jobs:
           key: tesseract-5.3.3.20231005-w64
       - name: Stage Tesseract (SDD ADR-6)
         shell: pwsh
-        run: ./installer/fetch-tesseract.ps1 -SkipHashCheck
+        run: ./installer/fetch-tesseract.ps1
       - name: Install frontend deps
         working-directory: frontend
         run: npm ci
