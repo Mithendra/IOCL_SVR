@@ -64,8 +64,8 @@ Paths are relative to the repo root. `SDE` = Daily Sales Entry.
 | Playwright | `frontend/tests/daily-sales-entry.spec.js` |
 | RBAC | Sales create/edit own · Manager/Owner full incl. delete |
 | Skill | `skills/daily-sales-entry/` |
-| OCR engine | bundled — `ADR-6`; `core/config.py` (`resolved_tesseract_cmd`), `ocr/runtime.py`, `GET /daily-sales-entry/ocr/status` |
-| Gaps | OCR recognition pipeline (`/ocr` → 501; engine is bundled) |
+| OCR | engine bundled (`ADR-6`) + **draft-assist pipeline**: `ocr/pipeline.py` (PyMuPDF raster → Tesseract tsv → anchor mapping), `ocr/layout.py`, `POST /daily-sales-entry/ocr` (never saves, ADR-5 review, per-field confidence). `GET .../ocr/status` → `pipeline: draft-assist`. Tests `test_ocr_pipeline.py` (skip w/o staged Tesseract). **Handwriting is not read reliably** — `docs/01-BRD-Requirement-Gathering/OCR-findings-2026-09-09.md`. |
+| Gaps | OCR handwriting accuracy (input problem, not plumbing — see findings doc) |
 
 ## Module 2 — Daily Sales Summary  (mockup: `daily_sales_summary_branded.html`)
 

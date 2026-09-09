@@ -41,6 +41,8 @@ _hiddenimports = [
     "et_xmlfile",
     # pyotp (two-factor auth)
     *collect_submodules("pyotp"),
+    # pymupdf (OCR draft-assist rasterises PDFs)
+    *collect_submodules("pymupdf"),
     # starlette runs on anyio; FastAPI form parsing needs python-multipart
     "anyio._backends._asyncio",
     "multipart",

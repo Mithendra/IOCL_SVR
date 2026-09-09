@@ -9,7 +9,7 @@ const fs = require("fs");
 const http = require("http");
 const path = require("path");
 
-const { BACKEND_PORT, STATIC_PORT, RENDERER_DIR, backendExe } = require("./_helpers");
+const { BACKEND_PORT, STATIC_PORT, RENDERER_DIR, REPO_ROOT, backendExe } = require("./_helpers");
 
 const WORK_DIR = path.join(__dirname, "..", "test-results", "backend");
 const DB_PATH = path.join(WORK_DIR, "e2e.sqlite");
@@ -74,6 +74,14 @@ module.exports = async () => {
     // /password-reset.html itself
     SVR_APP_BASE_URL: `http://127.0.0.1:${BACKEND_PORT}`,
   };
+
+  // Point the test backend at the bundled Tesseract if it has been staged
+  // (installer/fetch-tesseract.ps1). Absent -> the OCR spec skips its live case.
+  const tess = path.join(REPO_ROOT, "installer", "vendor", "tesseract", "tesseract.exe");
+  if (fs.existsSync(tess)) {
+    env.SVR_TESSERACT_CMD = tess;
+    env.SVR_TESSDATA_PREFIX = path.join(REPO_ROOT, "installer", "vendor", "tesseract", "tessdata");
+  }
 
   execFileSync(backendExe("svr-migrate"), ["--seed-demo"], { env, stdio: "inherit" });
 

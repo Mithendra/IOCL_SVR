@@ -123,7 +123,9 @@ def test_prefill_returns_carried_readings_and_rates(client, auth_headers):
     assert set(body["oil_labels"]) == {"oil1", "oil2", "oil3", "oil4", "oil5"}
 
 
-def test_ocr_endpoint_is_stubbed(client, auth_headers):
-    # OCR recognition pipeline not built yet (engine is bundled - see test_ocr_status).
-    assert client.post("/daily-sales-entry/ocr", headers=auth_headers("Sales")).status_code == 501
-    # Excel import/export are implemented - see test_excel_daily_sales_entry.py.
+def test_ocr_endpoint_needs_a_file(client, auth_headers):
+    # /ocr and /import-excel are both implemented (draft-assist / full). Without a
+    # file part FastAPI rejects the request before any engine work.
+    r = client.post("/daily-sales-entry/ocr", headers=auth_headers("Sales"))
+    assert r.status_code == 422
+    # Full OCR behaviour is in test_ocr_pipeline.py (skipped where Tesseract is absent).

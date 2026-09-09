@@ -136,6 +136,16 @@ foreach ($lang in @("eng.traineddata", "osd.traineddata")) {
   Copy-Item $hit.FullName (Join-Path $vendorDir "tessdata")
 }
 
+# The structured-output modes (tsv / hocr / alto / txt) need their config files
+# from tessdata\configs\ and tessdata\tessconfigs\ - copy those, but NOT the other
+# language traineddata (that is what would bloat the payload).
+$srcTessdata = (Get-ChildItem -Path $extract -Recurse -Directory -Filter "tessdata" |
+  Select-Object -First 1).FullName
+foreach ($sub in @("configs", "tessconfigs")) {
+  $s = Join-Path $srcTessdata $sub
+  if (Test-Path $s) { Copy-Item $s (Join-Path $vendorDir "tessdata") -Recurse -Force }
+}
+
 $license = Get-ChildItem -Path $extract -Recurse -Include "LICENSE", "LICENSE.txt", "COPYING" -File |
   Select-Object -First 1
 if ($license) {

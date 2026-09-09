@@ -1,0 +1,87 @@
+# OCR (Scan / Upload) — findings on real station scans, 2026-09-09
+
+## What was tested
+
+The bundled Tesseract 5.3.3 (SDD ADR-6) was run against two real filled
+**Daily Sales Report** pages the station provided:
+
+| File (in `ocr-samples/`) | Source | Ink |
+|---|---|---|
+| `SVR-daily-sales-2026-09-08-road-scan.pdf` | document-scanner app | dark blue/black ballpoint |
+| `SVR-daily-sales-2026-09-07-road-photo.pdf` | phone photo, "compressed" | **pink** ballpoint |
+
+Pipeline: PDF → 300 DPI greyscale raster (PyMuPDF) → Tesseract (`--psm 6`,
+`tessedit_create_tsv=1`) → word boxes → anchor-label field mapping
+(`svr_backend/ocr/layout.py`) → plausibility filter → Daily Sales Entry draft.
+
+## Result
+
+**Printed template text: reads well.** "SVR Indian Oil Service Station – Daily
+Sales Report", "Gas Sale(s)", "Current Reading", "Diesel (HS-Nz1)",
+"Petrol (MS-Nz-2)", "Credit Cards Swiping(s)", "Summary – Cash Hand Off" etc. all
+come through — enough to locate every section and row.
+
+**Handwritten numbers: not usable.** Ground truth vs OCR for the six gas-row
+fields on the *better* of the two samples (the scan):
+
+| Field | On paper | Tesseract read |
+|---|---|---|
+| HS Current Reading | `1487517.430` | *(rejected — implausible)* |
+| HS Last Shift Reading | `1486225.010` | `486225` (dropped leading `1` and `.010`) |
+| HS Rate | `105.36` | *(rejected)* |
+| MS Current Reading | `660581.140` | `-4034300` |
+| MS Last Shift Reading | `660268.480` | `662698` |
+| MS Rate | `117.70` | *(rejected)* |
+
+**0 of 6 correct.** The phone photo (pink ink) yielded **0 fields** — the
+plausibility filter rejected everything, correctly.
+
+## Why
+
+Tesseract is an OCR engine for **printed** text. It has no handwriting model.
+Indian-clerk handwritten digits with joined strokes, a pink low-contrast pen, and
+photo skew are outside what it can do. This is expected, not a bug in the setup —
+the bundled engine, the rasteriser, and the field mapping all work; the input is
+just not something Tesseract can read.
+
+## What ships anyway
+
+`POST /daily-sales-entry/ocr` is wired as **draft-assist only**:
+
+- accepts a PDF or image, returns a Daily Sales Entry draft + per-field
+  confidence + the raw page text + a mandatory `OCR DRAFT …` warning;
+- **never saves** — the operator reviews on the normal screen and Saves through
+  the RBAC'd path, which recomputes every total (SDD ADR-5);
+- the Scan / Upload button shows the draft in **red** with "Handwriting is NOT
+  read reliably — check EVERY value before Save".
+
+In practice, with ~0 fields correct, this is close to no help on the current
+forms. It is left in because (a) the plumbing is real and correct, and (b) it
+improves immediately if the inputs improve (see below).
+
+## Options for actually capturing the numbers
+
+1. **Manual entry + attach the scan** *(recommended now)* — the operator types
+   from the paper (or from the physically present sheet), and the PDF/photo is
+   kept with the record as the audit artifact. No accuracy risk. *(The "attach a
+   file to the entry" piece is not built yet — small addition if wanted.)*
+2. **Better source images** — a flatbed/ADF scan, **black** ink, 300 DPI,
+   de-skewed, high contrast. Won't make Tesseract read cursive, but clean
+   separated digits in dark ink do lift its digit accuracy materially. Worth a
+   re-test if the station standardises how sheets are scanned.
+3. **Cloud handwriting OCR** — Google Document AI / Azure AI Document
+   Intelligence / AWS Textract read handwritten forms well. **Breaks the
+   offline/on-prem rule** and sends the dealership's financial records to a third
+   party; also a per-page cost. Only if the client accepts both.
+4. **Digit-cell OCR with heavy pre-processing** — detect the table grid, crop each
+   value cell, binarise/denoise, OCR with a digit whitelist. Larger effort, still
+   capped by the handwriting problem; modest upside.
+5. **Train / fine-tune a handwriting model** (Tesseract LSTM or a small CNN on
+   the station's own sheets). Real project; hard to justify for one outlet.
+
+## Recommendation
+
+Run real-data UAT on **manual entry + Excel import**. Keep the OCR draft wired
+and bundled (it costs nothing at runtime), collect a stack of scans during UAT,
+and revisit option 2 or 3 once there is a consistent scan process to test
+against. Do **not** rely on the current OCR output for real figures.

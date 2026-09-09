@@ -190,17 +190,6 @@ async function save() {
   }
 }
 
-async function stubAction(label, fn) {
-  const status = $("save-status");
-  try {
-    await fn();
-  } catch (err) {
-    status.className = "status-line";
-    status.textContent =
-      err.status === 501 ? `${label} is not yet available.` : `${label} failed — ${err.message || err}`;
-  }
-}
-
 // ------------------------------------------------------------------- Excel import/export
 
 function ensureRows(selector, adder, n) {
@@ -288,6 +277,32 @@ async function importExcel(file) {
   }
 }
 
+// Scan / Upload (OCR) — draft-assist only. Stock Tesseract does not read the
+// handwritten forms reliably, so the result is a starting point, not data.
+async function importScan(file) {
+  const status = $("save-status");
+  status.className = "status-line";
+  status.textContent = "Running OCR on the scan…";
+  try {
+    const res = await api.upload("/daily-sales-entry/ocr", file);
+    entryId = null;
+    await loadPrefill();
+    populateInputs(res.payload, {});
+    refresh();
+    const filled = (res.fields || []).filter((f) => f.value !== null && f.value !== "").length;
+    status.className = "status-line err"; // red on purpose — this needs checking
+    status.textContent =
+      `OCR DRAFT from "${file.name}" (${res.engine}). Handwriting is NOT read reliably — ` +
+      `${filled} field(s) pre-filled as a guess. Check EVERY value against the scan before Save.`;
+  } catch (err) {
+    status.className = "status-line err";
+    status.textContent =
+      err.status === 503
+        ? "OCR engine not available on this install."
+        : `OCR failed — ${err.message || err}`;
+  }
+}
+
 // --------------------------------------------------------------------------- init
 
 function wireToggles() {
@@ -366,9 +381,16 @@ async function init() {
       window.print();
     });
   });
-  $("scan-btn").addEventListener("click", () =>
-    stubAction("Scan / Upload (OCR)", () => api.post("/daily-sales-entry/ocr"))
-  );
+  const scanInput = document.createElement("input");
+  scanInput.type = "file";
+  scanInput.accept = ".pdf,.png,.jpg,.jpeg,application/pdf,image/*";
+  scanInput.style.display = "none";
+  document.body.appendChild(scanInput);
+  scanInput.addEventListener("change", () => {
+    if (scanInput.files[0]) importScan(scanInput.files[0]);
+    scanInput.value = "";
+  });
+  $("scan-btn").addEventListener("click", () => scanInput.click());
 
   const xlsxInput = document.createElement("input");
   xlsxInput.type = "file";

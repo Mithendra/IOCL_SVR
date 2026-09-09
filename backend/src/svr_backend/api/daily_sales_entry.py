@@ -26,6 +26,7 @@ from svr_backend.core.rbac import get_db, get_principal, require
 from svr_backend.core.session import Principal
 from svr_backend.excel import blank_template, build_workbook, parse_workbook
 from svr_backend.inventory import on_hand_map
+from svr_backend.ocr import pipeline as ocr_pipeline
 from svr_backend.ocr.runtime import tesseract_version
 from svr_backend.rates import latest_effective_rates
 
@@ -394,17 +395,47 @@ def ocr_status(_: Principal = Depends(get_principal)) -> dict:
         "bundled": version is not None,
         "cmd": cmd,
         "version": version,
-        "pipeline": "not-implemented",
+        # Draft-assist only: stock Tesseract does not read the handwritten forms
+        # reliably (see docs/.../OCR-findings-2026-09-09.md). Every field is
+        # flagged and nothing is saved without human review (SDD ADR-5).
+        "pipeline": "draft-assist",
     }
 
 
-@router.post("/ocr", status_code=status.HTTP_501_NOT_IMPLEMENTED)
-def ocr_upload(_: Principal = Depends(get_principal)) -> None:
-    raise HTTPException(
-        status.HTTP_501_NOT_IMPLEMENTED,
-        "OCR recognition pipeline not yet implemented "
-        "(the Tesseract engine is bundled - see GET /daily-sales-entry/ocr/status)",
-    )
+@router.post("/ocr")
+async def ocr_upload(
+    file: UploadFile = File(...), _: Principal = Depends(get_principal)
+) -> dict:
+    """Best-effort draft from a scanned/photographed Daily Sales Report.
+
+    Same review contract as /import-excel: never saves, recomputes every total,
+    and returns a per-field confidence so the reviewer knows what to trust
+    (which, on handwriting, is very little).
+    """
+    if tesseract_version() is None:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "OCR engine not available - check the bundled Tesseract (GET .../ocr/status)",
+        )
+    raw = await file.read()
+    if not raw:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Empty file")
+    try:
+        res = ocr_pipeline.extract(raw, file.filename or "")
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+    return {
+        "payload": res.payload,
+        "meta": {},  # operator picks pump + date; the scan's own values are unreliable
+        "result": compute_payload(res.payload),
+        "fields": [
+            {"key": f.key, "value": f.value, "confidence": f.confidence, "raw": f.raw}
+            for f in res.fields
+        ],
+        "warnings": res.warnings,
+        "engine": res.engine,
+        "page_text": res.page_text,
+    }
 
 
 _XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"

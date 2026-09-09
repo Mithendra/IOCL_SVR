@@ -1,8 +1,8 @@
-"""OCR packaging (SDD ADR-6): the engine is bundled, the pipeline is not built.
+"""OCR packaging (SDD ADR-6): the engine is bundled; the pipeline is draft-assist.
 
-These cover the *resolver* and the status endpoint - not recognition, which is a
-separate module. `tesseract_version` is monkeypatched so the result does not
-depend on whether the CI box happens to have Tesseract on PATH.
+These cover the *resolver* and the status endpoint - not recognition, which is in
+test_ocr_pipeline.py. `tesseract_version` is monkeypatched so the result does not
+depend on whether this box happens to have Tesseract available.
 """
 
 from __future__ import annotations
@@ -31,7 +31,7 @@ def test_ocr_status_reports_unavailable(client, auth_headers, monkeypatch):
     body = r.json()
     assert body["bundled"] is False
     assert body["version"] is None
-    assert body["pipeline"] == "not-implemented"
+    assert body["pipeline"] == "draft-assist"
 
 
 def test_ocr_status_reports_bundled(client, auth_headers, monkeypatch):
@@ -50,10 +50,11 @@ def test_ocr_status_requires_auth(client):
     assert client.get("/daily-sales-entry/ocr/status").status_code == 401
 
 
-def test_ocr_upload_still_501_but_message_points_at_bundled_engine(client, auth_headers):
+def test_ocr_upload_needs_a_file(client, auth_headers):
+    # /ocr is a real draft-assist endpoint now (test_ocr_pipeline.py); a request
+    # with no file part is rejected before any engine work.
     r = client.post("/daily-sales-entry/ocr", headers=auth_headers("Sales"))
-    assert r.status_code == 501
-    assert "bundled" in r.json()["detail"]
+    assert r.status_code == 422
 
 
 def test_runtime_version_none_when_binary_missing(monkeypatch):

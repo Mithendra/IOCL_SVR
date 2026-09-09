@@ -83,11 +83,32 @@ test("theme swatch changes --io-accent; language toggle switches headings", asyn
   await expect(page.locator(".section-title").first()).toContainText("గ్యాస్ అమ్మకాలు");
 });
 
-test("Scan / Upload (OCR) surfaces a 'not yet available' message", async ({ page }) => {
+test("Scan / Upload (OCR) returns a flagged draft (or reports the engine is absent)", async ({
+  page,
+}) => {
+  const fs = require("fs");
+  const path = require("path");
+  const sample = path.join(
+    __dirname,
+    "..",
+    "..",
+    "docs",
+    "01-BRD-Requirement-Gathering",
+    "ocr-samples",
+    "SVR-daily-sales-2026-09-08-road-scan.pdf",
+  );
   await login(page);
   await page.goto(SCREEN);
-  await page.click("#scan-btn");
-  await expect(page.locator("#save-status")).toContainText("not yet available");
+  await page.setInputFiles('input[type="file"][accept*="pdf"]', {
+    name: "scan.pdf",
+    mimeType: "application/pdf",
+    buffer: fs.readFileSync(sample),
+  });
+  // With the bundled Tesseract staged -> "OCR DRAFT ... Check EVERY value".
+  // Without it (e.g. CI) -> "OCR engine not available". Either is a pass.
+  await expect(page.locator("#save-status")).toContainText(
+    /OCR DRAFT|OCR engine not available/,
+  );
 });
 
 test("Export to Excel downloads an .xlsx for a saved entry", async ({ page }) => {
@@ -142,9 +163,9 @@ test("Import from Excel parses a workbook and populates the form", async ({ page
   ).body();
   await ctx.dispose();
 
-  // Fresh screen, then import the workbook through the hidden file input.
+  // Fresh screen, then import the workbook through the hidden Excel file input.
   await page.goto(SCREEN);
-  await page.setInputFiles('input[type="file"]', {
+  await page.setInputFiles('input[type="file"][accept*="xlsx"]', {
     name: "day.xlsx",
     mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     buffer: xlsx,
