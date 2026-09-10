@@ -36,13 +36,29 @@ fields on the *better* of the two samples (the scan):
 **0 of 6 correct.** The phone photo (pink ink) yielded **0 fields** — the
 plausibility filter rejected everything, correctly.
 
+### Follow-up attempt, 2026-09-10 — preprocessing + per-cell OCR
+
+After the station confirmed sheets will always be **black or blue pen** (the pink
+photo was a one-off), the *black-pen DocScanner* sample was re-run with a much
+harder pipeline: 400 DPI, per-field **cell crops** from the anchor grid, 4×
+upscale, autocontrast, binarise, median-denoise, and Tesseract with a
+digits-only whitelist swept across `--psm 7 / 8 / 13 / 6`.
+
+Still **0 of 6 exact.** The reads got *closer in places* — `1486225.010` came
+back as `6225.010…` (correct tail, lost `1486` and bled into the next column),
+`105.36` as `336` — but nothing clean or trustworthy. Isolating one number in a
+denoised crop is the strongest thing Tesseract can be given, and it still can't
+read this handwriting.
+
 ## Why
 
-Tesseract is an OCR engine for **printed** text. It has no handwriting model.
-Indian-clerk handwritten digits with joined strokes, a pink low-contrast pen, and
-photo skew are outside what it can do. This is expected, not a bug in the setup —
-the bundled engine, the rasteriser, and the field mapping all work; the input is
-just not something Tesseract can read.
+Tesseract is an OCR engine for **printed** text. It has no handwriting model, and
+`eng.traineddata` is print-only. Joined-stroke handwritten digits are outside
+what its LSTM can do regardless of ink colour, scan quality, or preprocessing —
+confirmed across three approaches (full page, plausibility-filtered, and
+per-cell + denoise), all 0/6 on a clean black-pen document scan. The bundled
+engine, rasteriser, and field mapping all work; the input is just not something
+Tesseract can read.
 
 ## What ships anyway
 
@@ -82,6 +98,12 @@ improves immediately if the inputs improve (see below).
 ## Recommendation
 
 Run real-data UAT on **manual entry + Excel import**. Keep the OCR draft wired
-and bundled (it costs nothing at runtime), collect a stack of scans during UAT,
-and revisit option 2 or 3 once there is a consistent scan process to test
-against. Do **not** rely on the current OCR output for real figures.
+and bundled (it costs nothing at runtime).
+
+Black/blue ink and document scans (now the station standard) remove the
+image-quality variable but **do not** make Tesseract read the handwriting —
+tested directly (see the 2026-09-10 follow-up). The realistic paths to actual
+capture are cloud handwriting OCR (option 3, breaks offline) or a trained model
+(option 5). Neither is worth doing before UAT has run and the client has decided
+whether OCR is a must-have. Do **not** rely on the current OCR output for real
+figures.
