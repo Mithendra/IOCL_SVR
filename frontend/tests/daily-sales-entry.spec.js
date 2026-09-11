@@ -267,6 +267,72 @@ test("Print Blank Form fills the right pump serial, blanks readings, and hides S
   await page.emulateMedia({ media: "screen" });
 });
 
+test("Print & Sync is hidden for Sales", async ({ page }) => {
+  await login(page, "gsales");
+  await page.goto(SCREEN);
+  await expect(page.locator('[data-sync="12BC4523V-RD"]')).toBeHidden();
+});
+
+test("Print & Sync is visible for Manager", async ({ page }) => {
+  await login(page, "mmanager");
+  await page.goto(SCREEN);
+  await expect(page.locator('[data-sync="12BC4523V-RD"]')).toBeVisible();
+  await expect(page.locator('[data-sync="11CC2012V-OFF"]')).toBeVisible();
+});
+
+test("Print & Sync updates Inventory from the prior day's real closing, then prints", async ({
+  page,
+}) => {
+  const PRIOR = "2026-08-28";
+  const TODAY = "2026-08-29";
+  const ctx = await request.newContext();
+  const token = (
+    await (
+      await ctx.post(`${apiBase}/auth/login`, { data: { login_name: "gsales", password: "demo1234" } })
+    ).json()
+  ).token;
+  // A real oil1 sale the day before - oil1's seed on_hand is 40, so this
+  // closes it at 36.
+  await ctx.post(`${apiBase}/daily-sales-entry`, {
+    headers: { Authorization: `Bearer ${token}` },
+    data: {
+      pump_serial: "12BC4523V-RD", shift_date: PRIOR,
+      hs: { current: "1" }, oils: [{ qty: "4" }],
+    },
+  });
+  await ctx.dispose();
+
+  await login(page, "mmanager");
+  await page.goto(SCREEN);
+  await page.fill("#shift-date", TODAY);
+  await page.evaluate(() => {
+    window.__printCalls = 0;
+    window.print = () => {
+      window.__printCalls += 1;
+    };
+  });
+
+  await page.click('[data-sync="12BC4523V-RD"]');
+  await expect(page.locator("#save-status")).toContainText("Synced Inventory");
+  await expect(page.locator("#save-status")).toContainText("oil1: 40 → 36");
+  await expect(page.locator("#pump-serial")).toHaveValue("12BC4523V-RD");
+  await expect(page.locator("#hs-current")).toHaveValue("");
+  expect(await page.evaluate(() => window.__printCalls)).toBe(1);
+
+  // The sync really landed in Inventory Tracking, not just the on-screen text.
+  const ctx2 = await request.newContext();
+  const token2 = (
+    await (
+      await ctx2.post(`${apiBase}/auth/login`, { data: { login_name: "mmanager", password: "demo1234" } })
+    ).json()
+  ).token;
+  const rows = await (
+    await ctx2.get(`${apiBase}/inventory`, { headers: { Authorization: `Bearer ${token2}` } })
+  ).json();
+  await ctx2.dispose();
+  expect(rows.find((r) => r.item_key === "oil1").opening_stock).toBe(36);
+});
+
 test("theme swatch changes --io-accent; language toggle switches headings", async ({ page }) => {
   await login(page);
   await page.goto(SCREEN);

@@ -83,3 +83,92 @@ def test_daily_sales_entry_opening_stock_comes_from_inventory(client, auth_heade
     # oil1 seed on_hand is 40; opening pulled from inventory, closing = 40 - 2.
     assert created["payload"]["oils"][0]["opening"] == 40
     assert created["result"]["oils"][0]["closing"] == 38
+
+
+# --------------------------------------------------- Print & Sync (2026-09-11)
+
+
+def test_sync_inventory_requires_manager_or_owner(client, auth_headers):
+    assert client.post(
+        "/daily-sales-entry/sync-inventory", headers=auth_headers("Sales")
+    ).status_code == 403
+    assert client.post(
+        "/daily-sales-entry/sync-inventory", headers=auth_headers("Manager")
+    ).status_code == 200
+
+
+def test_sync_inventory_sets_on_hand_from_the_real_prior_closing(client, auth_headers, conn):
+    # oil1 seed on_hand is 40. A real sale of 2 on 2026-08-19 closes it at 38.
+    client.post(
+        "/daily-sales-entry",
+        json={"pump_serial": "12BC4523V-RD", "shift_date": "2026-08-19",
+              "hs": {"current": "1"}, "oils": [{"qty": "2"}, {}, {}, {}, {}]},
+        headers=auth_headers("Sales"),
+    )
+    resp = client.post(
+        "/daily-sales-entry/sync-inventory?shift_date=2026-08-20",
+        headers=auth_headers("Manager"),
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["oil1"] == {"from": 40, "to": 38, "source_date": "2026-08-19"}
+
+    rows = client.get("/inventory", headers=auth_headers("Manager")).json()
+    oil1 = next(r for r in rows if r["item_key"] == "oil1")
+    assert oil1["opening_stock"] == 38
+
+    audit = conn.execute(
+        "SELECT COUNT(*) c FROM audit_log WHERE table_name = 'inventory_item' AND action = 'update'"
+    ).fetchone()["c"]
+    assert audit == 1
+
+
+def test_sync_inventory_skips_a_blank_day_for_that_item(client, auth_headers):
+    # 2026-08-18: a real sale of 3 units of oil2 -> closes at (seed 30) - 3 = 27.
+    client.post(
+        "/daily-sales-entry",
+        json={"pump_serial": "12BC4523V-RD", "shift_date": "2026-08-18",
+              "hs": {"current": "1"}, "oils": [{}, {"qty": "3"}, {}, {}, {}]},
+        headers=auth_headers("Sales"),
+    )
+    # 2026-08-19: the other pump submits but doesn't touch oil2 (blank qty) -
+    # not a real transaction, must not be mistaken for one even though it's
+    # more recent than the real sale above.
+    client.post(
+        "/daily-sales-entry",
+        json={"pump_serial": "11CC2012V-OFF", "shift_date": "2026-08-19", "hs": {"current": "1"}},
+        headers=auth_headers("Sales"),
+    )
+    body = client.post(
+        "/daily-sales-entry/sync-inventory?shift_date=2026-08-20",
+        headers=auth_headers("Manager"),
+    ).json()
+    assert body["oil2"] == {"from": 30, "to": 27, "source_date": "2026-08-18"}
+
+
+def test_sync_inventory_is_idempotent(client, auth_headers):
+    client.post(
+        "/daily-sales-entry",
+        json={"pump_serial": "12BC4523V-RD", "shift_date": "2026-08-19",
+              "hs": {"current": "1"}, "oils": [{"qty": "2"}, {}, {}, {}, {}]},
+        headers=auth_headers("Sales"),
+    )
+    first = client.post(
+        "/daily-sales-entry/sync-inventory?shift_date=2026-08-20",
+        headers=auth_headers("Manager"),
+    ).json()
+    second = client.post(
+        "/daily-sales-entry/sync-inventory?shift_date=2026-08-20",
+        headers=auth_headers("Manager"),
+    ).json()
+    assert first["oil1"]["to"] == second["oil1"]["to"] == 38
+    assert second["oil1"]["from"] == 38  # already synced last time - no further change
+
+
+def test_sync_inventory_nothing_to_sync_returns_empty(client, auth_headers):
+    resp = client.post(
+        "/daily-sales-entry/sync-inventory?shift_date=2026-08-20",
+        headers=auth_headers("Manager"),
+    )
+    assert resp.status_code == 200
+    assert resp.json() == {}

@@ -493,6 +493,38 @@ function wireToggles() {
   });
 }
 
+// Print & Sync (Manager/Owner only, 2026-09-11): syncs Inventory Tracking's
+// Oil Sale(s) Opening Stock from the most recent real Closing Stock recorded
+// (station-wide, not per pump - see inventory.sync_from_daily_sales), then
+// carries yesterday's Current Reading into today's Last Shift Reading as
+// usual (loadPrefill), then prints a blank form for the given pump.
+async function syncAndPrint(pumpSerial) {
+  const status = $("save-status");
+  status.className = "status-line";
+  status.textContent = "Syncing Inventory…";
+  try {
+    const qs = `?shift_date=${encodeURIComponent(val("shift-date"))}`;
+    const summary = await api.post(`/daily-sales-entry/sync-inventory${qs}`);
+
+    $("pump-serial").value = pumpSerial;
+    setVal("hs-current", "");
+    setVal("ms-current", "");
+    await loadPrefill();
+
+    const changes = Object.entries(summary);
+    status.className = "status-line ok";
+    status.textContent = changes.length
+      ? `Synced Inventory from ${changes[0][1].source_date} (${changes
+          .map(([key, c]) => `${key}: ${c.from} → ${c.to}`)
+          .join(", ")}). Printing…`
+      : "Inventory already up to date (nothing new to sync). Printing…";
+    window.print();
+  } catch (err) {
+    status.className = "status-line err";
+    status.textContent = `Sync failed — ${err.message || err}`;
+  }
+}
+
 async function init() {
   if (!getToken()) {
     window.location.href = "../../index.html";
@@ -516,6 +548,12 @@ async function init() {
     window.location.href = "../../index.html";
     return;
   }
+  // Print & Sync writes to Inventory Tracking (Manager/Owner only, same access
+  // as that module itself) - a Sales user still has plain Print Blank.
+  const canSync = me.role === "Manager" || me.role === "Owner";
+  document.querySelectorAll("[data-sync]").forEach((btn) => {
+    btn.hidden = !canSync;
+  });
 
   wireToggles();
 
@@ -548,6 +586,9 @@ async function init() {
       await loadPrefill();
       window.print();
     });
+  });
+  document.querySelectorAll("[data-sync]").forEach((btn) => {
+    btn.addEventListener("click", () => syncAndPrint(btn.dataset.sync));
   });
   const scanInput = document.createElement("input");
   scanInput.type = "file";

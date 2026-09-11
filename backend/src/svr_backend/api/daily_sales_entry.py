@@ -25,7 +25,7 @@ from svr_backend.core.db import transaction
 from svr_backend.core.rbac import get_db, get_principal, require
 from svr_backend.core.session import Principal
 from svr_backend.excel import blank_template, build_workbook, parse_workbook
-from svr_backend.inventory import on_hand_map
+from svr_backend.inventory import on_hand_map, sync_from_daily_sales
 from svr_backend.ocr import pipeline as ocr_pipeline
 from svr_backend.ocr.runtime import tesseract_version
 from svr_backend.rates import latest_effective_rates
@@ -216,6 +216,21 @@ def prefill(
         oil_openings=meta["oil_openings"],
         oil_labels=dict(OIL_LABELS),
     )
+
+
+@router.post("/sync-inventory")
+def sync_inventory(
+    shift_date: str | None = None,
+    principal: Principal = Depends(require("Manager", "Owner")),
+    conn: sqlite3.Connection = Depends(get_db),
+) -> dict:
+    """Set Inventory Tracking's on_hand for each oil item from the most recent
+    real Closing Stock recorded before ``shift_date`` (2026-09-11 "Print & Sync"
+    feature). Manager/Owner only - it writes to Inventory Tracking, the same
+    access as that module itself; a Sales user still has plain Print Blank.
+    """
+    sd = shift_date or date.today().isoformat()
+    return sync_from_daily_sales(conn, sd, principal.login_name)
 
 
 @router.get("/{entry_id}", response_model=EntryOut)
