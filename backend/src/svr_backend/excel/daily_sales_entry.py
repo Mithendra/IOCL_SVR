@@ -424,6 +424,13 @@ def _parse_paper_layout(rows: list[tuple]) -> tuple[dict, dict, list[str]]:
         warnings.append("Could not find the Oil Sale(s) table - quantities were not read.")
     else:
         col_qty = _col_of(rows[oil_hdr], "quantity")
+        # Rate is read too but ultimately ignored - the backend always locks Oil
+        # Rate from Rate Master on save regardless of import (SDD ADR-3), same as
+        # Gas Rate. Opening Stock DOES matter: it's the manual-override field
+        # (2026-09-11 short-term fix) and must come through from a filled sheet,
+        # not be silently left at Inventory Tracking's default (2026-09-11 fix -
+        # this was the real gap behind "Oil Sales not populating").
+        col_opening = _col_of(rows[oil_hdr], "opening stock")
         stop = _find_row(rows, "total amt", start=oil_hdr + 1)
         stop = stop if stop is not None else min(oil_hdr + 8, len(rows))
         oils = []
@@ -433,7 +440,8 @@ def _parse_paper_layout(rows: list[tuple]) -> tuple[dict, dict, list[str]]:
                 (i for i in range(oil_hdr + 1, stop) if any(h in _row_txt(rows[i]) for h in hints)),
                 None,
             )
-            oils.append({"qty": _cell(rows[ridx] if ridx is not None else None, col_qty)})
+            row = rows[ridx] if ridx is not None else None
+            oils.append({"qty": _cell(row, col_qty), "opening": _cell(row, col_opening)})
         payload["oils"] = oils
 
     # ---- 3. Expenses (3 fixed description rows, Amount is the last cell) ----

@@ -139,7 +139,7 @@ def test_multi_sheet_workbook_picks_the_sheet_for_the_selected_pump():
     assert road_payload["hs"] == {"current": 267859.1, "last": 267841.93}
     # This side of the form is almost entirely the paper's own "-" markers -
     # every one of them reads back as blank, not as a literal dash (2026-09-11).
-    assert road_payload["oils"] == [{"qty": None}] * 5
+    assert road_payload["oils"] == [{"qty": None, "opening": None}] * 5
     assert road_payload["credit_card_amounts"] == []
     assert road_payload["phone_pay_settled"] is None
     assert road_payload["night_cash"] is None
@@ -263,7 +263,81 @@ def test_paper_layout_tolerates_real_world_label_variance():
     assert payload["hs"] == {"current": 100, "last": 90}
     assert payload["ms"] == {"current": 50, "last": 40}
     assert [o.get("qty") for o in payload["oils"]] == [4, None, 2, None, 3]
+    assert [o.get("opening") for o in payload["oils"]] == [100, 50, 28, 19, 42]
     assert payload["expenses"] == [600, 75, 5000]
     assert payload["phone_pay_settled"] == 10
     assert payload["phone_pay_unsettled"] == 20
     assert payload["night_cash"] == 5000
+
+
+_A4_TEMPLATE = (
+    Path(__file__).resolve().parents[2]
+    / "docs" / "01-BRD-Requirement-Gathering" / "ocr-samples"
+    / "SVR_DSR_Empty_11CC2012V-OFF_A4.xlsx"
+)
+
+
+@pytest.mark.skipif(not _A4_TEMPLATE.exists(), reason="real client sample not present")
+def test_a4_template_reads_every_section_once_filled():
+    """Client-reported (2026-09-11): Oil Sale(s) wasn't fully populating from a
+    real filled sheet. Fills in the client's own blank A4 template (both sheets
+    are identical multi-pump workbooks; the exact real column layout, including
+    every merged-cell master, is used here - not a hand-built approximation) and
+    confirms every section round-trips, in particular Oil Sale(s) Opening Stock
+    (only Quantity was ever read before this fix) and every Summary figure."""
+    from openpyxl import load_workbook
+
+    wb = load_workbook(_A4_TEMPLATE)
+    ws = wb["11CC2012V-OFF"]
+
+    # 1. Gas Sale(s) - B/G are the merged-range masters for Current/Last Shift.
+    ws["B7"], ws["G7"] = 1500.5, 1450.0  # Diesel (HS)
+    ws["B8"], ws["G8"] = 900.25, 850.0  # Petrol (MS)
+
+    # 2. Oil Sale(s) - C/J are the Quantity/Opening Stock masters per row.
+    # Row 16 (Acid Water 5 Lts) has no sale today - Quantity genuinely blank -
+    # but Opening Stock is still filled, proving the two are read independently.
+    for row, qty, opening in ((13, 4, 100), (14, 2, 50), (15, 1, 28), (16, None, 19), (17, 3, 42)):
+        ws.cell(row=row, column=3, value=qty)  # C
+        ws.cell(row=row, column=10, value=opening)  # J
+
+    # 3. Expenses - J22/J23/J24 are the Amount masters for the 3 fixed rows.
+    ws["J22"], ws["J23"], ws["J24"] = 600, 75, 5000
+
+    # 4. Credit Cards Swiping(s) - Q29/Q30 are the Amount masters for two rows.
+    ws["Q29"], ws["Q30"] = 1000, 500
+
+    # 5. Today New Credit(s) - H39/J39 are the In Ltrs/Rate masters for row 1.
+    ws["H39"], ws["J39"] = 10, 105.36
+
+    # 6. Old/Pending Credit Received - E46 is the Amount master for row 1.
+    ws["E46"] = 300
+
+    # 7. Summary - J52/J53/J56 are the only 3 operator-entered Summary values
+    # (everything else in that section is computed and recomputed downstream).
+    ws["J52"], ws["J53"], ws["J56"] = 8560, 200, 36980.3
+
+    buf = io.BytesIO()
+    wb.save(buf)
+
+    payload, meta, warnings = parse_workbook(buf.getvalue(), pump_serial="11CC2012V-OFF")
+    assert any("paper-form layout" in w for w in warnings)
+    assert meta["pump_serial"] is None  # never guessed - operator picks it
+
+    assert payload["hs"] == {"current": 1500.5, "last": 1450.0}
+    assert payload["ms"] == {"current": 900.25, "last": 850.0}
+    assert [o.get("qty") for o in payload["oils"]] == [4, 2, 1, None, 3]
+    assert [o.get("opening") for o in payload["oils"]] == [100, 50, 28, 19, 42]
+    assert payload["expenses"] == [600, 75, 5000]
+    assert payload["credit_card_amounts"] == [1000, 500]
+    assert payload["new_credits"] == [{"ltrs": 10, "rate": 105.36}]
+    assert payload["old_credit_amounts"] == [300]
+    assert payload["phone_pay_settled"] == 8560
+    assert payload["phone_pay_unsettled"] == 200
+    assert payload["night_cash"] == 36980.3
+
+    result = compute_payload(payload)
+    assert result["hs"]["cons"] == 50.5
+    assert result["ms"]["cons"] == 50.25
+    # Net Bal Hand off now includes Phone Pay Settled (2026-09-11 formula fix).
+    assert result["net_bal_hand_off"] is not None

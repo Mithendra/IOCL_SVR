@@ -57,11 +57,22 @@ export function compute(p) {
   });
 
   const oldCreditTotal = (p.old_credit_amounts || []).reduce((a, x) => a + parseAmt(x), 0);
+  const ppSettled = parseAmt(p.phone_pay_settled);
   const ppUnsettled = parseAmt(p.phone_pay_unsettled);
   const nightCash = parseAmt(p.night_cash);
 
+  // Net Bal Hand off = Cash - Expenses + Phone Pay Settled + Phone Pay Not
+  // Settled + New Credits + Card Swiping + Night Cash Hand Off
+  // (client-corrected 2026-09-11 - keep in step with calc/daily_sales_entry.py)
   const netBal =
-    gasTotal + oilTotal - expensesTotal + ppUnsettled + newCreditsTotal + cardsTotal + nightCash;
+    gasTotal +
+    oilTotal -
+    expensesTotal +
+    ppSettled +
+    ppUnsettled +
+    newCreditsTotal +
+    cardsTotal +
+    nightCash;
 
   return {
     hs,

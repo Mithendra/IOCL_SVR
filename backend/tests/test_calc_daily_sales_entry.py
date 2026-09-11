@@ -90,6 +90,7 @@ def test_full_chain_net_bal_hand_off():
         credit_card_amounts=["1000", "500"],
         new_credits=[NewCreditRow(ltrs="10", rate="105.36")],
         old_credit_amounts=["300"],
+        phone_pay_settled="150",
         phone_pay_unsettled="200",
         night_cash="5000",
     )
@@ -100,7 +101,9 @@ def test_full_chain_net_bal_hand_off():
     expenses = 850.0
     new_credits = 1053.6
     cards = 1500.0
-    net_bal = gas + oil - expenses + 200.0 + new_credits + cards + 5000.0
+    # Net Bal Hand off includes Phone Pay Settled (client-corrected 2026-09-11 -
+    # the original mockup formula omitted it; confirmed a real gap, not intentional).
+    net_bal = gas + oil - expenses + 150.0 + 200.0 + new_credits + cards + 5000.0
 
     assert result.gas_total == round4(gas)
     assert result.oil_total == oil

@@ -238,17 +238,22 @@ def compute(data: DailySalesEntryInput) -> DailySalesEntryResult:
     result.old_credit_total = round4(old_credit_total)
 
     # 7. Summary - Cash Hand Off
+    pp_settled = parse_amt(data.phone_pay_settled)
     pp_unsettled = parse_amt(data.phone_pay_unsettled)
     night_cash = parse_amt(data.night_cash)
     result.sum_cash = round4(gas_total + oil_total)
     result.sum_expenses = result.expenses_total
     result.sum_new_credits = result.new_credits_total
     result.sum_credit_cards = result.credit_cards_total
-    # Net Bal Hand off = Cash - Expenses + Phone Pay Not Settled + New Credits
-    #                    + Card Swiping + Night Cash Hand Off   (mockup, verbatim)
+    # Net Bal Hand off = Cash - Expenses + Phone Pay Settled + Phone Pay Not
+    #                    Settled + New Credits + Card Swiping + Night Cash
+    #                    Hand Off (client-corrected 2026-09-11 - the original
+    #                    mockup formula omitted Phone Pay Settled; confirmed
+    #                    this was missing, not intentional).
     net_bal = (
         (gas_total + oil_total)
         - expenses_total
+        + pp_settled
         + pp_unsettled
         + new_credits_total
         + credit_cards_total

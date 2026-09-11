@@ -535,7 +535,11 @@ td input:disabled {
     display: none !important;
   }
   @page {
-    size: A4 landscape;
+    /* Portrait, not landscape (fixed 2026-09-11) - the client's own reference
+       blank forms (SVR_DSR_EMPTY_*.pdf) are single-page A4 portrait; printing
+       landscape fought that layout badly enough that one pump's form did not
+       print at all. */
+    size: A4 portrait;
     margin: 8mm;
   }
   body,
@@ -553,5 +557,11 @@ td input:disabled {
   .doc-tag,
   .theme-toggle {
     display: none;
+  }
+  /* Keep a table row (or a section's heading) from being split across a page
+     break - a half-printed row is easy to mistake for "nothing printed". */
+  .sheet table tr,
+  .sheet .section-title {
+    break-inside: avoid;
   }
 }

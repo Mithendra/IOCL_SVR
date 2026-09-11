@@ -51,8 +51,10 @@ against the real AUG11/AUG12 workbooks in `docs/01-BRD-Requirement-Gathering/`.
 - `sum_new_credits = new_credits_total`
 - `sum_credit_cards = credit_cards_total`
 - **`net_bal_hand_off = (gas_total + oil_total) − expenses_total
-   + phone_pay_not_settled + new_credits_total + credit_cards_total + night_cash`**
-- `phone_pay_settled` is captured but not part of Net Bal.
+   + phone_pay_settled + phone_pay_not_settled + new_credits_total
+   + credit_cards_total + night_cash`**
+  (client-corrected 2026-09-11 — the original mockup formula omitted
+  `phone_pay_settled`; confirmed this was a real gap, not intentional.)
 
 ## 8. Daily Summary (auto-pulled from 1 & 2)
 

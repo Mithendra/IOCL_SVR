@@ -42,6 +42,7 @@ full = compute(
         credit_card_amounts=["1000", "500"],
         new_credits=[NewCreditRow(ltrs="10", rate="105.36")],
         old_credit_amounts=["300"],
+        phone_pay_settled="150",
         phone_pay_unsettled="200",
         night_cash="5000",
     )
@@ -52,9 +53,12 @@ check("Credit cards total", full.credit_cards_total, 1500.0)
 check("New credits total (10 x 105.36)", full.new_credits_total, 1053.6)
 check("Old credit total (excluded from today)", full.sum_old_credit, 300.0)
 check(
+    # Net Bal Hand off includes Phone Pay Settled (client-corrected 2026-09-11).
     "Net Bal Hand Off",
     full.net_bal_hand_off,
-    round((138813.9072 + 117700.0) + 248.0 - 850.0 + 200.0 + 1053.6 + 1500.0 + 5000.0, 4),
+    round(
+        (138813.9072 + 117700.0) + 248.0 - 850.0 + 150.0 + 200.0 + 1053.6 + 1500.0 + 5000.0, 4
+    ),
 )
 
 failures = [(lbl, a, e) for lbl, a, e in CHECKS if abs((a or 0) - e) > 1e-6]
