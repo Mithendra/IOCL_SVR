@@ -159,6 +159,23 @@ def test_multi_sheet_workbook_without_a_hint_warns_instead_of_guessing():
     assert payload["hs"]["current"] is not None
 
 
+_REAL_ROAD_SEP9 = (
+    Path(__file__).resolve().parents[2]
+    / "docs" / "01-BRD-Requirement-Gathering" / "ocr-samples"
+    / "SVR_Daily_Sales_09Sep2026_12BC4523V-RD_.xlsx"
+)
+
+
+@pytest.mark.skipif(not _REAL_ROAD_SEP9.exists(), reason="real client sample not present")
+def test_zero_activity_repair_day_reads_current_equal_to_last():
+    """The Road pump's real 2026-09-09 file (repair day) - Current Reading ==
+    Last Shift Reading (the meter didn't move), not blank and not skipped."""
+    payload, _, _ = parse_workbook(_REAL_ROAD_SEP9.read_bytes(), pump_serial="12BC4523V-RD")
+    assert payload["hs"] == {"current": 267841.93, "last": 267841.93}
+    assert payload["ms"] == {"current": 288877.28, "last": 288877.28}
+    assert compute_payload(payload)["hs"]["cons"] == 0.0
+
+
 def test_keyed_export_still_takes_priority_over_paper_layout():
     """A real SVR export/template must never fall through to the heuristic path."""
     _, meta, warnings = parse_workbook(blank_template("12BC4523V-RD"))

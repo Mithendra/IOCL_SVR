@@ -217,6 +217,28 @@ All six now in `ocr-samples/SVR_Daily_Sales_{09,10}Sep2026_*.{pdf,xlsx}`.
   not Road-pump data); flagged here so it's not mistaken for a real Road-side
   reading in the future.
 
+### Update, 2026-09-11 (same day) — the actual go-forward workflow, confirmed
+
+Two more real files arrived the same day: `SVR_Daily_Sales_09Sep2026_
+12BC4523V-RD_.pdf`/`.xlsx` - the Road pump's own report for the repair day
+itself. This settles the "what happens on a repair day" question more
+precisely than the earlier entry above: the client's real workflow is **the
+repaired pump still submits a report that day**, with Current Reading ==
+Last Shift Reading (0 consumption, 0 amount, everything else blank) - not
+skipped entirely. The very next day (09-10) then carries forward from it
+automatically, with no gap at all.
+
+Validated end to end, with real numbers, in `test_real_data_2026_09_11.py`
+(`test_road_pump_zero_activity_repair_day_then_seamless_carry_forward`) and
+against the PDF/Excel files directly (`test_ocr_text_layer.py`'s parametrized
+2026-09-11 cases, `test_excel_paper_layout_import.py`'s
+`test_zero_activity_repair_day_reads_current_equal_to_last`). All four
+2026-09-09/10 typed PDFs read correctly from the text layer (gas readings
+exact in every case); all four .xlsx read correctly via the paper-layout
+parser, including Phone Pay Settled/Not Settled where the PDF path missed it
+on the busier Office-pump forms (per the entry above - unchanged finding,
+confirmed again on the Sep-9 Office file too).
+
 ## Recommendation
 
 Run real-data UAT on **manual entry + Excel import (keyed template or a natural
