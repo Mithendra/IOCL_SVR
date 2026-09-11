@@ -277,12 +277,12 @@ async function importExcel(file) {
   }
 }
 
-// Scan / Upload (OCR) — draft-assist only. Stock Tesseract does not read the
-// handwritten forms reliably, so the result is a starting point, not data.
+// Scan / Upload. A typed / machine-generated PDF is read from its text layer
+// (reliable); a scan/photo goes through OCR (handwriting is a rough guess only).
 async function importScan(file) {
   const status = $("save-status");
   status.className = "status-line";
-  status.textContent = "Running OCR on the scan…";
+  status.textContent = "Reading the upload…";
   try {
     const res = await api.upload("/daily-sales-entry/ocr", file);
     entryId = null;
@@ -290,16 +290,18 @@ async function importScan(file) {
     populateInputs(res.payload, {});
     refresh();
     const filled = (res.fields || []).filter((f) => f.value !== null && f.value !== "").length;
-    status.className = "status-line err"; // red on purpose — this needs checking
-    status.textContent =
-      `OCR DRAFT from "${file.name}" (${res.engine}). Handwriting is NOT read reliably — ` +
-      `${filled} field(s) pre-filled as a guess. Check EVERY value against the scan before Save.`;
+    const fromTextLayer = res.engine === "PDF text layer";
+    status.className = fromTextLayer ? "status-line ok" : "status-line err";
+    status.textContent = fromTextLayer
+      ? `Read ${filled} field(s) from "${file.name}" (PDF text layer). Check each value + the pump/date, then Save.`
+      : `OCR DRAFT from "${file.name}" (${res.engine}). Handwriting is NOT read reliably — ` +
+        `${filled} field(s) are guesses. Check EVERY value against the scan before Save.`;
   } catch (err) {
     status.className = "status-line err";
     status.textContent =
       err.status === 503
-        ? "OCR engine not available on this install."
-        : `OCR failed — ${err.message || err}`;
+        ? "This file needs OCR and the engine isn't available on this install."
+        : `Upload failed — ${err.message || err}`;
   }
 }
 

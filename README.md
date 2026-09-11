@@ -26,7 +26,7 @@ Module 12 (Daily Trial Balance) ships **partial** — see its row.
 | Area | State |
 |---|---|
 | Foundation: migrations, auth/session, RBAC, audit, calc engine, 23:59 IST carry-forward, APScheduler, Windows Services, per-component logging, field encryption at rest, email (memory/file/SMTP) | done |
-| **1. Daily Sales Entry** — per-pump/shift entry; locked Sell-rate + carried-reading + inventory-opening snapshot; calc engine; **Excel import/export** (standard data layout, round-trips, recompute-and-flag); **OCR Scan/Upload** wired as draft-assist (never saves; ADR-5 review). Stock Tesseract does **not** read the handwritten forms — see `OCR-findings-2026-09-09.md` | done |
+| **1. Daily Sales Entry** — per-pump/shift entry; locked Sell-rate + carried-reading + inventory-opening snapshot; calc engine; **Excel import/export** (round-trips, recompute-and-flag); **Scan/Upload** — typed/machine-generated PDFs read from the text layer (8/8 fields, reliable); handwriting via Tesseract is draft-only (unreliable — `OCR-findings-2026-09-09.md`). Never saves; ADR-5 review. | done |
 | **2. Daily Sales Summary** — combines both pump submissions; per-pump verification; both-verified gate on upload to Trial Balance | done |
 | **3. Rate Master** — Owner-only append-only Buy/Sell rate versioning + change-log; Manager view-only | done |
 | **4. Inventory Tracking** — 5 oil SKUs; restock log; low-stock status; feeds Daily Sales Entry opening stock | done |

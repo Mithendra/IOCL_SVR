@@ -406,22 +406,20 @@ def ocr_status(_: Principal = Depends(get_principal)) -> dict:
 async def ocr_upload(
     file: UploadFile = File(...), _: Principal = Depends(get_principal)
 ) -> dict:
-    """Best-effort draft from a scanned/photographed Daily Sales Report.
+    """Draft from an uploaded Daily Sales Report.
 
-    Same review contract as /import-excel: never saves, recomputes every total,
-    and returns a per-field confidence so the reviewer knows what to trust
-    (which, on handwriting, is very little).
+    A typed / machine-generated PDF is read from its **text layer** (reliable). A
+    scan/photo goes through Tesseract (handwriting is unreliable - draft only).
+    Either way: never saves, recomputes every total, one review before Save
+    (SDD ADR-5).
     """
-    if tesseract_version() is None:
-        raise HTTPException(
-            status.HTTP_503_SERVICE_UNAVAILABLE,
-            "OCR engine not available - check the bundled Tesseract (GET .../ocr/status)",
-        )
     raw = await file.read()
     if not raw:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Empty file")
     try:
         res = ocr_pipeline.extract(raw, file.filename or "")
+    except ocr_pipeline.EngineUnavailable as exc:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
     return {

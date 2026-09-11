@@ -28,6 +28,10 @@ _TIMEOUT_S = 60
 _IMG_MAGIC = (b"\x89PNG", b"\xff\xd8\xff", b"BM", b"II*\x00", b"MM\x00*")
 
 
+class EngineUnavailable(RuntimeError):
+    """Raised when a file needs OCR but Tesseract isn't available (maps to 503)."""
+
+
 @dataclass
 class Word:
     text: str
@@ -51,6 +55,32 @@ class ExtractResult:
     warnings: list[str] = field(default_factory=list)
     page_text: str = ""
     engine: str = ""
+
+
+# ------------------------------------------------------------------ text layer
+
+
+def _words_from_text_layer(data: bytes) -> tuple[list[Word], str] | None:
+    """If the PDF carries a real text layer (machine-generated / typed / a form
+    filled digitally), read it verbatim - no OCR, near-perfect. Returns None for
+    a scanned-image PDF or a non-PDF."""
+    if data[:4] != b"%PDF":
+        return None
+    import pymupdf
+
+    with pymupdf.open(stream=data, filetype="pdf") as doc:
+        page = doc[0]
+        raw = page.get_text("words")  # (x0, y0, x1, y1, text, block, line, word_no)
+        if len(raw) < 20:  # effectively no text layer
+            return None
+        pw = float(page.rect.width) or 1.0
+        ph = float(page.rect.height) or 1.0
+        words = [
+            Word(text=w[4], conf=1.0, cx=(w[0] + w[2]) / 2 / pw, cy=(w[1] + w[3]) / 2 / ph)
+            for w in raw
+            if w[4].strip()
+        ]
+    return words, " ".join(w.text for w in words)
 
 
 # --------------------------------------------------------------------- rasterise
@@ -149,9 +179,13 @@ def _guess_field(spec, words: list[Word]) -> FieldGuess:
     row = _band(words, spec.row_anchors, axis="y", tol=spec.row_tol)
     if not row:
         return FieldGuess(spec.key, None, 0.0, "")
-    # within the row, keep words to the right of the column anchor (or all of it)
-    x0 = _anchor_x(words, spec.col_anchors) if spec.col_anchors else 0.0
-    cand = sorted((w for w in row if w.cx > x0 + 0.01), key=lambda w: w.cx)[: spec.max_words]
+    if spec.x_lo is not None:
+        cand = sorted(
+            (w for w in row if spec.x_lo <= w.cx <= (spec.x_hi or 1.0)), key=lambda w: w.cx
+        )[: spec.max_words]
+    else:
+        x0 = _anchor_x(words, spec.col_anchors) if spec.col_anchors else 0.0
+        cand = sorted((w for w in row if w.cx > x0 + 0.01), key=lambda w: w.cx)[: spec.max_words]
     if not cand:
         return FieldGuess(spec.key, None, 0.0, "")
     raw = " ".join(w.text for w in cand)
@@ -192,11 +226,25 @@ def _anchor_x(words, anchors) -> float:
 
 
 def _find(words, anchors):
+    """First word whose text contains any anchor fragment. Multi-word anchors
+    (containing a space) are matched against a sliding window of same-row words."""
     frags = [s.lower() for s in anchors]
+    single = [f for f in frags if " " not in f]
+    phrases = [f for f in frags if " " in f]
     for w in words:
-        lw = w.text.lower()
-        if any(f in lw for f in frags):
+        if any(f in w.text.lower() for f in single):
             return w
+    if not phrases:
+        return None
+    ordered = sorted(words, key=lambda w: (round(w.cy, 3), w.cx))
+    for i, anchor in enumerate(ordered):
+        buf = anchor.text.lower()
+        for nxt in ordered[i + 1: i + 12]:
+            if abs(nxt.cy - anchor.cy) > 0.006:
+                break
+            buf += " " + nxt.text.lower()
+            if any(p in buf for p in phrases):
+                return anchor
     return None
 
 
@@ -214,15 +262,34 @@ def _apply(payload: dict, key: str, value) -> None:
 def extract(data: bytes, filename: str = "") -> ExtractResult:
     if not data:
         raise ValueError("empty upload")
-    res = ExtractResult(engine=_engine_line())
-    try:
-        pages = _pages_to_png(data)
-    except Exception as exc:  # noqa: BLE001 - surface any rasterise failure
-        raise ValueError(f"could not read {filename or 'the file'} as PDF or image: {exc}") from exc
+    res = ExtractResult()
 
-    words, res.page_text = _tesseract_tsv(pages[0])
+    # Prefer the PDF's own text layer (typed / digitally-filled forms) - reliable.
+    tl = _words_from_text_layer(data)
+    if tl is not None:
+        source = "text-layer"
+        words, res.page_text = tl
+        res.engine = "PDF text layer"
+    else:
+        source = "ocr"
+        from svr_backend.ocr.runtime import is_available
+
+        if not is_available():
+            raise EngineUnavailable(
+                "This file has no text layer, so it needs OCR - but the Tesseract "
+                "engine is not available on this install."
+            )
+        res.engine = _engine_line()
+        try:
+            pages = _pages_to_png(data)
+        except Exception as exc:  # noqa: BLE001 - surface any rasterise failure
+            raise ValueError(
+                f"could not read {filename or 'the file'} as PDF or image: {exc}"
+            ) from exc
+        words, res.page_text = _tesseract_tsv(pages[0])
+
     if not words:
-        res.warnings.append("Tesseract could not segment the page - fill the form by hand.")
+        res.warnings.append("Nothing readable on the page - fill the form by hand.")
         return res
 
     payload: dict = {"hs": {}, "ms": {}, "oils": []}
@@ -232,10 +299,17 @@ def extract(data: bytes, filename: str = "") -> ExtractResult:
         if g.value not in (None, ""):
             _apply(payload, spec.key, g.value)
     res.payload = payload
-    res.warnings.append(
-        "OCR DRAFT - Tesseract cannot read handwriting reliably. Check every value "
-        "against the scan before saving."
-    )
+
+    if source == "text-layer":
+        res.warnings.append(
+            "Read from the PDF text layer (typed form) - reliable, but still check "
+            "each value and the pump/date before Save."
+        )
+    else:
+        res.warnings.append(
+            "OCR DRAFT - Tesseract cannot read handwriting reliably. Check every "
+            "value against the scan before saving."
+        )
     return res
 
 

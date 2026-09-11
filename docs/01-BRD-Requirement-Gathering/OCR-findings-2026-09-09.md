@@ -95,10 +95,30 @@ improves immediately if the inputs improve (see below).
 5. **Train / fine-tune a handwriting model** (Tesseract LSTM or a small CNN on
    the station's own sheets). Real project; hard to justify for one outlet.
 
+### Update, 2026-09-10 — typed / machine-generated PDFs work
+
+A handwritten sheet was transcribed into the SVR template as a **typed B&W PDF**
+(`ocr-samples/SVR-daily-sales-2026-09-09-typed-bw.pdf`). Tesseract still read it
+poorly — **but that PDF has a real text layer**, so OCR is the wrong path for it
+entirely. The pipeline now checks for a text layer first (`pymupdf.get_text`) and
+reads it verbatim, no OCR:
+
+- **8 / 8 mapped fields exact** (HS/MS current, last, rate; Phone Pay Settled;
+  Night Cash) — recomputes to the paper figures (`hs.cons 310.68`,
+  `hs.amount 32733.24`, `ms.cons 583.55`, …).
+- `engine` reports `PDF text layer`; the UI shows a calm "check each value" note,
+  not the handwriting warning.
+
+**So there is a working Scan/Upload path** for anyone who fills the form
+digitally or transcribes it into the typed template and saves a PDF — the app
+extracts it and the operator just reviews. Only a **direct scan of handwriting**
+remains unreadable.
+
 ## Recommendation
 
-Run real-data UAT on **manual entry + Excel import**. Keep the OCR draft wired
-and bundled (it costs nothing at runtime).
+Run real-data UAT on **manual entry + Excel import + typed-PDF upload** (all
+reliable). The OCR-of-handwriting path stays wired and bundled (costs nothing at
+runtime) for the day a cloud/HTR option is chosen.
 
 Black/blue ink and document scans (now the station standard) remove the
 image-quality variable but **do not** make Tesseract read the handwriting —
