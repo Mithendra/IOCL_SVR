@@ -29,6 +29,7 @@ from svr_backend.inventory import on_hand_map
 from svr_backend.ocr import pipeline as ocr_pipeline
 from svr_backend.ocr.runtime import tesseract_version
 from svr_backend.rates import latest_effective_rates
+from svr_backend.summary import reverify_summary_for_entry
 
 router = APIRouter(prefix="/daily-sales-entry", tags=["daily-sales-entry"])
 
@@ -64,6 +65,7 @@ class EntryOut(BaseModel):
     pump_serial: str
     submitted_by: str
     entry_mode: str
+    summary_note: str | None = None  # set on a PUT that re-opened the day's Summary
     sell_rate_hs: float | None
     sell_rate_ms: float | None
     hs_last: float | None
@@ -236,6 +238,20 @@ def create_entry(
     conn: sqlite3.Connection = Depends(get_db),
 ) -> EntryOut:
     shift_date = body.shift_date or date.today().isoformat()
+
+    # One entry per pump per shift per submitter (SDD 5.4). A correction edits
+    # that row (PUT), it does not stack a second one.
+    dup = conn.execute(
+        f"SELECT id FROM {TABLE} WHERE shift_date = ? AND pump_serial = ? AND submitted_by = ?",
+        (shift_date, body.pump_serial, principal.login_name),
+    ).fetchone()
+    if dup is not None:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            f"You already have an entry for {body.pump_serial} on {shift_date} "
+            f"(#{dup['id']}) - edit that one instead of creating another.",
+        )
+
     raw = body.model_dump(exclude={"shift_date", "pump_serial"})
     payload, meta = _apply_locked_context(conn, raw, shift_date, body.pump_serial)
     result = compute_payload(payload)
@@ -354,7 +370,12 @@ def update_entry(
             old=old_snapshot,
             new={"net_bal_hand_off": result["net_bal_hand_off"]},
         )
-    return _row_to_out(conn.execute(f"SELECT * FROM {TABLE} WHERE id = ?", (entry_id,)).fetchone())
+        note = reverify_summary_for_entry(
+            conn, shift_date, body.pump_serial, principal.login_name
+        )
+    out = _row_to_out(conn.execute(f"SELECT * FROM {TABLE} WHERE id = ?", (entry_id,)).fetchone())
+    out.summary_note = note
+    return out
 
 
 @router.delete("/{entry_id}", status_code=status.HTTP_204_NO_CONTENT)

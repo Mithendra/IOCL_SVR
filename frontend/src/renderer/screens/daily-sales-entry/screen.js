@@ -15,8 +15,9 @@ const setVal = (id, v) => {
   if (el) el.value = v === null || v === undefined ? "" : v;
 };
 
-let entryId = null; // set after first Save -> subsequent saves PUT
+let entryId = null; // set after first Save (or on loading an existing day) -> Save = PUT
 let calcTimer = null;
+let me = null;
 let oilLabels = { ...Object.fromEntries(OIL_KEYS.map((k) => [k, k])) };
 
 // --------------------------------------------------------------------- build DOM
@@ -169,6 +170,44 @@ async function loadPrefill() {
   refresh();
 }
 
+// If this pump + date already has a saved entry, bind to it so Save is a PUT
+// (a correction edits that row, it does not stack a second one). With
+// { populate: true } the form is filled from the saved record; otherwise the
+// current form values are kept (used after an Excel/scan import over an
+// existing day).
+async function loadExisting({ populate = false } = {}) {
+  const pump = val("pump-serial");
+  const dateStr = val("shift-date");
+  const banner = $("editing-note");
+  if (!pump || !dateStr) return;
+  let rows;
+  try {
+    rows = await api.get(
+      `/daily-sales-entry?shift_date=${encodeURIComponent(dateStr)}&pump_serial=${encodeURIComponent(pump)}`
+    );
+  } catch {
+    return;
+  }
+  const row = rows.find((r) => me && r.submitted_by === me.login_name) || rows[0];
+  if (!row) {
+    entryId = null;
+    if (banner) banner.hidden = true;
+    return;
+  }
+  entryId = row.id;
+  if (populate) {
+    populateInputs(row.payload, {});
+    applyResult(row.result);
+  }
+  if (banner) {
+    banner.hidden = false;
+    banner.textContent =
+      `Editing saved entry #${row.id} — by ${row.submitted_by}, last updated ` +
+      `${new Date(row.last_updated_at).toLocaleString()}. Save updates this record.`;
+  }
+  if (populate) refresh();
+}
+
 async function save() {
   const status = $("save-status");
   const payload = readForm();
@@ -178,15 +217,28 @@ async function save() {
     const saved = entryId
       ? await api.put(`/daily-sales-entry/${entryId}`, payload)
       : await api.post("/daily-sales-entry", payload);
+    const wasEdit = Boolean(entryId);
     entryId = saved.id;
     applyResult(saved.result);
     $("last-updated-by").textContent = saved.last_updated_by;
     $("last-updated-time").textContent = new Date(saved.last_updated_at).toLocaleString();
+    const banner = $("editing-note");
+    if (banner) {
+      banner.hidden = false;
+      banner.textContent =
+        `Editing saved entry #${saved.id} — last updated ` +
+        `${new Date(saved.last_updated_at).toLocaleString()}. Save updates this record.`;
+    }
     status.className = "status-line ok";
-    status.textContent = `Saved (entry #${saved.id}). Net Bal Hand off ${saved.net_bal_hand_off}.`;
+    status.textContent =
+      `${wasEdit ? "Updated" : "Saved"} (entry #${saved.id}). Net Bal Hand off ${saved.net_bal_hand_off}.` +
+      (saved.summary_note ? ` — ${saved.summary_note}` : "");
   } catch (err) {
     status.className = "status-line err";
-    status.textContent = `Save failed — ${err.message || err}`;
+    status.textContent =
+      err.status === 409
+        ? `${err.message} Reload the page for this pump/date to edit it.`
+        : `Save failed — ${err.message || err}`;
   }
 }
 
@@ -260,11 +312,12 @@ async function importExcel(file) {
   status.textContent = "Reading spreadsheet…";
   try {
     const res = await api.upload("/daily-sales-entry/import-excel", file);
-    entryId = null; // an imported form is a new entry until saved
+    entryId = null;
     if (res.meta && res.meta.pump_serial) setVal("pump-serial", res.meta.pump_serial);
     if (res.meta && res.meta.shift_date) setVal("shift-date", res.meta.shift_date);
     await loadPrefill(); // rebuild oil rows + lock rates/readings for this pump+date
     populateInputs(res.payload, res.meta); // then overlay the imported inputs
+    await loadExisting(); // if that day already has an entry, Save updates it
     refresh();
     const w = res.warnings || [];
     status.className = w.length ? "status-line" : "status-line ok";
@@ -288,6 +341,7 @@ async function importScan(file) {
     entryId = null;
     await loadPrefill();
     populateInputs(res.payload, {});
+    await loadExisting(); // if that day already has an entry, Save updates it
     refresh();
     const filled = (res.fields || []).filter((f) => f.value !== null && f.value !== "").length;
     const fromTextLayer = res.engine === "PDF text layer";
@@ -343,7 +397,7 @@ async function init() {
   addOcRow();
 
   try {
-    const me = await api.me();
+    me = await api.me();
     setVal("ds-name", me.full_name);
     setVal("mgr-name", me.full_name);
     setVal("verify-name", me.full_name);
@@ -357,14 +411,13 @@ async function init() {
   document.body.addEventListener("input", (e) => {
     if (e.target.matches("[data-calc]")) refresh();
   });
-  $("pump-serial").addEventListener("change", () => {
+  const reload = async () => {
     entryId = null;
-    loadPrefill();
-  });
-  $("shift-date").addEventListener("change", () => {
-    entryId = null;
-    loadPrefill();
-  });
+    await loadPrefill();
+    await loadExisting({ populate: true }); // open the saved entry for this pump+date, if any
+  };
+  $("pump-serial").addEventListener("change", reload);
+  $("shift-date").addEventListener("change", reload);
   document.querySelectorAll("[data-add]").forEach((btn) => {
     btn.addEventListener("click", () => {
       ({ cc: addCcRow, nc: addNcRow, oc: addOcRow })[btn.dataset.add]();
@@ -408,6 +461,7 @@ async function init() {
   $("export-btn").addEventListener("click", exportExcel);
 
   await loadPrefill();
+  await loadExisting({ populate: true });
 }
 
 init();

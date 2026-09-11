@@ -58,7 +58,8 @@ Paths are relative to the repo root. `SDE` = Daily Sales Entry.
 | Consumes | `carry_forward.py` (last-reading), `rates.py` (locked Sell rate), `inventory.py` (opening stock) |
 | Migration | `0002_daily_sales_entry.sql` |
 | Excel I/O | `backend/src/svr_backend/excel/daily_sales_entry.py` — `GET /{id}/export-excel`, `GET /import-excel/template`, `POST /import-excel` (parse-only, recompute-and-flag per ADR-5). Standard data layout, **not** a visual replica (BRD-flagged, out of scope). |
-| Frontend screen | `frontend/src/renderer/screens/daily-sales-entry/{index.html,screen.js}` (Import/Export buttons wired; `lib/api.js` `upload`/`download`) |
+| Frontend screen | `frontend/src/renderer/screens/daily-sales-entry/{index.html,screen.js}` (Import/Export/Scan buttons wired; `lib/api.js` `upload`/`download`) |
+| Edit an existing day | **one entry per `(shift_date, pump_serial, submitted_by)`** — `POST` 409s with the existing id if one exists; the screen's `loadExisting()` opens that row on pump/date pick so Save is a `PUT` (a correction edits the same row, no duplicate). Editing a row whose day's Daily Sales Summary is already verified/uploaded resets that side (`summary.reverify_summary_for_entry`, returns `summary_note`). |
 | Renderer calc mirror (UX only) | `frontend/src/renderer/lib/calc-mirror.js` |
 | Backend tests | `backend/tests/test_daily_sales_entry_api.py`, `test_calc_daily_sales_entry.py`, `test_ocr_status.py`, `test_excel_daily_sales_entry.py` |
 | Playwright | `frontend/tests/daily-sales-entry.spec.js` |
@@ -72,7 +73,7 @@ Paths are relative to the repo root. `SDE` = Daily Sales Entry.
 | Part | Path |
 |---|---|
 | Backend router | `backend/src/svr_backend/api/daily_sales_summary.py` |
-| Combine/derive helper | `backend/src/svr_backend/summary.py` (`build_summary`) |
+| Combine/derive helper | `backend/src/svr_backend/summary.py` — `build_summary` (combined totals **derived live** from the entries' cached `result`, never stored) + `reverify_summary_for_entry` (a correction to an entry re-opens the verified/uploaded summary side, ADR-5) |
 | Migration | `0003_daily_sales_summary.sql` |
 | Frontend screen | `frontend/src/renderer/screens/daily-sales-summary/{index.html,screen.js}` |
 | Backend tests | `backend/tests/test_daily_sales_summary_api.py` |

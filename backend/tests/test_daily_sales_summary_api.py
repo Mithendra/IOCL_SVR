@@ -117,3 +117,43 @@ def test_sales_can_only_verify_their_own_pump(client, auth_headers):
     )
     assert allowed.status_code == 200
     assert allowed.json()["office"]["verified"] is True
+
+
+def test_correcting_a_verified_entry_reopens_that_side(client, auth_headers, conn):
+    off, _road = _seed_both_pumps(client, auth_headers)
+    client.put(
+        f"/daily-sales-summary/{DATE}",
+        json={"off_verified": True, "road_verified": True},
+        headers=auth_headers("Manager"),
+    )
+    assert client.get(
+        f"/daily-sales-summary/{DATE}", headers=auth_headers("Manager")
+    ).json()["status"] == "verified"
+
+    # Manager corrects the office entry.
+    r = client.put(
+        f"/daily-sales-entry/{off['id']}",
+        json={"pump_serial": OFF, "shift_date": DATE, "hs": {"current": "1500"}, "ms": {"current": "0"}},
+        headers=auth_headers("Manager"),
+    )
+    assert r.status_code == 200
+    assert "re-verification" in (r.json().get("summary_note") or "")
+
+    s = client.get(f"/daily-sales-summary/{DATE}", headers=auth_headers("Manager")).json()
+    assert s["office"]["verified"] is False   # the edited side must be re-checked
+    assert s["road"]["verified"] is True      # the untouched side stands
+    assert s["status"] == "draft"
+    assert conn.execute(
+        "SELECT COUNT(*) c FROM audit_log WHERE table_name='daily_sales_summary' AND action='update'"
+    ).fetchone()["c"] >= 1
+
+
+def test_correcting_an_unverified_entry_leaves_the_summary_alone(client, auth_headers):
+    off, _road = _seed_both_pumps(client, auth_headers)
+    r = client.put(
+        f"/daily-sales-entry/{off['id']}",
+        json={"pump_serial": OFF, "shift_date": DATE, "hs": {"current": "1500"}, "ms": {"current": "0"}},
+        headers=auth_headers("Manager"),
+    )
+    assert r.status_code == 200
+    assert r.json().get("summary_note") is None

@@ -47,11 +47,12 @@ test("typing Current Reading updates Amount via the backend /calc", async ({ pag
 test("Save persists the entry and stamps last-updated-by", async ({ page }) => {
   await login(page);
   await page.goto(SCREEN);
+  await page.fill("#shift-date", "2026-08-20"); // isolated so no other test's row loads in
   await page.fill("#hs-current", "1317.52");
   await page.fill("#exp1", "500+100=600");
   await page.click("#save-btn");
 
-  await expect(page.locator("#save-status")).toContainText("Saved (entry #");
+  await expect(page.locator("#save-status")).toContainText(/(Saved|Updated) \(entry #/);
   await expect(page.locator("#last-updated-by")).toHaveText("gsales");
 
   // Confirm the row is really in the backend.
@@ -60,12 +61,51 @@ test("Save persists the entry and stamps last-updated-by", async ({ page }) => {
     data: { login_name: "gsales", password: "demo1234" },
   });
   const token = (await loginRes.json()).token;
-  const list = await ctx.get(`${apiBase}/daily-sales-entry?pump_serial=12BC4523V-OFF`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
+  const list = await ctx.get(
+    `${apiBase}/daily-sales-entry?pump_serial=12BC4523V-OFF&shift_date=2026-08-20`,
+    { headers: { Authorization: `Bearer ${token}` } }
+  );
   const rows = await list.json();
-  expect(rows.length).toBeGreaterThan(0);
+  expect(rows.length).toBe(1);
   expect(rows[0].sell_rate_hs).toBe(105.36);
+  await ctx.dispose();
+});
+
+test("re-opening a saved day loads it for edit; Save updates the same row", async ({ page }) => {
+  const DATE = "2026-07-15";
+  await login(page);
+  await page.goto(SCREEN);
+  await page.fill("#shift-date", DATE);
+  await page.fill("#hs-current", "2000.5");
+  await page.click("#save-btn");
+  await expect(page.locator("#save-status")).toContainText("Saved (entry #");
+
+  // fresh screen, same pump + date -> it should load the saved entry
+  await page.goto(SCREEN);
+  await page.fill("#shift-date", DATE);
+  await expect(page.locator("#editing-note")).toContainText("Editing saved entry #");
+  await expect(page.locator("#hs-current")).toHaveValue("2000.5");
+
+  await page.fill("#hs-current", "2100");
+  await page.click("#save-btn");
+  await expect(page.locator("#save-status")).toContainText("Updated (entry #");
+
+  const ctx = await request.newContext();
+  const token = (
+    await (
+      await ctx.post(`${apiBase}/auth/login`, {
+        data: { login_name: "gsales", password: "demo1234" },
+      })
+    ).json()
+  ).token;
+  const rows = await (
+    await ctx.get(
+      `${apiBase}/daily-sales-entry?shift_date=${DATE}&pump_serial=12BC4523V-OFF`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    )
+  ).json();
+  expect(rows.length).toBe(1); // updated in place, no duplicate
+  expect(String(rows[0].payload.hs.current)).toBe("2100");
   await ctx.dispose();
 });
 
@@ -99,6 +139,7 @@ test("Scan / Upload (OCR) returns a flagged draft (or reports the engine is abse
   );
   await login(page);
   await page.goto(SCREEN);
+  await page.fill("#shift-date", "2026-08-25"); // isolated - no existing row to bind to
   await page.setInputFiles('input[type="file"][accept*="pdf"]', {
     name: "scan.pdf",
     mimeType: "application/pdf",
@@ -106,17 +147,20 @@ test("Scan / Upload (OCR) returns a flagged draft (or reports the engine is abse
   });
   // With the bundled Tesseract staged -> "OCR DRAFT ... Check EVERY value".
   // Without it (e.g. CI) -> "OCR engine not available". Either is a pass.
+  // OCR of a full-page scan takes a few seconds, so allow generous time.
   await expect(page.locator("#save-status")).toContainText(
-    /OCR DRAFT|OCR engine not available/,
+    /OCR DRAFT|Read \d+ field|OCR engine not available/,
+    { timeout: 45000 },
   );
 });
 
 test("Export to Excel downloads an .xlsx for a saved entry", async ({ page }) => {
   await login(page);
   await page.goto(SCREEN);
+  await page.fill("#shift-date", "2026-08-23");
   await page.fill("#hs-current", "1450.5");
   await page.click("#save-btn");
-  await expect(page.locator("#save-status")).toContainText("Saved (entry #");
+  await expect(page.locator("#save-status")).toContainText(/(Saved|Updated) \(entry #/);
 
   const [download] = await Promise.all([
     page.waitForEvent("download"),
@@ -129,6 +173,7 @@ test("Export to Excel downloads an .xlsx for a saved entry", async ({ page }) =>
 test("Export to Excel asks you to Save first on an unsaved form", async ({ page }) => {
   await login(page);
   await page.goto(SCREEN);
+  await page.fill("#shift-date", "2026-06-30"); // a date with no saved entry
   await page.click("#export-btn");
   await expect(page.locator("#save-status")).toContainText("Save the entry first");
 });
@@ -137,10 +182,11 @@ test("Import from Excel parses a workbook and populates the form", async ({ page
   await login(page);
   await page.goto(SCREEN);
   // Make an entry, export it via the API to get a real workbook, then import it.
+  await page.fill("#shift-date", "2026-08-24");
   await page.fill("#hs-current", "1600.25");
   await page.fill("#exp1", "200+50=250");
   await page.click("#save-btn");
-  await expect(page.locator("#save-status")).toContainText("Saved (entry #");
+  await expect(page.locator("#save-status")).toContainText(/(Saved|Updated) \(entry #/);
 
   const ctx = await request.newContext();
   const token = (
@@ -151,9 +197,10 @@ test("Import from Excel parses a workbook and populates the form", async ({ page
     ).json()
   ).token;
   const list = await (
-    await ctx.get(`${apiBase}/daily-sales-entry?pump_serial=12BC4523V-OFF`, {
-      headers: { Authorization: `Bearer ${token}` },
-    })
+    await ctx.get(
+      `${apiBase}/daily-sales-entry?pump_serial=12BC4523V-OFF&shift_date=2026-08-24`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    )
   ).json();
   const id = list[0].id;
   const xlsx = await (

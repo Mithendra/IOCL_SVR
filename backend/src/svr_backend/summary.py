@@ -147,6 +147,46 @@ def build_summary(conn: sqlite3.Connection, shift_date: str) -> dict:
     }
 
 
+def reverify_summary_for_entry(
+    conn: sqlite3.Connection, shift_date: str, pump_serial: str, actor: str
+) -> str | None:
+    """A Daily Sales Entry for this day was corrected. If its Daily Sales Summary
+    was already verified or uploaded, drop the edited side's verification (and the
+    uploaded status) so a human re-checks the changed figures (SDD ADR-5).
+    Returns a short note if it changed something, else None.
+    """
+    from svr_backend.core.audit import record_write
+
+    side = classify_pump(pump_serial)
+    if side is None:
+        return None
+    row = conn.execute(
+        "SELECT * FROM daily_sales_summary WHERE shift_date = ?", (shift_date,)
+    ).fetchone()
+    if row is None:
+        return None
+    col = "off_verified" if side == "office" else "road_verified"
+    was_verified = bool(row[col])
+    if not was_verified and row["status"] != "uploaded":
+        return None
+    conn.execute(
+        f"UPDATE daily_sales_summary SET {col} = 0, status = 'draft', "
+        "verified_by = NULL, uploaded_by = NULL, uploaded_at = NULL, "
+        "last_updated_by = ?, last_updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') "
+        "WHERE shift_date = ?",
+        (actor, shift_date),
+    )
+    record_write(
+        conn, table="daily_sales_summary", record_id=row["id"], action="update", actor=actor,
+        old={"status": row["status"], col: was_verified},
+        new={"status": "draft", col: False},
+    )
+    return (
+        f"Daily Sales Summary for {shift_date} re-opened: the {side} side needs "
+        "re-verification after this correction."
+    )
+
+
 def _side_dict(side: PumpSide) -> dict:
     return {
         "entry_id": side.entry_id,

@@ -129,3 +129,42 @@ def test_ocr_endpoint_needs_a_file(client, auth_headers):
     r = client.post("/daily-sales-entry/ocr", headers=auth_headers("Sales"))
     assert r.status_code == 422
     # Full OCR behaviour is in test_ocr_pipeline.py (skipped where Tesseract is absent).
+
+
+# ----------------------------------------------- one entry per pump/date/submitter
+
+
+def test_second_create_for_same_pump_date_user_is_409(client, auth_headers):
+    h = auth_headers("Sales")
+    first = client.post("/daily-sales-entry", json=_entry_body(), headers=h)
+    assert first.status_code == 201
+    dup = client.post("/daily-sales-entry", json=_entry_body(hs={"current": "1400"}), headers=h)
+    assert dup.status_code == 409
+    assert str(first.json()["id"]) in dup.json()["detail"]  # points at the row to edit
+
+
+def test_same_pump_date_different_submitter_is_allowed(client, auth_headers):
+    assert (
+        client.post("/daily-sales-entry", json=_entry_body(), headers=auth_headers("Sales"))
+        .status_code
+        == 201
+    )
+    assert (
+        client.post("/daily-sales-entry", json=_entry_body(), headers=auth_headers("Manager"))
+        .status_code
+        == 201
+    )
+
+
+def test_correction_via_put_updates_the_same_row(client, auth_headers, conn):
+    h = auth_headers("Sales")
+    eid = client.post("/daily-sales-entry", json=_entry_body(), headers=h).json()["id"]
+    upd = client.put(
+        f"/daily-sales-entry/{eid}", json=_entry_body(hs={"current": "1400"}), headers=h
+    )
+    assert upd.status_code == 200 and upd.json()["id"] == eid
+    n = conn.execute(
+        "SELECT COUNT(*) c FROM daily_sales_entry WHERE pump_serial = ? AND shift_date = ?",
+        (PUMP, "2026-08-12"),
+    ).fetchone()["c"]
+    assert n == 1
