@@ -114,10 +114,33 @@ digitally or transcribes it into the typed template and saves a PDF — the app
 extracts it and the operator just reviews. Only a **direct scan of handwriting**
 remains unreadable.
 
+### Update, 2026-09-10 — the same idea now works for Excel too
+
+Client asked the mirror-image question: rather than a typed PDF, can a handwritten
+form be typed up into an **Excel sheet** (e.g. via an AI chat tool) and imported
+directly? `POST /import-excel` previously only understood our own keyed
+export/template layout - a natural, paper-shaped workbook (labels beside values,
+no hidden field-key column) came back with "No SVR field keys found" and an empty
+form. `excel/daily_sales_entry.py` now falls back to a **paper-layout parser**
+(`_parse_paper_layout`) that matches the physical form's own labels by exact cell
+text (not OCR) when no keys are found - same review-before-Save discipline (ADR-5),
+no OCR engine involved. So there are now **two** working manual-conversion
+workflows, covering the two natural output formats an AI transcription tool
+produces:
+
+- **typed PDF → Scan/Upload** (text-layer read, above)
+- **typed Excel → Import from Excel** (paper-layout fallback)
+
+Both are entirely manual and external to the app - a person converts the
+photographed form using whatever tool they choose, outside the SVR application,
+then imports the result through an existing button. The app has no direct
+integration with (and makes no runtime call to) any AI/cloud service either way.
+
 ## Recommendation
 
-Run real-data UAT on **manual entry + Excel import + typed-PDF upload** (all
-reliable). The OCR-of-handwriting path stays wired and bundled (costs nothing at
+Run real-data UAT on **manual entry + Excel import (keyed template or a natural
+paper-shaped workbook) + typed-PDF upload** (all reliable, no OCR engine
+required). The OCR-of-handwriting path stays wired and bundled (costs nothing at
 runtime) for the day a cloud/HTR option is chosen.
 
 Black/blue ink and document scans (now the station standard) remove the

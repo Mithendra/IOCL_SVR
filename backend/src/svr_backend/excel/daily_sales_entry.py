@@ -227,6 +227,21 @@ def blank_template(pump_serial: str | None = None) -> bytes:
 # --------------------------------------------------------------------------- parse
 
 
+_KEY_PREFIXES = (
+    "hs.", "ms.", "oils.", "expenses.", "credit_card_amounts.",
+    "new_credits.", "old_credit_amounts.", "meta.", "_chk.", "_info.",
+)
+_KEY_EXACT = ("phone_pay_settled", "phone_pay_unsettled", "night_cash")
+
+
+def _looks_like_field_key(v: Any) -> bool:
+    """True only for our own dotted/exact key vocabulary (column F) - NOT just any
+    non-empty string. openpyxl pads every row out to the sheet's widest row, so a
+    natural workbook's own header text (e.g. "Amount", "Signature") can otherwise
+    land in column F by accident and be mistaken for one of our field keys."""
+    return isinstance(v, str) and (v in _KEY_EXACT or v.startswith(_KEY_PREFIXES))
+
+
 def _num_or_str(v: Any) -> Any:
     if v is None:
         return None
@@ -261,17 +276,226 @@ def _assign(payload: dict, key: str, value: Any) -> None:
         payload[head] = value
 
 
+# --------------------------------------------------------- paper-layout (fallback)
+#
+# Reads a workbook shaped like the *physical* Daily Sales Report - labels in early
+# columns, values beside them - rather than our own keyed export/template. This is
+# exactly what a person gets when they ask an AI chat tool (or anyone else) to type
+# up a photographed handwritten form: a natural spreadsheet, not our internal
+# format. Matched by exact cell text (not OCR), so it's reliable whenever the
+# layout resembles the printed form; ADR-5 review still applies before Save.
+
+_HS_LABEL_HINTS = ("diesel", "hs-nz", "(hs")
+_MS_LABEL_HINTS = ("petrol", "ms-nz", "(ms")
+
+# Distinctive substrings per fixed oil row - first token alone is ambiguous between
+# the two Acid Water rows, so each hint pins down the row uniquely.
+_OIL_MATCH_HINTS: dict[str, tuple[str, ...]] = {
+    "oil1": ("2t/1.20", "2t 1.20", "1.20 ml"),
+    "oil2": ("2t/2.40", "2t 2.40", "2.40 ml"),
+    "oil3": ("acid water total 1", "acid water 1 lt"),
+    "oil4": ("acid water total 5", "acid water 5 lt"),
+    "oil5": ("20/40", "20 40 engine"),
+}
+
+
+def _txt(v: Any) -> str:
+    return str(v).strip().lower() if v is not None else ""
+
+
+def _row_txt(row: tuple) -> str:
+    return " ".join(_txt(v) for v in row if v is not None)
+
+
+def _find_row(rows: list[tuple], *needles: str, start: int = 0) -> int | None:
+    """First row index >= start whose cells together contain every needle."""
+    for i in range(start, len(rows)):
+        t = _row_txt(rows[i])
+        if all(n in t for n in needles):
+            return i
+    return None
+
+
+def _col_of(row: tuple, *needles: str) -> int | None:
+    """First column index in ``row`` whose own cell text contains every needle."""
+    for j, v in enumerate(row):
+        if all(n in _txt(v) for n in needles):
+            return j
+    return None
+
+
+def _cell(row: tuple | None, col: int | None) -> Any:
+    if row is None or col is None or col >= len(row):
+        return None
+    return _num_or_str(row[col])
+
+
+def _rightmost_value(row: tuple, skip_first: int = 1) -> Any:
+    """Rightmost non-blank cell, skipping the leading label column(s) - for simple
+    Description | ... | Amount rows with no separate header to anchor a column on."""
+    for v in reversed(row[skip_first:]):
+        out = _num_or_str(v)
+        if out is not None:
+            return out
+    return None
+
+
+def _section_span(rows: list[tuple], title: str, next_title: str | None) -> tuple[int, int] | None:
+    start = _find_row(rows, title)
+    if start is None:
+        return None
+    if next_title is None:
+        return start, len(rows)
+    end = _find_row(rows, next_title, start=start + 1)
+    return start, end if end is not None else len(rows)
+
+
+def _parse_paper_layout(rows: list[tuple]) -> tuple[dict, dict, list[str]]:
+    warnings = [
+        "Read as a paper-form layout (no SVR field keys found) - this is a "
+        "best-effort match on the form's own labels. Check EVERY value against "
+        "the original form before Save (SDD ADR-5)."
+    ]
+    payload = _blank_payload()
+    meta: dict[str, Any] = {"shift_date": None, "pump_serial": None}
+
+    for row in rows[:4]:  # header block: pick up the first date-like cell
+        for v in row:
+            if hasattr(v, "strftime"):
+                meta["shift_date"] = _fmt_date(v)
+                break
+        if meta["shift_date"]:
+            break
+
+    # ---- 1. Gas Sale(s) ----
+    gas_hdr = _find_row(rows, "current reading", "last shift")
+    if gas_hdr is None:
+        warnings.append(
+            "Could not find the Gas Sale(s) table - Diesel/Petrol readings were not read."
+        )
+    else:
+        col_current = _col_of(rows[gas_hdr], "current reading")
+        col_last = _col_of(rows[gas_hdr], "last shift")
+        stop = _find_row(rows, "total amt", start=gas_hdr + 1)
+        stop = stop if stop is not None else min(gas_hdr + 6, len(rows))
+        for i in range(gas_hdr + 1, stop):
+            label = _txt(rows[i][0] if rows[i] else None)
+            if not label:
+                continue
+            if any(h in label for h in _HS_LABEL_HINTS):
+                payload["hs"]["current"] = _cell(rows[i], col_current)
+                payload["hs"]["last"] = _cell(rows[i], col_last)
+            elif any(h in label for h in _MS_LABEL_HINTS):
+                payload["ms"]["current"] = _cell(rows[i], col_current)
+                payload["ms"]["last"] = _cell(rows[i], col_last)
+
+    # ---- 2. Oil Sale(s) ----
+    oil_hdr = _find_row(rows, "quantity", start=gas_hdr + 1 if gas_hdr is not None else 0)
+    if oil_hdr is None:
+        warnings.append("Could not find the Oil Sale(s) table - quantities were not read.")
+    else:
+        col_qty = _col_of(rows[oil_hdr], "quantity")
+        stop = _find_row(rows, "total amt", start=oil_hdr + 1)
+        stop = stop if stop is not None else min(oil_hdr + 8, len(rows))
+        oils = []
+        for key in OIL_KEYS:
+            hints = _OIL_MATCH_HINTS[key]
+            ridx = next(
+                (i for i in range(oil_hdr + 1, stop) if any(h in _row_txt(rows[i]) for h in hints)),
+                None,
+            )
+            oils.append({"qty": _cell(rows[ridx] if ridx is not None else None, col_qty)})
+        payload["oils"] = oils
+
+    # ---- 3. Expenses (3 fixed description rows, Amount is the last cell) ----
+    exp_span = _section_span(rows, "expenses", "credit cards swiping")
+    if exp_span:
+        s, e = exp_span
+        expenses: list[Any] = [None, None, None]
+        for needle, idx in (
+            ("daily diesel", 0), ("any other expenses", 1), ("night cash hand-off", 2),
+        ):
+            ridx = _find_row(rows, needle, start=s + 1)
+            if ridx is not None and ridx < e:
+                expenses[idx] = _rightmost_value(rows[ridx])
+        payload["expenses"] = expenses
+
+    # ---- 4. Credit Cards Swiping(s) ----
+    cc_span = _section_span(rows, "credit cards swiping", "today new credit")
+    if cc_span:
+        s, e = cc_span
+        hdr = _find_row(rows, "terminal id", start=s)
+        if hdr is not None:
+            payload["credit_card_amounts"] = [
+                v
+                for i in range(hdr + 1, e)
+                if _row_txt(rows[i]) and "total amt" not in _row_txt(rows[i])
+                for v in [_rightmost_value(rows[i], skip_first=0)]
+                if v is not None
+            ]
+
+    # ---- 5. Today New Credit(s) ----
+    nc_span = _section_span(rows, "today new credit", "old/pending credit")
+    if nc_span:
+        s, e = nc_span
+        hdr = _find_row(rows, "in ltrs", start=s)
+        if hdr is not None:
+            col_ltrs = _col_of(rows[hdr], "in ltrs")
+            col_rate = _col_of(rows[hdr], "rate")
+            new_credits = []
+            for i in range(hdr + 1, e):
+                t = _row_txt(rows[i])
+                if not t or "total amt" in t:
+                    continue
+                ltrs, rate = _cell(rows[i], col_ltrs), _cell(rows[i], col_rate)
+                if ltrs is not None or rate is not None:
+                    new_credits.append({"ltrs": ltrs, "rate": rate})
+            payload["new_credits"] = new_credits
+
+    # ---- 6. Old/Pending Credit Received (reference only) ----
+    oc_span = _section_span(rows, "old/pending credit", "summary - cash hand off")
+    if oc_span:
+        s, e = oc_span
+        hdr = _find_row(rows, "customer name", start=s)
+        if hdr is not None:
+            col_amt = _col_of(rows[hdr], "amount")
+            payload["old_credit_amounts"] = [
+                v for i in range(hdr + 1, e) if (v := _cell(rows[i], col_amt)) is not None
+            ]
+
+    # ---- 7. Summary - only the 3 operator-entered lines. Everything else here is
+    #         computed and gets recomputed downstream; the sheet's own totals (Cash,
+    #         Net Bal, ...) are never read, per ADR-5.
+    summary_start = _find_row(rows, "summary - cash hand off")
+    if summary_start is not None:
+        for needle, key in (
+            ("phone pay settled", "phone_pay_settled"),
+            ("phone pay not settled", "phone_pay_unsettled"),
+            ("night cash hand off total", "night_cash"),
+        ):
+            ridx = _find_row(rows, needle, start=summary_start + 1)
+            if ridx is not None:
+                payload[key] = _rightmost_value(rows[ridx])
+
+    payload["oils"] = _trim_oils(payload["oils"])
+    for k in ("expenses", "credit_card_amounts", "old_credit_amounts"):
+        payload[k] = _rtrim(list(payload[k]))
+    payload["new_credits"] = _rtrim_dicts(payload["new_credits"], ("ltrs", "rate"))
+
+    return payload, meta, warnings
+
+
 def parse_workbook(data: bytes) -> tuple[dict, dict, list[str]]:
     """bytes -> (payload, meta, warnings). Recompute downstream; never trust sheet totals."""
-    warnings: list[str] = []
     wb = load_workbook(io.BytesIO(data), data_only=True, read_only=True)
     ws = wb[SHEET] if SHEET in wb.sheetnames else wb.active
+    all_rows = list(ws.iter_rows(values_only=True))  # materialize once (read-only sheet)
 
     kv: dict[str, Any] = {}
     checks: dict[str, Any] = {}
-    for row in ws.iter_rows(min_col=1, max_col=6, values_only=True):
+    for row in all_rows:
         key = row[5] if len(row) > 5 else None
-        if not isinstance(key, str) or not key:
+        if not _looks_like_field_key(key):
             continue
         if key.startswith("_chk."):
             checks[key[5:]] = _num_or_str(row[3])
@@ -281,8 +505,14 @@ def parse_workbook(data: bytes) -> tuple[dict, dict, list[str]]:
             kv[key] = _num_or_str(row[2])
 
     if not kv and not checks:
-        warnings.append("No SVR field keys found in column F - is this an SVR export or template?")
+        # Not one of our own exports/templates - most likely a natural, paper-shaped
+        # workbook (e.g. a handwritten form typed up externally). Read it by matching
+        # the physical form's own labels instead (exact cell text, not OCR, so it's
+        # reliable whenever the layout resembles the printed form). ADR-5 review
+        # still applies downstream - nothing here is trusted without a human Save.
+        return _parse_paper_layout(all_rows)
 
+    warnings: list[str] = []
     payload = _blank_payload()
     for key, value in kv.items():
         if not key.startswith("meta."):
