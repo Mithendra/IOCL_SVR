@@ -6,21 +6,30 @@ values, shaped like the physical form, not our own keyed export/template. See
 docs/01-BRD-Requirement-Gathering/OCR-findings-2026-09-09.md and the 2026-09-10
 client report for the real-world case this covers.
 
-The fixture below is a from-scratch reconstruction of that layout (not the actual
-client file, which arrived corrupted in transit) - self-consistent test values, not
-the real report's numbers. Once the real .xlsx is available in
-docs/01-BRD-Requirement-Gathering/ocr-samples/, re-run this module's approach
-against it directly to confirm the label-matching still lines up.
+The first fixture below is a from-scratch reconstruction of that layout (it was
+written before the real client file could be read - it arrived corrupted the
+first time it was sent). The second test reads the real file, now in
+docs/01-BRD-Requirement-Gathering/ocr-samples/SVR_Daily_Sales_FILLED_SEP10_BLACK_WHITE.xlsx,
+confirming the label-matching holds against an actual AI-transcribed sheet, not
+just a hand-built approximation of one.
 """
 
 from __future__ import annotations
 
 import io
+from pathlib import Path
 
+import pytest
 from openpyxl import Workbook
 
 from svr_backend.calc.daily_sales_entry import compute_payload
 from svr_backend.excel import blank_template, parse_workbook
+
+_REAL_SAMPLE = (
+    Path(__file__).resolve().parents[2]
+    / "docs" / "01-BRD-Requirement-Gathering" / "ocr-samples"
+    / "SVR_Daily_Sales_FILLED_SEP10_BLACK_WHITE.xlsx"
+)
 
 
 def _natural_workbook() -> bytes:
@@ -117,3 +126,30 @@ def test_keyed_export_still_takes_priority_over_paper_layout():
     _, meta, warnings = parse_workbook(blank_template("12BC4523V-OFF"))
     assert not warnings
     assert meta["pump_serial"] == "12BC4523V-OFF"
+
+
+@pytest.mark.skipif(not _REAL_SAMPLE.exists(), reason="real client sample not present")
+def test_real_client_workbook_reads_the_gas_and_expense_figures():
+    """The actual file the client sent (2026-09-10), typed up from a handwritten
+    Daily Sales Report. Confirms the fixture above isn't just a lucky guess at the
+    real layout - Gas Sale(s), Expenses, and two Summary lines all reproduce the
+    figures printed on the paper form exactly.
+    """
+    payload, meta, warnings = parse_workbook(_REAL_SAMPLE.read_bytes())
+
+    assert any("paper-form layout" in w for w in warnings)
+    assert meta["pump_serial"] is None  # never guessed - operator picks it
+
+    assert payload["hs"] == {"current": 1487828.11, "last": 1487517.43}
+    assert payload["ms"] == {"current": 661164.69, "last": 660581.14}
+    assert payload["expenses"] == [1363.3, 117, 35500]
+    assert payload["phone_pay_settled"] == 8560
+    assert payload["night_cash"] == 36980.3
+    # These sections are genuinely blank on this particular day's form.
+    assert payload["credit_card_amounts"] == []
+    assert payload["new_credits"] == []
+    assert payload["old_credit_amounts"] == []
+
+    result = compute_payload(payload)
+    assert result["hs"]["cons"] == 310.68  # matches the paper form exactly
+    assert result["ms"]["cons"] == 583.55

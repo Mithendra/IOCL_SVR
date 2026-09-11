@@ -136,6 +136,30 @@ photographed form using whatever tool they choose, outside the SVR application,
 then imports the result through an existing button. The app has no direct
 integration with (and makes no runtime call to) any AI/cloud service either way.
 
+### Update, 2026-09-10 — validated against the client's real file
+
+The client's actual `.xlsx` (it arrived corrupted the first time it was sent)
+is now in `ocr-samples/SVR_Daily_Sales_FILLED_SEP10_BLACK_WHITE.xlsx`, alongside
+a reference blank form, `ocr-samples/SVR_EMPTY_FORM_FINAL.pdf` (confirms Print /
+Print Blank should cover Sections 1-7 + Verified by only - already how it's
+built). Reading the real file:
+
+- **Gas Sale(s), Expenses, Phone Pay Settled, and Night Cash all read exactly
+  right** and recompute to the same figures printed on the paper form
+  (`hs.cons 310.68` / `hs.amount 32733.24`, `ms.cons 583.55` / `ms.amount
+  68683.83`, …) - covered by `test_real_client_workbook_reads_the_gas_and_
+  expense_figures` in `test_excel_paper_layout_import.py`.
+- **Oil Sale(s) needs a careful look**: this workbook's "Quantity" column holds
+  different numbers than the previously-supplied typed PDF of the same day's
+  data for the 3 rows where Quantity should be blank (e.g. row 1 has `30` under
+  Quantity here, where the PDF has Quantity blank and `30` under Rate instead).
+  This reads as a genuine inconsistency between the two client-supplied
+  transcriptions of the same paper form, not a parser defect - the parser reads
+  exactly what's under each column header, which is all it can do. This is
+  exactly the case SDD ADR-5's mandatory review-before-Save exists for; flagged
+  here so a human specifically re-checks the Oil Sale(s) quantities against the
+  original paper form before Save when using this workflow.
+
 ## Recommendation
 
 Run real-data UAT on **manual entry + Excel import (keyed template or a natural
