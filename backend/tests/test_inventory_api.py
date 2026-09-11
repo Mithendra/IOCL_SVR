@@ -46,7 +46,7 @@ def test_sold_today_and_low_stock_status(client, auth_headers):
     client.post(
         "/daily-sales-entry",
         json={
-            "pump_serial": "12BC4523V-OFF",
+            "pump_serial": "12BC4523V-RD",
             "shift_date": DATE,
             "hs": {"current": "1"},
             "oils": [{}, {}, {}, {"qty": "15"}, {}],
@@ -76,7 +76,7 @@ def test_owner_can_correct_reorder_and_on_hand(client, auth_headers):
 def test_daily_sales_entry_opening_stock_comes_from_inventory(client, auth_headers):
     created = client.post(
         "/daily-sales-entry",
-        json={"pump_serial": "12BC4523V-OFF", "shift_date": DATE, "hs": {"current": "1"},
+        json={"pump_serial": "12BC4523V-RD", "shift_date": DATE, "hs": {"current": "1"},
               "oils": [{"qty": "2"}, {}, {}, {}, {}]},
         headers=auth_headers("Sales"),
     ).json()

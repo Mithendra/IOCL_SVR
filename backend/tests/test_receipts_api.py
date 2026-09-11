@@ -6,7 +6,7 @@ from __future__ import annotations
 
 def _body(**over):
     b = {
-        "pump_serial": "12BC4523V-OFF",
+        "pump_serial": "12BC4523V-RD",
         "attendant": "Gopi",
         "fuel_type": "Diesel",
         "liters": 10,

@@ -22,7 +22,7 @@ test("Sales issues a Diesel receipt; rate + total come from Rate Master", async 
   await login(page, "gsales");
   await page.goto(SCREEN);
 
-  await page.fill("#r-pump", "12BC4523V-OFF");
+  await page.fill("#r-pump", "12BC4523V-RD");
   await page.fill("#r-attendant", "Gopi");
   await page.selectOption("#r-fuel", "Diesel");
   await page.fill("#r-liters", "10");

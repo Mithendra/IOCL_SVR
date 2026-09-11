@@ -9,7 +9,7 @@
 CREATE TABLE daily_sales_entry (
     id                    INTEGER PRIMARY KEY AUTOINCREMENT,
     shift_date            TEXT NOT NULL,                 -- YYYY-MM-DD
-    pump_serial           TEXT NOT NULL,                 -- e.g. '12BC4523V-OFF'
+    pump_serial           TEXT NOT NULL,                 -- e.g. '12BC4523V-RD'
     submitted_by          TEXT NOT NULL,                 -- users.login_name
     entry_mode            TEXT NOT NULL DEFAULT 'manual'
                           CHECK (entry_mode IN ('manual', 'ocr', 'excel')),

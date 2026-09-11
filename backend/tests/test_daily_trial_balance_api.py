@@ -12,11 +12,11 @@ def _seed_summary(client, auth_headers, shift_date=DATE):
     """Two pump submissions -> combined HS consumption 50 L, MS consumption 20 L."""
     h = auth_headers("Sales")
     client.post("/daily-sales-entry", json={
-        "pump_serial": "12BC4523V-OFF", "shift_date": shift_date,
+        "pump_serial": "12BC4523V-RD", "shift_date": shift_date,
         "hs": {"current": "30"}, "ms": {"current": "15"},
     }, headers=h)
     client.post("/daily-sales-entry", json={
-        "pump_serial": "11CC2012V-RDF", "shift_date": shift_date,
+        "pump_serial": "11CC2012V-OFF", "shift_date": shift_date,
         "hs": {"current": "20"}, "ms": {"current": "5"},
     }, headers=auth_headers("Manager"))
 

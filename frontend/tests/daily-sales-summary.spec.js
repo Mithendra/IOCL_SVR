@@ -4,8 +4,8 @@ const { test, expect, request } = require("@playwright/test");
 const { apiBase } = require("./_helpers");
 
 const DATE = "2026-07-15";
-const OFF = "12BC4523V-OFF";
-const ROAD = "11CC2012V-RDF";
+const OFF = "11CC2012V-OFF"; // office pump (client-confirmed serial swap, 2026-09-11)
+const ROAD = "12BC4523V-RD"; // road pump
 const SCREEN = `/screens/daily-sales-summary/index.html?apiBase=${encodeURIComponent(apiBase)}`;
 
 async function seedEntries() {

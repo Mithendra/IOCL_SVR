@@ -123,9 +123,9 @@ def test_natural_paper_layout_is_parsed_without_field_keys():
 
 def test_keyed_export_still_takes_priority_over_paper_layout():
     """A real SVR export/template must never fall through to the heuristic path."""
-    _, meta, warnings = parse_workbook(blank_template("12BC4523V-OFF"))
+    _, meta, warnings = parse_workbook(blank_template("12BC4523V-RD"))
     assert not warnings
-    assert meta["pump_serial"] == "12BC4523V-OFF"
+    assert meta["pump_serial"] == "12BC4523V-RD"
 
 
 @pytest.mark.skipif(not _REAL_SAMPLE.exists(), reason="real client sample not present")

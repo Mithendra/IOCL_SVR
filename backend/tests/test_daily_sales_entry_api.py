@@ -4,7 +4,7 @@ and audit on every write (SDD 4.2 / 7.3 / 13.4).
 
 from __future__ import annotations
 
-PUMP = "12BC4523V-OFF"
+PUMP = "12BC4523V-RD"
 
 
 def _entry_body(**over):

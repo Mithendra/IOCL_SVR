@@ -12,13 +12,13 @@ def _seed_fy_2026(client, auth_headers):
     # inside FY 2026-27 - dated after the seeded Rate Master effective date so a
     # Sell Rate resolves (first entry for this pump: cons = 100).
     client.post("/daily-sales-entry", json={
-        "pump_serial": "12BC4523V-OFF", "shift_date": "2026-09-10",
+        "pump_serial": "12BC4523V-RD", "shift_date": "2026-09-10",
         "hs": {"current": "100"}, "ms": {"current": "50"},
         "oils": [{"qty": "2"}, {}, {}, {}, {}],
     }, headers=sh)
     # next FY (Apr 2027 -> excluded from the 2026-27 report)
     client.post("/daily-sales-entry", json={
-        "pump_serial": "12BC4523V-OFF", "shift_date": "2027-05-01",
+        "pump_serial": "12BC4523V-RD", "shift_date": "2027-05-01",
         "hs": {"current": "200"},
     }, headers=sh)
     # a payroll run paid inside the FY

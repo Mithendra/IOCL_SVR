@@ -4,8 +4,8 @@ the both-verified gate on upload (SDD 5.23-5.25 / 10 / ADR-5)."""
 from __future__ import annotations
 
 DATE = "2026-08-12"
-OFF = "12BC4523V-OFF"
-ROAD = "11CC2012V-RDF"
+OFF = "11CC2012V-OFF"  # office pump (client-confirmed serial swap, 2026-09-11)
+ROAD = "12BC4523V-RD"  # road pump
 
 
 def _make_entry(client, headers, pump, hs_current):

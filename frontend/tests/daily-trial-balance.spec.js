@@ -4,10 +4,17 @@ const { test, expect, request } = require("@playwright/test");
 const { apiBase } = require("./_helpers");
 
 const SCREEN = `/screens/daily-trial-balance/index.html?apiBase=${encodeURIComponent(apiBase)}`;
+// classify_pump (needed for Section 3's "both submitted" gate) only recognizes
+// the station's two real serials (2026-09-11) - unlike a made-up serial, these
+// are used by other specs too, so Last Shift Reading can't be assumed blank.
+// A known prior day is seeded instead, and today's readings are offset from it
+// by a known amount, so combined consumption is deterministic either way.
+const PUMP_A = "12BC4523V-RD";
+const PUMP_B = "11CC2012V-OFF";
+const PRIOR_DATE = "2026-10-19";
 const DATE = "2026-10-20";
 
 test.beforeAll(async () => {
-  // Two pump submissions on DATE -> combined HS consumption 50 L.
   const ctx = await request.newContext();
   const token = (
     await (await ctx.post(`${apiBase}/auth/login`, {
@@ -15,15 +22,23 @@ test.beforeAll(async () => {
     })).json()
   ).token;
   const h = { Authorization: `Bearer ${token}` };
-  // Pump serials no other spec touches -> no carried Last Reading, so consumption
-  // is exactly the Current Reading (30 + 20 = 50 combined).
   await ctx.post(`${apiBase}/daily-sales-entry`, {
     headers: h,
-    data: { pump_serial: "98AA0000V-OFF", shift_date: DATE, hs: { current: "30" } },
+    data: { pump_serial: PUMP_A, shift_date: PRIOR_DATE, hs: { current: "1000" } },
   });
   await ctx.post(`${apiBase}/daily-sales-entry`, {
     headers: h,
-    data: { pump_serial: "98BB0000V-RDF", shift_date: DATE, hs: { current: "20" } },
+    data: { pump_serial: PUMP_B, shift_date: PRIOR_DATE, hs: { current: "2000" } },
+  });
+  // +30 / +20 over the known prior day -> combined HS consumption 50 regardless
+  // of anything else ever recorded for these pumps before PRIOR_DATE.
+  await ctx.post(`${apiBase}/daily-sales-entry`, {
+    headers: h,
+    data: { pump_serial: PUMP_A, shift_date: DATE, hs: { current: "1030" } },
+  });
+  await ctx.post(`${apiBase}/daily-sales-entry`, {
+    headers: h,
+    data: { pump_serial: PUMP_B, shift_date: DATE, hs: { current: "2020" } },
   });
   await ctx.dispose();
 });

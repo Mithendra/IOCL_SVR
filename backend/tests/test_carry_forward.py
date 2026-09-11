@@ -8,7 +8,7 @@ from svr_backend.carry_forward import (
     run_carry_forward,
 )
 
-PUMP = "11CC2012V-RDF"
+PUMP = "11CC2012V-OFF"
 
 
 def _insert_entry(conn, shift_date, hs_current, ms_current):

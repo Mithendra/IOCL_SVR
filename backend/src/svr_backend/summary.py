@@ -14,15 +14,19 @@ from dataclasses import dataclass, field
 
 from svr_backend.calc.daily_sales_entry import OIL_KEYS, OIL_LABELS
 
+# Explicit serial -> side map (client-confirmed 2026-09-11), not a substring guess.
+# A previous version inferred the side from "OFF"/"RDF" inside the serial itself,
+# which broke the moment a serial's own suffix stopped matching its real-world
+# side (exactly what prompted this station's actual two serials below).
+PUMP_SIDE: dict[str, str] = {
+    "12BC4523V-RD": "road",
+    "11CC2012V-OFF": "office",
+}
+
 
 def classify_pump(pump_serial: str) -> str | None:
-    """'office' | 'road' | None, from the pump serial suffix (e.g. ...-OFF / ...-RDF)."""
-    s = (pump_serial or "").upper()
-    if "OFF" in s:
-        return "office"
-    if "RDF" in s or "ROAD" in s:
-        return "road"
-    return None
+    """'office' | 'road' | None, from the station's fixed two pump serials."""
+    return PUMP_SIDE.get((pump_serial or "").strip())
 
 
 @dataclass

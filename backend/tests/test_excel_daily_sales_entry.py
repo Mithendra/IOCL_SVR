@@ -14,7 +14,7 @@ from openpyxl import load_workbook
 from svr_backend.calc.daily_sales_entry import compute_payload
 from svr_backend.excel import blank_template, build_workbook, parse_workbook
 
-PUMP = "12BC4523V-OFF"
+PUMP = "12BC4523V-RD"
 
 _PAYLOAD = {
     "hs": {"current": 1317.52, "last": 1300, "rate": 105.36},

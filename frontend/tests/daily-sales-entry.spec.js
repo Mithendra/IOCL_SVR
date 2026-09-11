@@ -54,7 +54,7 @@ test("Last Shift Reading locks once a prior day's reading exists (carry-forward)
   await ctx.post(`${apiBase}/daily-sales-entry`, {
     headers: { Authorization: `Bearer ${token}` },
     data: {
-      pump_serial: "12BC4523V-OFF", shift_date: PRIOR,
+      pump_serial: "12BC4523V-RD", shift_date: PRIOR,
       hs: { current: "500" }, ms: { current: "300" },
     },
   });
@@ -104,7 +104,7 @@ test("Save persists the entry and stamps last-updated-by", async ({ page }) => {
   });
   const token = (await loginRes.json()).token;
   const list = await ctx.get(
-    `${apiBase}/daily-sales-entry?pump_serial=12BC4523V-OFF&shift_date=2026-08-20`,
+    `${apiBase}/daily-sales-entry?pump_serial=12BC4523V-RD&shift_date=2026-08-20`,
     { headers: { Authorization: `Bearer ${token}` } }
   );
   const rows = await list.json();
@@ -145,7 +145,7 @@ test("re-opening a saved day loads it for edit; Save updates the same row", asyn
   ).token;
   const rows = await (
     await ctx.get(
-      `${apiBase}/daily-sales-entry?shift_date=${DATE}&pump_serial=12BC4523V-OFF`,
+      `${apiBase}/daily-sales-entry?shift_date=${DATE}&pump_serial=12BC4523V-RD`,
       { headers: { Authorization: `Bearer ${token}` } }
     )
   ).json();
@@ -154,7 +154,7 @@ test("re-opening a saved day loads it for edit; Save updates the same row", asyn
   await ctx.dispose();
 });
 
-async function seedEntry(shiftDate, pump = "12BC4523V-OFF") {
+async function seedEntry(shiftDate, pump = "12BC4523V-RD") {
   const ctx = await request.newContext();
   const token = (
     await (
@@ -226,7 +226,7 @@ test("Manager can Delete a saved entry; the form clears and the row is gone", as
     ).json()
   ).token;
   const rows = await (
-    await ctx.get(`${apiBase}/daily-sales-entry?shift_date=${DATE}&pump_serial=12BC4523V-OFF`, {
+    await ctx.get(`${apiBase}/daily-sales-entry?shift_date=${DATE}&pump_serial=12BC4523V-RD`, {
       headers: { Authorization: `Bearer ${token}` },
     })
   ).json();
@@ -247,8 +247,8 @@ test("Print Blank Form fills the right pump serial, blanks readings, and hides S
     };
   });
 
-  await page.click('[data-blank="11CC2012V-RDF"]');
-  await expect(page.locator("#pump-serial")).toHaveValue("11CC2012V-RDF");
+  await page.click('[data-blank="11CC2012V-OFF"]');
+  await expect(page.locator("#pump-serial")).toHaveValue("11CC2012V-OFF");
   await expect(page.locator("#hs-current")).toHaveValue("");
   await expect(page.locator("#ms-current")).toHaveValue("");
   expect(await page.evaluate(() => window.__printCalls)).toBe(1);
@@ -351,7 +351,7 @@ test("Import from Excel parses a workbook and populates the form", async ({ page
   ).token;
   const list = await (
     await ctx.get(
-      `${apiBase}/daily-sales-entry?pump_serial=12BC4523V-OFF&shift_date=2026-08-24`,
+      `${apiBase}/daily-sales-entry?pump_serial=12BC4523V-RD&shift_date=2026-08-24`,
       { headers: { Authorization: `Bearer ${token}` } }
     )
   ).json();
