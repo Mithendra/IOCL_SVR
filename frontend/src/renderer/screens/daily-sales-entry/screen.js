@@ -394,7 +394,12 @@ async function importExcel(file) {
   status.className = "status-line";
   status.textContent = "Reading spreadsheet…";
   try {
-    const res = await api.upload("/daily-sales-entry/import-excel", file);
+    // Tells the backend which sheet to read if the workbook has more than one
+    // (e.g. a single file with both a Road and an Office sheet) - it never
+    // decides identity, only which sheet to look at (SDD, "everything is keyed
+    // by Pump Serial Number" - confirmed 2026-09-11).
+    const pumpQS = `?pump_serial=${encodeURIComponent(val("pump-serial"))}`;
+    const res = await api.upload(`/daily-sales-entry/import-excel${pumpQS}`, file);
     entryId = null;
 
     // Identity (Pump Serial + Shift Date) always comes from what's selected on

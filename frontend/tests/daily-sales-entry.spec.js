@@ -430,3 +430,36 @@ test("Import from Excel never switches the pump/date - it flags a mismatch inste
   // The imported values still apply, to whichever pump/date is now selected.
   await expect(page.locator("#hs-current")).toHaveValue("1700.5");
 });
+
+test("Import from Excel reads the sheet for whichever pump is selected (multi-pump workbook)", async ({
+  page,
+}) => {
+  // Real client file (2026-09-11): one workbook, a "Road 12BC4523V-RD" sheet
+  // and an "Office 11CC2012V-OFF" sheet for the same day.
+  const fs = require("fs");
+  const path = require("path");
+  const sample = path.join(
+    __dirname, "..", "..", "docs", "01-BRD-Requirement-Gathering", "ocr-samples",
+    "SVR_Daily_Sales_10Sep2026_12BC4523V-RD.xlsx",
+  );
+  const buffer = fs.readFileSync(sample);
+
+  await login(page);
+  await page.goto(SCREEN);
+  await page.fill("#shift-date", "2026-09-10");
+  await page.selectOption("#pump-serial", "12BC4523V-RD");
+  await page.setInputFiles('input[type="file"][accept*="xlsx"]', {
+    name: "road-office.xlsx", mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    buffer,
+  });
+  await expect(page.locator("#save-status")).not.toContainText("could not match");
+  await expect(page.locator("#hs-current")).toHaveValue("267859.1");
+
+  await page.selectOption("#pump-serial", "11CC2012V-OFF");
+  await page.setInputFiles('input[type="file"][accept*="xlsx"]', {
+    name: "road-office.xlsx", mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    buffer,
+  });
+  await expect(page.locator("#save-status")).not.toContainText("could not match");
+  await expect(page.locator("#hs-current")).toHaveValue("1488457.6");
+});

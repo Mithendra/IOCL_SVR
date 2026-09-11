@@ -485,10 +485,43 @@ def _parse_paper_layout(rows: list[tuple]) -> tuple[dict, dict, list[str]]:
     return payload, meta, warnings
 
 
-def parse_workbook(data: bytes) -> tuple[dict, dict, list[str]]:
-    """bytes -> (payload, meta, warnings). Recompute downstream; never trust sheet totals."""
+def _select_sheet(wb, pump_serial: str | None):
+    """Pick the right sheet - always ours by name if present, else the one
+    matching the selected Pump Serial Number in a multi-pump workbook (e.g. one
+    file with a "Road ..." sheet and an "Office ..." sheet), else the active
+    sheet if there's only one. Returns ``(worksheet, warning_or_None)``.
+
+    Everything here is keyed by Pump Serial Number, never by sheet position -
+    a workbook that happens to have the wrong sheet active must not silently
+    import the wrong pump's data.
+    """
+    if SHEET in wb.sheetnames:
+        return wb[SHEET], None
+    names = wb.sheetnames
+    if len(names) == 1:
+        return wb.active, None
+    if pump_serial:
+        needle = pump_serial.strip().upper()
+        for name in names:
+            if needle and needle in name.upper():
+                return wb[name], None
+    return (
+        wb.active,
+        f"This workbook has {len(names)} sheets ({', '.join(names)}) - could not "
+        f"match the selected Pump Serial Number to one of them, so '{wb.active.title}' "
+        "was read. Select the correct Pump Serial Number and re-import if that's wrong.",
+    )
+
+
+def parse_workbook(data: bytes, pump_serial: str | None = None) -> tuple[dict, dict, list[str]]:
+    """bytes -> (payload, meta, warnings). Recompute downstream; never trust sheet totals.
+
+    ``pump_serial`` is the Pump Serial Number currently selected on the form -
+    used only to pick the right sheet out of a multi-pump workbook; the parsed
+    payload never trusts an in-file pump serial for identity either way.
+    """
     wb = load_workbook(io.BytesIO(data), data_only=True, read_only=True)
-    ws = wb[SHEET] if SHEET in wb.sheetnames else wb.active
+    ws, sheet_warning = _select_sheet(wb, pump_serial)
     all_rows = list(ws.iter_rows(values_only=True))  # materialize once (read-only sheet)
 
     kv: dict[str, Any] = {}
@@ -510,9 +543,12 @@ def parse_workbook(data: bytes) -> tuple[dict, dict, list[str]]:
         # the physical form's own labels instead (exact cell text, not OCR, so it's
         # reliable whenever the layout resembles the printed form). ADR-5 review
         # still applies downstream - nothing here is trusted without a human Save.
-        return _parse_paper_layout(all_rows)
+        payload, meta, warnings = _parse_paper_layout(all_rows)
+        if sheet_warning:
+            warnings.insert(0, sheet_warning)
+        return payload, meta, warnings
 
-    warnings: list[str] = []
+    warnings: list[str] = [sheet_warning] if sheet_warning else []
     payload = _blank_payload()
     for key, value in kv.items():
         if not key.startswith("meta."):

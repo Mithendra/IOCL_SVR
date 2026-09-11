@@ -498,19 +498,27 @@ def import_excel_template(
 
 @router.post("/import-excel")
 async def import_excel(
-    file: UploadFile = File(...), _: Principal = Depends(get_principal)
+    file: UploadFile = File(...),
+    pump_serial: str | None = None,
+    _: Principal = Depends(get_principal),
 ) -> dict:
     """Parse an uploaded .xlsx into a form payload for human review (SDD ADR-5).
 
     Does NOT save. The engine recomputes every total; `warnings` flags any cell
     whose value disagreed with the recomputed one. The reviewer edits + Saves
     through the normal POST/PUT path, which re-locks rates/readings.
+
+    ``pump_serial`` is the Pump Serial Number currently selected on the form -
+    used only to pick the right sheet out of a multi-pump workbook (one file
+    with both a Road and an Office sheet); the parsed payload never trusts an
+    in-file pump serial for identity (SDD, "everything is keyed by Pump Serial
+    Number" - confirmed 2026-09-11).
     """
     raw = await file.read()
     if not raw:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Empty file")
     try:
-        payload, meta, warnings = parse_workbook(raw)
+        payload, meta, warnings = parse_workbook(raw, pump_serial=pump_serial)
     except HTTPException:
         raise
     except Exception as exc:  # surface any openpyxl parse failure as a 400

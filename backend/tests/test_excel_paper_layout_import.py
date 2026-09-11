@@ -30,6 +30,15 @@ _REAL_SAMPLE = (
     / "docs" / "01-BRD-Requirement-Gathering" / "ocr-samples"
     / "SVR_Daily_Sales_FILLED_SEP10_BLACK_WHITE.xlsx"
 )
+# One real workbook with two sheets - the station's Road and Office data for the
+# same day, side by side (2026-09-11 client sample). Everything is keyed by Pump
+# Serial Number, so importing this file must read the sheet for whichever pump
+# is selected, never just whatever sheet happens to be "active".
+_REAL_MULTI_SHEET = (
+    Path(__file__).resolve().parents[2]
+    / "docs" / "01-BRD-Requirement-Gathering" / "ocr-samples"
+    / "SVR_Daily_Sales_10Sep2026_12BC4523V-RD.xlsx"
+)
 
 
 def _natural_workbook() -> bytes:
@@ -119,6 +128,27 @@ def test_natural_paper_layout_is_parsed_without_field_keys():
     result = compute_payload(payload)
     assert result["hs"]["cons"] == 17.52
     assert result["net_bal_hand_off"] is not None
+
+
+@pytest.mark.skipif(not _REAL_MULTI_SHEET.exists(), reason="real client sample not present")
+def test_multi_sheet_workbook_picks_the_sheet_for_the_selected_pump():
+    data = _REAL_MULTI_SHEET.read_bytes()
+
+    road_payload, _, road_warnings = parse_workbook(data, pump_serial="12BC4523V-RD")
+    assert not any("could not match" in w for w in road_warnings)
+    assert road_payload["hs"] == {"current": 267859.1, "last": 267841.93}
+
+    office_payload, _, office_warnings = parse_workbook(data, pump_serial="11CC2012V-OFF")
+    assert not any("could not match" in w for w in office_warnings)
+    assert office_payload["hs"] == {"current": 1488457.6, "last": 1487828.11}
+
+
+@pytest.mark.skipif(not _REAL_MULTI_SHEET.exists(), reason="real client sample not present")
+def test_multi_sheet_workbook_without_a_hint_warns_instead_of_guessing():
+    payload, _, warnings = parse_workbook(_REAL_MULTI_SHEET.read_bytes())
+    assert any("2 sheets" in w for w in warnings)
+    # Still returns *something* usable (the active sheet) rather than failing outright.
+    assert payload["hs"]["current"] is not None
 
 
 def test_keyed_export_still_takes_priority_over_paper_layout():

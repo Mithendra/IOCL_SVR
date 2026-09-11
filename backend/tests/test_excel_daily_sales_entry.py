@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import io
 
-from openpyxl import load_workbook
+from openpyxl import Workbook, load_workbook
 
 from svr_backend.calc.daily_sales_entry import compute_payload
 from svr_backend.excel import blank_template, build_workbook, parse_workbook
@@ -137,6 +137,33 @@ def test_import_endpoint_parses_and_recomputes(client, auth_headers):
     assert body["meta"]["pump_serial"] == PUMP
     assert body["payload"]["hs"]["current"] == 1317.52
     assert body["result"]["net_bal_hand_off"] == compute_payload(_PAYLOAD)["net_bal_hand_off"]
+
+
+def test_import_endpoint_uses_pump_serial_to_pick_the_right_sheet(client, auth_headers):
+    """A multi-pump workbook (one file, a Road sheet + an Office sheet) must be
+    read by whichever pump is selected on the form - passed as a query param
+    alongside the multipart file upload (2026-09-11)."""
+    header = ["Pump", "Current Reading", "Last Shift Reading"]
+    wb = Workbook()
+    wb.active.title = "Road 12BC4523V-RD"
+    wb.active.append(header)
+    wb.active.append(["Diesel (HS-Nz1)", 100, 90])
+    office = wb.create_sheet("Office 11CC2012V-OFF")
+    office.append(header)
+    office.append(["Diesel (HS-Nz1)", 200, 190])
+    buf = io.BytesIO()
+    wb.save(buf)
+    xlsx = buf.getvalue()
+
+    r = client.post(
+        "/daily-sales-entry/import-excel",
+        params={"pump_serial": "11CC2012V-OFF"},
+        files={"file": ("multi.xlsx", xlsx, "application/octet-stream")},
+        headers=auth_headers("Manager"),
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["payload"]["hs"]["current"] == 200
+    assert not any("could not match" in w for w in r.json()["warnings"])
 
 
 def test_import_rejects_non_spreadsheet(client, auth_headers):
