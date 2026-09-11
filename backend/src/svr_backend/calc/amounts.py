@@ -58,4 +58,10 @@ def round4(n: float) -> float:
 
 
 def is_blank(raw: Number) -> bool:
-    return raw is None or str(raw).strip() == ""
+    """A lone "-" is the paper form's own universal "nothing to report" marker
+    (every real client sample uses it consistently across every optional field),
+    so it's treated the same as an empty cell - never as a real value (2026-09-11).
+    """
+    if raw is None:
+        return True
+    return str(raw).strip() in ("", "-")

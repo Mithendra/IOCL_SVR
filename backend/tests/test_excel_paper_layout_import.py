@@ -137,10 +137,18 @@ def test_multi_sheet_workbook_picks_the_sheet_for_the_selected_pump():
     road_payload, _, road_warnings = parse_workbook(data, pump_serial="12BC4523V-RD")
     assert not any("could not match" in w for w in road_warnings)
     assert road_payload["hs"] == {"current": 267859.1, "last": 267841.93}
+    # This side of the form is almost entirely the paper's own "-" markers -
+    # every one of them reads back as blank, not as a literal dash (2026-09-11).
+    assert road_payload["oils"] == [{"qty": None}] * 5
+    assert road_payload["credit_card_amounts"] == []
+    assert road_payload["phone_pay_settled"] is None
+    assert road_payload["night_cash"] is None
 
     office_payload, _, office_warnings = parse_workbook(data, pump_serial="11CC2012V-OFF")
     assert not any("could not match" in w for w in office_warnings)
     assert office_payload["hs"] == {"current": 1488457.6, "last": 1487828.11}
+    assert office_payload["phone_pay_settled"] == 14698
+    assert office_payload["phone_pay_unsettled"] == 4660
 
 
 @pytest.mark.skipif(not _REAL_MULTI_SHEET.exists(), reason="real client sample not present")

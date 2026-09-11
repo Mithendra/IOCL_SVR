@@ -160,6 +160,63 @@ built). Reading the real file:
   here so a human specifically re-checks the Oil Sale(s) quantities against the
   original paper form before Save when using this workflow.
 
+### Update, 2026-09-11 — six more real files: a repair-gap, a two-sheet
+### workbook, a "-" convention, and a mislabeled earlier sample
+
+Client delivered six real Daily Sales Report files spanning 2026-09-09/10, the
+exact days the Road pump (12BC4523V-RD) was out for repair and then came back.
+All six now in `ocr-samples/SVR_Daily_Sales_{09,10}Sep2026_*.{pdf,xlsx}`.
+
+- **The gas readings (Current/Last Shift/Cons) read correctly from every one
+  of the three typed PDFs**, via the text-layer path - no OCR needed, same as
+  the earlier finding. `test_ocr_text_layer.py`-style coverage would apply the
+  same way; verified directly against all three files.
+- **Phone Pay Settled / Not Settled came back blank from the PDF text-layer
+  path on the busier Office-pump form** (one with real Credit Cards Swiping
+  rows filled in), even though the value is present and printed - the field's
+  row-matching by anchor text didn't line up on this particular layout. The
+  **Excel version of the same file reads it correctly** (paper-layout parser,
+  exact cell match, not position-dependent). **Practical recommendation: for a
+  typed/AI-transcribed report, prefer Import-from-Excel over Scan/Upload when
+  the two disagree** - it gets every field, not just the gas readings, and
+  isn't sensitive to how much content pushes the Summary section down the
+  page. Not fixed in the OCR layout code this round (real financial fields
+  read fine either way for the pumps validated so far); worth a proper anchor-
+  matching fix if Scan/Upload keeps being the client's preferred path.
+- **One real workbook has two sheets** - Road and Office data for the same day
+  in one file (`SVR_Daily_Sales_10Sep2026_12BC4523V-RD.xlsx`). Fixed: import
+  now reads the sheet matching whichever Pump Serial Number is selected on the
+  form, not just whatever sheet is "active" (previously would have silently
+  dropped one pump's data with no warning at all). See the code changes for
+  the full description.
+- **The paper form's own "-" convention** (used everywhere for "nothing to
+  report" - blank oil quantities, blank credit-card rows, blank summary lines)
+  was being read as the literal two-character string `"-"` instead of blank,
+  polluting the parsed payload with dash values that didn't affect totals but
+  would have shown as filled-in "-" boxes on the review screen instead of
+  genuinely blank ones. Fixed in `calc.amounts.is_blank` and the Excel
+  parser's own `_num_or_str`, both used pervasively - a lone `"-"` is now
+  blank everywhere in this system, the same way an empty cell is.
+- **A repair-gap carry-forward, validated with real numbers, not synthetic
+  ones**: the Office pump's Last Shift Reading auto-carries correctly across
+  three real consecutive days (09-08 → 09-09 → 09-10), reproducing the exact
+  consumption printed on each real paper form. The Road pump's first entry
+  after its repair gap (09-10) has nothing in the system to carry from - no
+  digital record of the repair day exists, nor of anything before it - so the
+  Last Shift Reading has to be keyed in by hand from the station's own paper
+  log; the 2026-09-11 fix that allows a manual override when there's nothing
+  to carry handles exactly this case, and it reproduces the real paper's
+  consumption figures exactly too. See `test_real_data_2026_09_11.py`.
+- **Found while cross-checking, not part of this delivery**: an earlier
+  sample already in this repo,
+  `ocr-samples/SVR-daily-sales-2026-09-08-road-scan.pdf`, is **mislabeled** -
+  its handwritten "Road Side" annotation and filename both say Road, but its
+  actual readings (~1,487,xxx) are the *Office* pump's - they match this
+  delivery's Office-pump Last Shift Reading for 2026-09-09 exactly
+  (1487517.430). Left as-is (it's still useful OCR-accuracy test data, just
+  not Road-pump data); flagged here so it's not mistaken for a real Road-side
+  reading in the future.
+
 ## Recommendation
 
 Run real-data UAT on **manual entry + Excel import (keyed template or a natural

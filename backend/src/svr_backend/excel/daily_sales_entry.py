@@ -246,7 +246,11 @@ def _num_or_str(v: Any) -> Any:
     if v is None:
         return None
     if isinstance(v, str):
-        return v.strip() or None
+        s = v.strip()
+        # A lone "-" is the paper form's own "nothing to report" marker (every
+        # real client sample uses it consistently) - treated as blank, same as
+        # calc.amounts.is_blank (2026-09-11).
+        return None if s in ("", "-") else s
     return v
 
 

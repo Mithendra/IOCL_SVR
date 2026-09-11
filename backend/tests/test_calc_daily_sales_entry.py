@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import math
 
-from svr_backend.calc.amounts import parse_amt, round4
+from svr_backend.calc.amounts import is_blank, parse_amt, round4
 from svr_backend.calc.daily_sales_entry import (
     DailySalesEntryInput,
     GasRow,
@@ -44,6 +44,19 @@ def test_parse_amt_inline_expressions():
     assert parse_amt(None) == 0.0
     assert parse_amt("abc") == 0.0
     assert parse_amt("1317.52") == 1317.52
+
+
+def test_is_blank_treats_the_paper_form_s_dash_as_blank():
+    """Every real client sample uses a lone "-" as its "nothing to report"
+    marker consistently across every optional field (2026-09-11) - treated the
+    same as an empty cell, never as a real value."""
+    assert is_blank("-") is True
+    assert is_blank(" - ") is True  # whitespace-padded, as a cell often is
+    assert is_blank("") is True
+    assert is_blank(None) is True
+    assert is_blank("0") is False
+    assert is_blank(0) is False
+    assert is_blank("-5") is False  # a real negative number, not the marker
 
 
 def test_round4_truncates_to_four_places():
