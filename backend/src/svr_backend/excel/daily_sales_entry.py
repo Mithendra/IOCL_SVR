@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import io
 import math
+import re
 from typing import Any
 
 from openpyxl import Workbook, load_workbook
@@ -289,41 +290,65 @@ def _assign(payload: dict, key: str, value: Any) -> None:
 # format. Matched by exact cell text (not OCR), so it's reliable whenever the
 # layout resembles the printed form; ADR-5 review still applies before Save.
 
-_HS_LABEL_HINTS = ("diesel", "hs-nz", "(hs")
-_MS_LABEL_HINTS = ("petrol", "ms-nz", "(ms")
-
-# Distinctive substrings per fixed oil row - first token alone is ambiguous between
-# the two Acid Water rows, so each hint pins down the row uniquely.
-_OIL_MATCH_HINTS: dict[str, tuple[str, ...]] = {
-    "oil1": ("2t/1.20", "2t 1.20", "1.20 ml"),
-    "oil2": ("2t/2.40", "2t 2.40", "2.40 ml"),
-    "oil3": ("acid water total 1", "acid water 1 lt"),
-    "oil4": ("acid water total 5", "acid water 5 lt"),
-    "oil5": ("20/40", "20 40 engine"),
-}
+_PUNCT_RE = re.compile(r"[^\w\s]")
+_WORD_DIGIT_BOUNDARY_RE = re.compile(r"(?<=[a-z])(?=\d)|(?<=\d)(?=[a-z])")
 
 
 def _txt(v: Any) -> str:
-    return str(v).strip().lower() if v is not None else ""
+    """Lowercased, with punctuation folded to spaces, a word/number boundary
+    inserted where letters and digits touch directly, and whitespace collapsed
+    - tolerant of real-world label variance ("2T/1.20 ML" vs "2T-1.20ML" vs
+    "Total1Lts" vs extra spaces) when matching a label/anchor. Applied
+    consistently to both sides of every comparison below (including the hint
+    constants, via ``_norm_hints``), so it only ever widens a match, never
+    narrows one. Never used for extracting actual cell values - only for
+    finding rows/columns.
+    """
+    if v is None:
+        return ""
+    s = _PUNCT_RE.sub(" ", str(v).lower())
+    s = _WORD_DIGIT_BOUNDARY_RE.sub(" ", s)
+    return " ".join(s.split())
 
 
 def _row_txt(row: tuple) -> str:
     return " ".join(_txt(v) for v in row if v is not None)
 
 
+def _norm_hints(hints: tuple[str, ...]) -> tuple[str, ...]:
+    return tuple(_txt(h) for h in hints)
+
+
+_HS_LABEL_HINTS = _norm_hints(("diesel", "hs-nz", "(hs"))
+_MS_LABEL_HINTS = _norm_hints(("petrol", "ms-nz", "(ms"))
+
+# Distinctive substrings per fixed oil row - first token alone is ambiguous between
+# the two Acid Water rows, so each hint pins down the row uniquely.
+_OIL_MATCH_HINTS: dict[str, tuple[str, ...]] = {
+    "oil1": _norm_hints(("2t/1.20", "2t 1.20", "1.20 ml")),
+    "oil2": _norm_hints(("2t/2.40", "2t 2.40", "2.40 ml")),
+    "oil3": _norm_hints(("acid water total 1", "acid water 1 lt")),
+    "oil4": _norm_hints(("acid water total 5", "acid water 5 lt")),
+    "oil5": _norm_hints(("20/40", "20 40 engine")),
+}
+
+
 def _find_row(rows: list[tuple], *needles: str, start: int = 0) -> int | None:
     """First row index >= start whose cells together contain every needle."""
+    needles_n = [_txt(n) for n in needles]
     for i in range(start, len(rows)):
         t = _row_txt(rows[i])
-        if all(n in t for n in needles):
+        if all(n in t for n in needles_n):
             return i
     return None
 
 
 def _col_of(row: tuple, *needles: str) -> int | None:
     """First column index in ``row`` whose own cell text contains every needle."""
+    needles_n = [_txt(n) for n in needles]
     for j, v in enumerate(row):
-        if all(n in _txt(v) for n in needles):
+        cell = _txt(v)
+        if all(n in cell for n in needles_n):
             return j
     return None
 
@@ -475,7 +500,7 @@ def _parse_paper_layout(rows: list[tuple]) -> tuple[dict, dict, list[str]]:
         for needle, key in (
             ("phone pay settled", "phone_pay_settled"),
             ("phone pay not settled", "phone_pay_unsettled"),
-            ("night cash hand off total", "night_cash"),
+            ("night cash", "night_cash"),
         ):
             ridx = _find_row(rows, needle, start=summary_start + 1)
             if ridx is not None:

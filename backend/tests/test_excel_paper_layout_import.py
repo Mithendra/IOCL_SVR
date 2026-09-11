@@ -208,3 +208,62 @@ def test_real_client_workbook_reads_the_gas_and_expense_figures():
     result = compute_payload(payload)
     assert result["hs"]["cons"] == 310.68  # matches the paper form exactly
     assert result["ms"]["cons"] == 583.55
+
+
+def test_paper_layout_tolerates_real_world_label_variance():
+    """Client-reported (2026-09-11): a differently-typed real workbook came back
+    with Oil Sale(s) quantities and Phone Pay Settled missing entirely - the
+    label-matching was exact-substring only, so minor real-world differences in
+    spacing/punctuation (a hyphen instead of a slash, a missing space, "Amount"
+    instead of "Total Amt") silently dropped fields it should have read. Every
+    label below is deliberately reworded (never the exact form wording used
+    elsewhere in this file) to lock in that this no longer happens."""
+    wb = Workbook()
+    ws = wb.active
+    rows = [
+        ["SVR Indian Oil Service Station - Daily Sales Report"],
+        ["Gas Sale(s)"],
+        ["Pump", "Current Reading", "Last Shift Reading"],
+        ["Diesel(HS-Nz1)", 100, 90],  # no space before the paren
+        ["Petrol(MS-Nz-2)", 50, 40],
+        ["Total Amt"],
+        ["Oil Sale(s)"],
+        ["Item", "Quantity", "Rate", "Opening Stock", "Closing Stock", "Amount"],
+        ["2T-1.20ML Total", 4, 60, 100, 96, None],   # hyphen, no space before ML
+        ["2T-2.40ML Total", None, 65, 50, 50, None],
+        ["Acid Water Total1Lts", 2, 20, 28, 26, None],  # no space before "1"
+        ["Acid Water Total5Lts", None, 120, 19, 19, None],
+        ["20-40 Engine Total in Lts", 3, 130, 42, 39, None],  # hyphen not slash
+        ["Total Amt Oil(s)"],
+        ["Expenses"],
+        ["Description", "Amount"],
+        ["Daily Diesel(5L) & Petrol(5L) + Density Testing + Beta = Total Amt", 600],
+        ["Any Other Expenses", 75],
+        ["Last Night Cash Hand-off Persons Name-Signature-Amount", 5000],
+        ["Total Amt Expenses"],
+        ["Credit Cards Swiping(s)"],
+        ["Card Holder / Terminal ID", "Card Type", "Rate", "Transaction/Receipt #", "Amount"],
+        ["Today New Credit(s)"],
+        ["Creditor Name", "Type (1. Diesel 2. Petrol)", "In Ltrs", "Rate", "Amount", "Signature"],
+        ["Old/Pending Credit Received"],
+        ["Customer Name", "Amount", "Old Credit Given Date", "Signature"],
+        ["Summary-Cash Hand Off"],  # no spaces around the hyphen
+        ["Phone Pay Settled Amount as of 6:30 AM", 10],  # "Amount", not "Total Amt"
+        ["Phone Pay Not-Settled Amount", 20],
+        ["Night Cash Hand-Off Amount", 5000],  # hyphenated, "Amount" not "Total Amt"
+    ]
+    for r in rows:
+        ws.append(r)
+    buf = io.BytesIO()
+    wb.save(buf)
+
+    payload, _, warnings = parse_workbook(buf.getvalue())
+    assert any("paper-form layout" in w for w in warnings)
+
+    assert payload["hs"] == {"current": 100, "last": 90}
+    assert payload["ms"] == {"current": 50, "last": 40}
+    assert [o.get("qty") for o in payload["oils"]] == [4, None, 2, None, 3]
+    assert payload["expenses"] == [600, 75, 5000]
+    assert payload["phone_pay_settled"] == 10
+    assert payload["phone_pay_unsettled"] == 20
+    assert payload["night_cash"] == 5000
