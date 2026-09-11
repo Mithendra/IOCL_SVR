@@ -252,6 +252,11 @@ test("Print Blank Form fills the right pump serial, blanks readings, and hides S
   await expect(page.locator("#hs-current")).toHaveValue("");
   await expect(page.locator("#ms-current")).toHaveValue("");
   expect(await page.evaluate(() => window.__printCalls)).toBe(1);
+  // Matches the client's own reference blank forms (SVR_DSR_EMPTY_<serial>.pdf).
+  await expect(page.locator("#pump-side-label")).toHaveText("(Office pump)");
+
+  await page.click('[data-blank="12BC4523V-RD"]');
+  await expect(page.locator("#pump-side-label")).toHaveText("(Road pump)");
 
   // Section 8 / operational banners aren't on the physical paper form - hidden
   // from the printed output (visible on-screen, hidden under print media).

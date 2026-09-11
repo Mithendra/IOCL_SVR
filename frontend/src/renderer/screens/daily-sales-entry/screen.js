@@ -7,6 +7,10 @@ import { api, getToken } from "../../lib/api.js";
 import * as mirror from "../../lib/calc-mirror.js";
 
 const OIL_KEYS = ["oil1", "oil2", "oil3", "oil4", "oil5"];
+// Client's own reference blank forms (SVR_DSR_EMPTY_<serial>.pdf) print this
+// qualifier next to the serial - shown on screen too so it's clear which
+// physical pump is selected before Save or Print (2026-09-11).
+const PUMP_LABELS = { "12BC4523V-RD": "Road pump", "11CC2012V-OFF": "Office pump" };
 
 const $ = (id) => document.getElementById(id);
 const val = (id) => ($(id) ? $(id).value : "");
@@ -153,8 +157,10 @@ function refresh() {
 }
 
 async function loadPrefill() {
+  const pump = val("pump-serial");
+  $("pump-side-label").textContent = PUMP_LABELS[pump] ? `(${PUMP_LABELS[pump]})` : "";
   const params = new URLSearchParams({
-    pump_serial: val("pump-serial"),
+    pump_serial: pump,
     shift_date: val("shift-date"),
   });
   const p = await api.get(`/daily-sales-entry/prefill?${params.toString()}`);

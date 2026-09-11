@@ -56,6 +56,30 @@ test("combine two submissions, verify both, then upload", async ({ page }) => {
   await expect(page.locator("#status-tag")).toHaveText("uploaded");
 });
 
+test("names which pump's Daily Sales Entry is missing", async ({ page }) => {
+  const DATE2 = "2026-07-16"; // isolated - only the Office pump submits here
+  const ctx = await request.newContext();
+  const token = (
+    await (await ctx.post(`${apiBase}/auth/login`, {
+      data: { login_name: "gsales", password: "demo1234" },
+    })).json()
+  ).token;
+  await ctx.post(`${apiBase}/daily-sales-entry`, {
+    headers: { Authorization: `Bearer ${token}` },
+    data: { pump_serial: OFF, shift_date: DATE2, hs: { current: "500" } },
+  });
+  await ctx.dispose();
+
+  await loginManager(page);
+  await page.goto(SCREEN);
+  await page.fill("#shift-date", DATE2);
+  await page.locator("#shift-date").dispatchEvent("change");
+
+  await expect(page.locator("#gate-status")).toContainText("Road pump");
+  await expect(page.locator("#gate-status")).not.toContainText("Office pump");
+  await expect(page.locator("#upload-btn")).toBeDisabled();
+});
+
 test("Sales sees Daily Sales Summary in the nav", async ({ page }) => {
   await page.goto(`/index.html?apiBase=${encodeURIComponent(apiBase)}`);
   await page.fill("#login-name", "gsales");

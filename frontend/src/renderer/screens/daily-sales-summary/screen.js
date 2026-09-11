@@ -63,8 +63,17 @@ function render(s) {
 
   const gate = $("gate-status");
   if (!s.both_present) {
+    // Every day needs both pumps' Daily Sales Entry, full stop - even a
+    // repaired/off-duty pump submits a zero-activity report rather than being
+    // skipped (2026-09-11 client confirmation). Name which side is actually
+    // missing rather than a generic "waiting" message.
+    const missing = [];
+    if (!s.office.present) missing.push("Office pump");
+    if (!s.road.present) missing.push("Road pump");
     gate.className = "status-line err";
-    gate.textContent = "Waiting for both pump submissions.";
+    gate.textContent =
+      `Missing the Daily Sales Entry for: ${missing.join(" and ")}. Both pump ` +
+      "submissions are required before the Daily Sales Summary can be prepared.";
   } else if (!s.both_verified) {
     gate.className = "status-line err";
     gate.textContent = "Both pumps must be verified before upload.";
