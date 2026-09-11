@@ -39,7 +39,11 @@ function buildOilRows() {
         `<td data-oil-label="${k}">${oilLabels[k]}</td>` +
           `<td><input id="${k}-qty" data-calc></td>` +
           `<td><input id="${k}-rate" disabled placeholder="auto (Rate Master)"></td>` +
-          `<td><input id="${k}-opening" disabled placeholder="auto (Inventory)"></td>` +
+          // Opening Stock: prefilled from Inventory Tracking but editable - oil
+          // sales are handled by only one person a day, so on the OTHER
+          // submission there's nothing to correct a stale figure from but a
+          // manual entry (short-term fix, 2026-09-11; see IMPLEMENTATION-MAP.md).
+          `<td><input id="${k}-opening" data-calc placeholder="auto (Inventory) - override if needed"></td>` +
           `<td><input id="${k}-closing" disabled placeholder="auto"></td>` +
           `<td><input id="${k}-amount" disabled placeholder="auto"></td>`
       )
@@ -270,7 +274,10 @@ async function save() {
 function clearOperatorFields() {
   setVal("hs-current", "");
   setVal("ms-current", "");
-  OIL_KEYS.forEach((k) => setVal(`${k}-qty`, ""));
+  OIL_KEYS.forEach((k) => {
+    setVal(`${k}-qty`, "");
+    setVal(`${k}-opening`, ""); // loadPrefill() (called right after) refills the default
+  });
   ["exp1", "exp2", "exp3"].forEach((id) => setVal(id, ""));
   document.querySelectorAll(".cc-amount").forEach((el) => (el.value = ""));
   document.querySelectorAll("#nc-rows tr").forEach((tr) => {
@@ -326,7 +333,16 @@ function populateInputs(payload, meta) {
   if (!$("ms-last").disabled) setVal("ms-last", payload.ms && payload.ms.last);
 
   (payload.oils || []).forEach((o, i) => {
-    if (OIL_KEYS[i]) setVal(`${OIL_KEYS[i]}-qty`, o.qty);
+    if (!OIL_KEYS[i]) return;
+    setVal(`${OIL_KEYS[i]}-qty`, o.qty);
+    // Opening Stock is manually editable (short-term fix, 2026-09-11). A saved
+    // entry always has a resolved value here (default or override) and it's
+    // restored on reopen; an imported payload that doesn't carry one (OCR, the
+    // paper-layout Excel fallback) leaves loadPrefill()'s live default in place
+    // instead of wiping it blank.
+    if (o.opening !== undefined && o.opening !== null) {
+      setVal(`${OIL_KEYS[i]}-opening`, o.opening);
+    }
   });
 
   const exp = payload.expenses || [];

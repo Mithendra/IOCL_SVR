@@ -168,6 +168,30 @@ async function seedEntry(shiftDate, pump = "12BC4523V-OFF") {
   await ctx.dispose();
 }
 
+test("Oil Sale(s) Opening Stock is editable and a manual override survives Save + reopen", async ({
+  page,
+}) => {
+  // Oil sales are handled by only one person on a given day (2026-09-11
+  // short-term fix) - Opening Stock is prefilled from Inventory but the
+  // submitter can correct it by hand.
+  const DATE = "2026-07-19";
+  await login(page);
+  await page.goto(SCREEN);
+  await page.fill("#shift-date", DATE);
+  await expect(page.locator("#oil1-opening")).toBeEnabled();
+
+  await page.fill("#oil1-qty", "4");
+  await page.fill("#oil1-opening", "500");
+  await page.click("#save-btn");
+  await expect(page.locator("#save-status")).toContainText("Saved (entry #");
+
+  await page.goto(SCREEN);
+  await page.fill("#shift-date", DATE);
+  await expect(page.locator("#editing-note")).toContainText("Editing saved entry #");
+  await expect(page.locator("#oil1-opening")).toHaveValue("500");
+  await expect(page.locator("#oil1-closing")).toHaveValue("496"); // 500 - 4
+});
+
 test("Delete button is hidden for Sales, even on their own saved entry", async ({ page }) => {
   const DATE = "2026-07-17";
   await seedEntry(DATE);

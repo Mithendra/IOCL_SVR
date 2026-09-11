@@ -157,12 +157,19 @@ def _apply_locked_context(
     normalized = []
     for i, key in enumerate(OIL_KEYS):
         src = oils[i] if i < len(oils) else {}
+        manual_opening = _num(src.get("opening"))
         normalized.append(
             {
                 "label": OIL_LABELS[key],
                 "qty": src.get("qty"),
                 "rate": oil_rates[key],
-                "opening": oil_openings.get(key),  # backend-owned, from Inventory Tracking
+                # Opening Stock defaults to the tracked Inventory on_hand, but the
+                # submitter can override it by hand (short-term fix, 2026-09-11):
+                # oil sales are handled by only one person on a given day, so on a
+                # day the OTHER submission's Oil Sale(s) is blank there's nothing
+                # to correct it from but a manual entry, pending a proper
+                # day-close sync between Daily Sales Entry and Inventory Tracking.
+                "opening": manual_opening if manual_opening is not None else oil_openings.get(key),
             }
         )
     # keep any operator-added extra rows as-is (manual rate/opening)

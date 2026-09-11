@@ -86,6 +86,30 @@ def test_first_entry_for_a_pump_accepts_a_manual_last_shift_reading(client, auth
     assert row["result"]["hs"]["cons"] == 17.52  # 1317.52 - 1300, not blank
 
 
+def test_oil_opening_stock_can_be_manually_overridden(client, auth_headers):
+    # Oil sales are handled by only one person on a given day (2026-09-11
+    # short-term fix) - the submitter can correct Opening Stock by hand instead
+    # of always trusting the Inventory Tracking on_hand snapshot.
+    resp = client.post(
+        "/daily-sales-entry",
+        json=_entry_body(oils=[{"qty": "4", "opening": "500"}]),
+        headers=auth_headers("Sales"),
+    )
+    assert resp.status_code == 201, resp.text
+    body = resp.json()
+    assert body["payload"]["oils"][0]["opening"] == 500.0
+    assert body["result"]["oils"][0]["closing"] == 496.0  # 500 - 4, not the Inventory default
+
+
+def test_oil_opening_stock_defaults_to_inventory_when_left_blank(client, auth_headers):
+    resp = client.post(
+        "/daily-sales-entry", json=_entry_body(oils=[{"qty": "4"}]), headers=auth_headers("Sales")
+    )
+    assert resp.status_code == 201, resp.text
+    body = resp.json()
+    assert body["payload"]["oils"][0]["opening"] is not None  # the Inventory default, not blank
+
+
 def test_delete_requires_manager_or_owner(client, auth_headers, conn):
     created = client.post(
         "/daily-sales-entry", json=_entry_body(), headers=auth_headers("Sales")
