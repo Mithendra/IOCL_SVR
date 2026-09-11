@@ -1,7 +1,7 @@
-# HANDOFF — install the built installer on the remote PC & validate
+# HANDOFF — install the updated build on the remote PC & re-validate
 
 **Written:** 2026-09-11 · **Repo:** `https://github.com/Mithendra/IOCL_SVR.git` ·
-**Branch:** `main` · **HEAD:** `aa32bc2`
+**Branch:** `main` · **HEAD:** `2a19705`
 
 Paste this whole file as the first message of the Claude Code session on the
 remote PC, then read (in order): this file → [`installer/RUNBOOK.md`](RUNBOOK.md)
@@ -11,94 +11,70 @@ remote PC, then read (in order): this file → [`installer/RUNBOOK.md`](RUNBOOK.
 
 ## 1. State
 
-**The installer is already built** on the build PC (2026-09-11, from `main` @
-`aa32bc2`):
+**This is a small, targeted follow-up build** — the remote PC is already running
+the `aa32bc2` install and mid-testing with real September 9/10 data. Testing
+surfaced three concrete bugs; all three are fixed in this build and this build
+only carries those three fixes (plus one from just before them). Nothing else
+changed — no schema migration, no pump serial change, no new feature.
 
 ```
 C:\Mithendra\SVR\installer\output\SVR-IOCL-Station-Setup-0.1.0.exe   (177.8 MB)
 ```
 
-- **Unsigned** — by decision (no cert; SmartScreen "Run anyway" once). The
-  code-signing path is wired but dormant.
-- Freeze smoke passed: `migrate` builds a DB, `serve --help`, and **`selfcheck`
-  imported the full app graph inside the frozen exe — 20 routes**.
-- Bundles `resources\backend\` (3 frozen exes) + `resources\tesseract\` (the OCR
-  engine, ~175 MB on disk, LZMA-compressed in the installer).
-- It is **NOT in git** (`installer/output/` is ignored) — it must be transferred
-  from the build PC (USB / network share / cloud).
-- Backend gate at build time: **178 pytest passed** (1 environment-dependent
+- **Unsigned** — by decision (no cert; SmartScreen "Run anyway" once), same as
+  every build so far.
+- Freeze smoke passed: `migrate` applied all 14 migrations, `serve --help`, and
+  **`selfcheck` imported the full app graph inside the frozen exe — 20 routes**.
+- Backend gate at build time: **179 pytest passed** (1 environment-dependent
   skip, unrelated), ruff clean. Frontend: **51 Playwright passed**, eslint clean.
+- It is **NOT in git** (`installer/output/` is ignored) — transfer it the same
+  way as last time (you used Google Drive).
 
-### What's new since the last install (`bc27d97`, 2026-09-10) — this is a lot
+### What's new since `aa32bc2` (the build currently installed there)
 
-The remote PC's current install predates **all** of the following. In rough
-order:
+1. **Excel import — real-world label tolerance.** The paper-layout (natural
+   workbook) parser matched labels by exact substring only, so a real sheet
+   worded slightly differently from our reference wording (a hyphen instead of
+   a slash, a missing space, "Amount" instead of "Total Amt") could silently
+   drop a field. Now tolerant of punctuation/spacing differences.
+2. **Excel import — Oil Sale(s) Opening Stock wasn't being read at all.** The
+   paper-layout parser only ever read Quantity from the Oil Sale(s) table -
+   Opening Stock (the field made manually overridable in the last build) was
+   never read from a natural/paper-shaped workbook, so an override typed into
+   the sheet was silently discarded on import. Fixed - both columns are now
+   read independently per row. (Oil Rate is still not read from the sheet on
+   purpose - the backend always locks it from Rate Master on save regardless
+   of import, same as Gas Rate.)
+3. **Net Bal Hand Off formula was missing Phone Pay Settled.** Client-confirmed
+   this was a real gap in the original mockup formula, not intentional. Fixed
+   in the backend calc engine (authoritative), the renderer's UX-mirror copy,
+   the on-screen formula label, and the formula-register doc - all four now
+   read `Cash − Expenses + Phone Pay Settled + Phone Pay Not Settled + New
+   Credits + Card Swiping + Night Cash`.
+4. **Print Blank was printing A4 landscape for every module, not just Daily
+   Sales Entry.** The client's own reference blank forms (`SVR_DSR_EMPTY_
+   <serial>.pdf`) are single-page A4 **portrait** - the forced landscape
+   fought that badly enough that one pump's form wasn't printing at all.
+   Switched the shared print stylesheet to portrait; added a rule so a table
+   row/section heading can't be split across a page break.
 
-- **The station's pump serials were corrected**: `12BC4523V-RD` (Road) and
-  `11CC2012V-OFF` (Office) — both the values and which side each belongs to
-  changed from what was installed before. `summary.classify_pump` now maps
-  office/road from an explicit lookup, not a substring guess. **Test with the
-  new serials, not the old ones.**
-- **Print Blank** now shows "(Road pump)"/"(Office pump)" next to the serial
-  (matches the client's own reference blank forms) and correctly covers only
-  Sections 1–7 + Verified-by (Section 8 and operational banners no longer leak
-  into the printed output).
-- **Print & Sync** (new) — two buttons, Manager/Owner only, next to Print
-  Blank. Syncs Inventory Tracking's oil stock from the most recent day that
-  item had a *real* recorded sale, then carries forward Last Shift Reading as
-  usual, then prints. See `IMPLEMENTATION-MAP.md`'s "Print & Sync" row.
-- **Save / Update / Delete** are now three distinct toolbar buttons (was one
-  relabeled Save). Delete is Manager/Owner-only. Every confirmation/error
-  message across every module screen is now bold.
-- **First entry for a pump** (no prior reading to carry) now allows a manual
-  Last Shift Reading instead of being stuck on "Auto @ 23:59 IST".
-- **Oil Sale(s) Opening Stock** is now manually editable (short-term fix,
-  client-confirmed) — was locked to the Inventory Tracking value with no way
-  to correct it.
-- **Excel import** now accepts a natural, non-templated workbook (e.g. a
-  handwritten form typed up via an AI tool) via a paper-layout fallback
-  parser, and correctly picks the right sheet out of a multi-sheet workbook
-  (one real client file has a Road sheet and an Office sheet in one file).
-  Import identity (Pump Serial + Shift Date) always comes from the form's own
-  selection now, never from the imported file's metadata.
-- **The paper form's "-" convention** (its universal "nothing to report"
-  marker) is now treated as blank everywhere it's read, not as a literal
-  dash.
-- **Daily Sales Summary** now names which pump's Daily Sales Entry is missing
-  ("Missing the Daily Sales Entry for: Road pump...") instead of a generic
-  "waiting" message — both pumps are required every day going forward (even a
-  repaired/off-duty pump submits a zero-activity report rather than being
-  skipped).
-- All of the above verified end-to-end against real September 9/10 client
-  files, including the three specific workflows below.
+**Not changed in this build** (still true from `aa32bc2`, no need to re-test
+from scratch, but fine to spot-check): pump serials (`12BC4523V-RD` /
+`11CC2012V-OFF`), Print & Sync, Save/Update/Delete buttons, first-entry manual
+Last Shift Reading, Excel multi-sheet pump selection, the "-" blank convention,
+Daily Sales Summary's missing-entry message. See the previous handoff (git
+history of this file, commit `eeee50a`) if you need the full description of
+any of those.
 
-### Three workflows re-verified before this build (2026-09-11)
+### Deferred, not in this build
 
-All confirmed working end-to-end against real files
-(`backend/tests/test_pre_install_readiness_2026_09_11.py`):
-
-1. **Daily Sales import** — Scan/Upload (PDF) and Import from Excel, for
-   2026-09-09 and 2026-09-10, both pumps.
-2. **Daily Sales Summary → Daily Trial Balance** — Section 3 pulls
-   automatically once both pumps have submitted; the remaining sections
-   (Section 1 IOCL tank readings, cash/book value, the ADR-1 manual blob) are
-   entered by hand, per day. **One by-design rule to know before testing**: a
-   new Trial Balance date can't be started while an earlier one is still
-   open (ADR-2 maker-checker) — Close & Sign Off each day in order.
-3. **Inventory Tracking** — accepts real restock/on-hand data from
-   2026-09-10 onward with no date-ordering constraint.
-
-### OCR reality — do not test handwriting against it as if it works
-
-`POST /daily-sales-entry/ocr` is **draft-assist only** for a genuine
-handwriting scan/photo — stock Tesseract still cannot read handwritten Daily
-Sales sheets (measured 0/6 across three approaches on real scans). **Two
-paths ARE reliable now**, confirmed on real client files: a **typed PDF**
-(e.g. an AI-transcribed form) reads from the PDF's own text layer — no OCR
-involved at all — and a **typed Excel sheet** reads via the paper-layout
-import fallback. See
-[`docs/01-BRD-Requirement-Gathering/OCR-findings-2026-09-09.md`](../docs/01-BRD-Requirement-Gathering/OCR-findings-2026-09-09.md)
-for the full history.
+Client asked to drop Tesseract/PDF-Scan entirely (item 4 of the same report) -
+explicitly deferred to a later build, not touched here. Scan/Upload still
+works exactly as before; keep testing via **Import from Excel** or **manual
+entry** as the two reliable non-OCR paths (OCR itself never read Oil Sale(s) or
+Expenses at all - a pre-existing scope limit, not a regression - and its
+Summary-line reading is a known, already-documented gap; both are unrelated to
+the three fixes above).
 
 ---
 
@@ -106,69 +82,55 @@ for the full history.
 
 ### A. Get the installer onto this PC
 
-Copy `SVR-IOCL-Station-Setup-0.1.0.exe` from the build PC. (This PC is meant to be
-a clean target — **no Python / Node / VS Code**. Only Git + Claude Code + the
-`.exe`, per `HANDOVER.md` §2.) `git clone` / `git pull` the repo so this session
-can read the scripts, logs, and checklists — but the `.exe` comes separately.
+Copy the new `SVR-IOCL-Station-Setup-0.1.0.exe` from the build PC (same
+Google-Drive transfer as before) and `git pull` this repo so the session has
+the current scripts/docs.
 
-### B. Uninstall the old build first, then install fresh
+### B. Install over the existing `aa32bc2` install - no uninstall needed this time
 
-Given how much changed (including the pump serials), don't install on top —
-uninstall the existing `bc27d97` install first (Settings → Apps → SVR IOCL
-Station → Uninstall), confirm both services and the Startup shortcut are
-gone, **then** install the new `.exe`. `C:\ProgramData\SVR-IOCL\` and its DB
-are kept by the uninstaller by design — the existing data survives.
-
-Full checklist: `installer/RUNBOOK.md` §2 and `HANDOVER.md` §5.
+Unlike the last build, **nothing here changes the pump serials, the DB schema,
+or anything cached client-side that would need a clean slate** - it's safe to
+run the new installer directly over the existing install (same version
+`0.1.0`, NSIS handles the overwrite). Your in-progress Sep 9/10 test data in
+`C:\ProgramData\SVR-IOCL\svr.sqlite` is untouched either way.
 
 1. Right-click the `.exe` → **Run as administrator**. SmartScreen → *More info →
    Run anyway* (unsigned, expected).
-2. Assisted installer (`perMachine`), accept defaults →
-   `C:\Program Files\SVR IOCL Station`. On the last page `installer.nsh` runs
-   **`first-run.ps1`** elevated: data + log tree under `C:\ProgramData\SVR-IOCL`,
-   machine `SVR_*` config (incl. `SVR_FIELD_KEY`, `SVR_TESSERACT_CMD`,
-   `SVR_TESSDATA_PREFIX`), migrations, both Windows Services registered
-   `Automatic` + started, per-user Startup shortcut. A message box means it hit a
-   problem — note the exit code.
-3. If this is genuinely a fresh DB (no prior install's data survived), **create
-   the first Owner**:
-   ```powershell
-   & "C:\Program Files\SVR IOCL Station\resources\backend\svr-backend.exe" `
-       create-user --role Owner --name "<Full Name>" --login <login>
-   ```
-   If the prior install's `C:\ProgramData\SVR-IOCL\svr.sqlite` survived (the
-   normal case per the uninstall-keeps-data design), your existing accounts
-   are already there — skip this step and just log in as before.
-4. Launch **SVR IOCL Station** → log in.
-5. **Rate Master** — confirm the real current IOCL Buy/Sell rates are still
-   correct (they carry over with the DB; only check this if starting fresh).
+2. Accept defaults. On the last page `installer.nsh` runs `first-run.ps1`
+   elevated again (idempotent - re-applies config, re-runs migrations
+   (no-ops, already applied), restarts both services). A message box means it
+   hit a problem - note the exit code.
+3. Skip user creation - your existing accounts are already in the DB.
+4. Relaunch **SVR IOCL Station** (fully quit it first if it was already open,
+   so it picks up the new Electron files) → log in.
 
-### C. Validate (record every result)
+If you'd rather be extra cautious, a full uninstall-then-install (per the
+previous handoff's §2.B) still works and is not wrong - just not required this
+time.
 
-Run `HANDOVER.md` §5.2–5.7 in full, **plus** the three workflows above using
-the real September 9/10 files (already in
-`docs/01-BRD-Requirement-Gathering/ocr-samples/` if you `git pull`ed). The
-checks that are new or worth re-confirming on real hardware:
+### C. Re-validate the three specific fixes
+
+You don't need to redo the full validation pass from the last handoff - just
+confirm these three, using a real sheet if you have one, or the client's own
+blank templates in `docs/01-BRD-Requirement-Gathering/ocr-samples/
+SVR_DSR_Empty_<serial>_A4.xlsx` filled in with a couple of sample rows:
 
 | Check | Expect |
 |---|---|
-| Pump Serial dropdown on Daily Sales Entry | `12BC4523V-RD` and `11CC2012V-OFF` only — old serials gone |
-| Print Blank — either serial | Shows "(Road pump)"/"(Office pump)" in the header; native print dialog shows a live preview (Chromium default, nothing custom to configure) |
-| Print & Sync — either serial (as Manager/Owner) | Status line names exactly what changed in Inventory, then the print dialog opens |
-| Import a real Sep 9/10 PDF or Excel file | Reads correctly; Save succeeds |
-| Daily Sales Summary with only one pump submitted | Names the missing side explicitly |
-| Daily Trial Balance for two consecutive real dates | Section 3 pulls automatically; second date blocked until the first is Closed & Signed Off |
-| `Get-Service SVR-IOCL-Backend,SVR-IOCL-Scheduler` | both `Running` / `Automatic` |
-| `Invoke-RestMethod http://127.0.0.1:8756/health` | `{status: ok, version: ...}` |
-| `Invoke-RestMethod http://127.0.0.1:8756/daily-sales-entry/ocr/status` | `{"bundled": true, "pipeline": "draft-assist", ...}` |
-| **Reboot** | both services `Running`; app auto-launches from the Startup shortcut |
+| Import an Excel sheet with Oil Sale(s) Opening Stock filled in (paper-layout / natural workbook, not our own export) | Opening Stock populates per oil row, not just Quantity |
+| A day with Phone Pay Settled filled in | Net Bal Hand Off includes it (formula shown next to the field also now says "... + Phone Pay Settled + Phone Pay Not Settled + ...") |
+| Print Blank - either pump serial | Prints/previews as A4 **portrait**, matching `SVR_DSR_EMPTY_<serial>.pdf`; both serials print (not just one) |
+
+Also worth one quick general check after any install: `Get-Service
+SVR-IOCL-Backend,SVR-IOCL-Scheduler` both `Running`/`Automatic`, and
+`Invoke-RestMethod http://127.0.0.1:8756/health` → `{status: ok, ...}`.
 
 ### D. Record results
 
-Add `### 5.10 Results (remote PC, 2026-09-11)` to `HANDOVER.md` mirroring the
-§5.8/§5.9 tables. Note the actual `.exe` size, and the results of the three
-workflow checks above. Commit + push (branch → `--ff-only` → push → delete
-branch). On any failure: capture the exact error + the relevant
+Add `### 5.11 Results (remote PC, 2026-09-11, build 2a19705)` to
+`HANDOVER.md` - just the three fix checks above plus the service/health
+check. Commit + push (branch → `--ff-only` → push → delete branch). On any
+failure: capture the exact error + the relevant
 `C:\ProgramData\SVR-IOCL\logs\*.log` lines and the §4 table below.
 
 ---
@@ -180,8 +142,8 @@ branch). On any failure: capture the exact error + the relevant
 - **Commit/push only when asked.** Branch first if on `main`; pattern is feature
   branch → `git merge --ff-only` → push → delete branch. End commit messages with
   `Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>`.
-- This PC has no Python/Node, so you can't run the test suites here — that's fine,
-  they're green on the build PC (backend `ruff` + **178 pytest**, frontend
+- This PC has no Python/Node, so you can't run the test suites here - that's fine,
+  they're green on the build PC (backend `ruff` + **179 pytest**, frontend
   `eslint` + **51 Playwright**, `selfcheck` 20 routes).
 - Don't commit `installer/vendor/` or the `.exe` (both git-ignored), or the stray
   `Claude outputs/` · `files.zip` · `releases/` · `Last_update_SVR_Sep7.txt`.
@@ -194,14 +156,11 @@ branch). On any failure: capture the exact error + the relevant
 | Services won't start / backend uses a dev path | machine `SVR_*` env not inherited by the SCM | `HANDOVER.md` §6 items 1–2 |
 | `ocr/status` → `"bundled": false` | a Tesseract DLL missing, or `SVR_TESSERACT_CMD` wrong | check `...\resources\tesseract\` has the `*.dll`s + `tessdata\`; run `tesseract.exe --version` by hand |
 | Win10 `DLL load failed` / missing `VCRUNTIME140` | frozen on Win11 | install VC++ 2015–2022 x64 redist on the target |
-| Frozen `svr-backend-service.exe install` misbehaves | frozen pywin32 service registration | was proven working on v0.1.0 (2026-09-04); if it regressed, add `_exe_name_ = sys.executable` to the two `ServiceFramework` classes and rebuild on the build PC |
-| Pump Serial dropdown still shows old serials after install | browser/renderer cache from the old install wasn't cleared, or the uninstall didn't fully remove the old app files | fully uninstall first (§2.B), confirm `C:\Program Files\SVR IOCL Station` is gone before reinstalling |
+| Old Electron UI still shows after install (e.g. old print orientation) | app wasn't fully quit before/after reinstall | quit **SVR IOCL Station** completely (check Task Manager) and relaunch from the Start Menu shortcut |
 
 ## 5. Not in scope
 
-Code-signing (wired, dormant — no cert). OCR accuracy on genuine handwriting
-(Tesseract can't read it — see the findings doc; not a blocker, typed
-PDF/Excel + manual entry are the reliable paths). Bank-statement
-reconciliation (not built). Windows auto-logon on the station PC (a one-time
-Windows-account step for whoever deploys it — CLAUDE.md open-items note —
-not something the app or `first-run.ps1` does).
+Dropping Tesseract/PDF-Scan (client asked for this, explicitly deferred - see
+§1). Code-signing (wired, dormant — no cert). OCR accuracy on genuine
+handwriting (not a blocker — typed PDF/Excel + manual entry are the reliable
+paths). Bank-statement reconciliation (not built).
