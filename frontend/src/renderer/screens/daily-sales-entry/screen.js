@@ -221,7 +221,7 @@ async function loadExisting({ populate = false } = {}) {
   }
   entryId = row.id;
   if (populate) {
-    populateInputs(row.payload, {});
+    populateInputs(row.payload);
     applyResult(row.result);
   }
   if (banner) {
@@ -319,11 +319,11 @@ function ensureRows(selector, adder, n) {
 
 // Overlay the operator-editable fields from an imported payload. Last Shift
 // Reading / Rate / Opening Stock are backend-locked, so they are NOT touched
-// here - loadPrefill() owns them.
-function populateInputs(payload, meta) {
-  if (meta && meta.pump_serial) setVal("pump-serial", meta.pump_serial);
-  if (meta && meta.shift_date) setVal("shift-date", meta.shift_date);
-
+// here - loadPrefill() owns them. Pump Serial / Shift Date are NOT touched
+// either - identity always comes from whatever's selected on the form (2026-
+// 09-11), never guessed or overridden from an imported document's own content;
+// importExcel() surfaces a mismatch note instead of silently switching it.
+function populateInputs(payload) {
   setVal("hs-current", payload.hs && payload.hs.current);
   setVal("ms-current", payload.ms && payload.ms.current);
   // Last Shift Reading is normally backend-owned (loadPrefill() sets it) - but
@@ -396,16 +396,33 @@ async function importExcel(file) {
   try {
     const res = await api.upload("/daily-sales-entry/import-excel", file);
     entryId = null;
-    if (res.meta && res.meta.pump_serial) setVal("pump-serial", res.meta.pump_serial);
-    if (res.meta && res.meta.shift_date) setVal("shift-date", res.meta.shift_date);
-    await loadPrefill(); // rebuild oil rows + lock rates/readings for this pump+date
-    populateInputs(res.payload, res.meta); // then overlay the imported inputs
+
+    // Identity (Pump Serial + Shift Date) always comes from what's selected on
+    // the form right now - never guessed or switched from the file's own
+    // metadata (matches how Scan/Upload already behaves). A keyed SVR export/
+    // template still carries its own meta.pump_serial/shift_date, so flag a
+    // mismatch instead of silently acting on it either way.
+    const notes = [];
+    if (res.meta && res.meta.pump_serial && res.meta.pump_serial !== val("pump-serial")) {
+      notes.push(
+        `this file was exported for pump ${res.meta.pump_serial} — importing into ` +
+          `${val("pump-serial")} instead (change the dropdown first if that's wrong)`
+      );
+    }
+    if (res.meta && res.meta.shift_date && res.meta.shift_date !== val("shift-date")) {
+      notes.push(
+        `this file was exported for ${res.meta.shift_date} — importing into ${val("shift-date")} instead`
+      );
+    }
+
+    await loadPrefill(); // rebuild oil rows + lock rates/readings for the selected pump+date
+    populateInputs(res.payload); // then overlay the imported inputs (never identity)
     await loadExisting(); // if that day already has an entry, Save updates it
     refresh();
-    const w = res.warnings || [];
-    status.className = w.length ? "status-line" : "status-line ok";
-    status.textContent = w.length
-      ? `Imported with ${w.length} note(s): ${w.join(" | ")} — review, then Save.`
+    notes.push(...(res.warnings || []));
+    status.className = notes.length ? "status-line" : "status-line ok";
+    status.textContent = notes.length
+      ? `Imported with ${notes.length} note(s): ${notes.join(" | ")} — review, then Save.`
       : "Imported — review the values, then Save.";
   } catch (err) {
     status.className = "status-line err";
@@ -423,7 +440,7 @@ async function importScan(file) {
     const res = await api.upload("/daily-sales-entry/ocr", file);
     entryId = null;
     await loadPrefill();
-    populateInputs(res.payload, {});
+    populateInputs(res.payload);
     await loadExisting(); // if that day already has an entry, Save updates it
     refresh();
     const filled = (res.fields || []).filter((f) => f.value !== null && f.value !== "").length;

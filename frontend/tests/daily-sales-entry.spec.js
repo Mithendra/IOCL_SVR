@@ -376,3 +376,57 @@ test("Import from Excel parses a workbook and populates the form", async ({ page
   // recompute ran: amount is populated
   await expect(page.locator("#hs-amount")).not.toHaveValue("");
 });
+
+test("Import from Excel never switches the pump/date - it flags a mismatch instead", async ({
+  page,
+}) => {
+  // Identity (Pump Serial + Shift Date) always comes from what's selected on the
+  // form, never from the imported file's own metadata (2026-09-11).
+  await login(page);
+  await page.goto(SCREEN);
+  await page.fill("#shift-date", "2026-08-26");
+  await page.selectOption("#pump-serial", "11CC2012V-OFF");
+  await page.fill("#hs-current", "1700.5");
+  await page.click("#save-btn");
+  await expect(page.locator("#save-status")).toContainText(/(Saved|Updated) \(entry #/);
+
+  const ctx = await request.newContext();
+  const token = (
+    await (
+      await ctx.post(`${apiBase}/auth/login`, {
+        data: { login_name: "gsales", password: "demo1234" },
+      })
+    ).json()
+  ).token;
+  const list = await (
+    await ctx.get(
+      `${apiBase}/daily-sales-entry?pump_serial=11CC2012V-OFF&shift_date=2026-08-26`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    )
+  ).json();
+  const xlsx = await (
+    await ctx.get(`${apiBase}/daily-sales-entry/${list[0].id}/export-excel`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+  ).body();
+  await ctx.dispose();
+
+  // Fresh screen, explicitly on a DIFFERENT pump + date than the exported file.
+  await page.goto(SCREEN);
+  await page.fill("#shift-date", "2026-08-27");
+  await page.selectOption("#pump-serial", "12BC4523V-RD");
+  await page.setInputFiles('input[type="file"][accept*="xlsx"]', {
+    name: "other-day.xlsx",
+    mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    buffer: xlsx,
+  });
+
+  // The selection on screen wins - not overridden by the file's own metadata.
+  await expect(page.locator("#pump-serial")).toHaveValue("12BC4523V-RD");
+  await expect(page.locator("#shift-date")).toHaveValue("2026-08-27");
+  // ...but the operator is told about the mismatch, by name, on both counts.
+  await expect(page.locator("#save-status")).toContainText("11CC2012V-OFF");
+  await expect(page.locator("#save-status")).toContainText("2026-08-26");
+  // The imported values still apply, to whichever pump/date is now selected.
+  await expect(page.locator("#hs-current")).toHaveValue("1700.5");
+});
