@@ -71,6 +71,21 @@ def test_client_cannot_override_locked_rate(client, auth_headers):
     assert resp.json()["sell_rate_hs"] == 105.36  # client's 999 ignored
 
 
+def test_first_entry_for_a_pump_accepts_a_manual_last_shift_reading(client, auth_headers):
+    # No prior entry exists anywhere for this pump - nothing to carry - so the
+    # operator's own Last Shift Reading is trusted instead of being wiped blank.
+    resp = client.post(
+        "/daily-sales-entry",
+        json=_entry_body(hs={"current": "1317.52", "last": "1300"}, ms={"current": "1000", "last": "900"}),
+        headers=auth_headers("Sales"),
+    )
+    assert resp.status_code == 201, resp.text
+    row = resp.json()
+    assert row["hs_last"] == 1300.0
+    assert row["ms_last"] == 900.0
+    assert row["result"]["hs"]["cons"] == 17.52  # 1317.52 - 1300, not blank
+
+
 def test_delete_requires_manager_or_owner(client, auth_headers, conn):
     created = client.post(
         "/daily-sales-entry", json=_entry_body(), headers=auth_headers("Sales")

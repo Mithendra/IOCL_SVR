@@ -121,8 +121,11 @@ def _apply_locked_context(
 ) -> tuple[dict, dict]:
     """Overlay carried Last Shift Readings and locked Sell/oil rates onto the payload.
 
-    Client-supplied values for these fields are ignored - they are backend-owned
-    (the mockup renders them disabled). Returns ``(payload, meta)``.
+    Rate and (once there's a prior reading to carry) Last Shift Reading are
+    backend-owned - client-supplied values are ignored (the mockup renders them
+    disabled). The very first entry ever made for a pump has no carry source, so
+    the client's own manual Last Shift Reading is kept and numerically normalized
+    instead. Returns ``(payload, meta)``.
     """
     rates = latest_effective_rates(conn, shift_date)
     hs_rate = rates["HS"]["sell_rate"] if "HS" in rates else None
@@ -135,8 +138,18 @@ def _apply_locked_context(
     payload = json.loads(json.dumps(payload))  # deep copy
     payload.setdefault("hs", {})
     payload.setdefault("ms", {})
-    payload["hs"]["last"] = carried.hs
-    payload["ms"]["last"] = carried.ms
+    # Backend-owned once there IS a prior reading to carry (SDD 7.7). The very
+    # first entry ever made for a pump has nothing to carry - carried.hs/ms is
+    # None - so the operator's own manual reading is kept instead of being
+    # wiped to blank.
+    if carried.hs is not None:
+        payload["hs"]["last"] = carried.hs
+    else:
+        payload["hs"]["last"] = _num(payload["hs"].get("last"))
+    if carried.ms is not None:
+        payload["ms"]["last"] = carried.ms
+    else:
+        payload["ms"]["last"] = _num(payload["ms"].get("last"))
     payload["hs"]["rate"] = hs_rate
     payload["ms"]["rate"] = ms_rate
 

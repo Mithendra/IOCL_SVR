@@ -15,7 +15,7 @@ const setVal = (id, v) => {
   if (el) el.value = v === null || v === undefined ? "" : v;
 };
 
-let entryId = null; // set after first Save (or on loading an existing day) -> Save = PUT
+let entryId = null; // set after first Save (or on loading an existing day) -> Update = PUT
 let calcTimer = null;
 let me = null;
 let oilLabels = { ...Object.fromEntries(OIL_KEYS.map((k) => [k, k])) };
@@ -164,10 +164,30 @@ async function loadPrefill() {
   OIL_KEYS.forEach((k) => setVal(`${k}-rate`, p.oil_rates ? p.oil_rates[k] : ""));
   OIL_KEYS.forEach((k) => setVal(`${k}-opening`, p.oil_openings ? p.oil_openings[k] : ""));
 
-  $("carried-note").textContent = p.carried_from
+  // Last Shift Reading is backend-owned (auto-carried) once there IS a prior
+  // reading on file. The very first entry for a pump has nothing to carry, so
+  // it's left open for manual entry instead of being stuck blank forever.
+  const hasCarry = Boolean(p.carried_from);
+  $("hs-last").disabled = hasCarry;
+  $("ms-last").disabled = hasCarry;
+  $("hs-last").placeholder = hasCarry ? "auto @ 23:59 IST" : "Enter Last Shift Reading (no prior reading on file)";
+  $("ms-last").placeholder = $("hs-last").placeholder;
+
+  $("carried-note").textContent = hasCarry
     ? `Last Shift Reading carried from ${p.carried_from} (auto @ 23:59 IST).`
-    : "No prior reading for this pump — Last Shift Reading starts blank.";
+    : "No prior reading for this pump — enter today's Last Shift Reading manually.";
   refresh();
+}
+
+// Save / Update / Delete are distinct toolbar actions (not one relabeled button):
+// Save is only for a new day, Update only for one already bound to a saved row,
+// Delete only for a bound row and only for Manager/Owner (the server already
+// enforces this via RBAC on DELETE - this is a UI hint, not the real gate).
+function syncButtonState() {
+  $("save-btn").disabled = Boolean(entryId);
+  $("update-btn").disabled = !entryId;
+  const canDelete = Boolean(entryId) && me && (me.role === "Manager" || me.role === "Owner");
+  $("delete-btn").hidden = !canDelete;
 }
 
 // If this pump + date already has a saved entry, bind to it so Save is a PUT
@@ -192,6 +212,7 @@ async function loadExisting({ populate = false } = {}) {
   if (!row) {
     entryId = null;
     if (banner) banner.hidden = true;
+    syncButtonState();
     return;
   }
   entryId = row.id;
@@ -203,8 +224,9 @@ async function loadExisting({ populate = false } = {}) {
     banner.hidden = false;
     banner.textContent =
       `Editing saved entry #${row.id} — by ${row.submitted_by}, last updated ` +
-      `${new Date(row.last_updated_at).toLocaleString()}. Save updates this record.`;
+      `${new Date(row.last_updated_at).toLocaleString()}. Use Update to correct it.`;
   }
+  syncButtonState();
   if (populate) refresh();
 }
 
@@ -227,8 +249,9 @@ async function save() {
       banner.hidden = false;
       banner.textContent =
         `Editing saved entry #${saved.id} — last updated ` +
-        `${new Date(saved.last_updated_at).toLocaleString()}. Save updates this record.`;
+        `${new Date(saved.last_updated_at).toLocaleString()}. Use Update to correct it.`;
     }
+    syncButtonState();
     status.className = "status-line ok";
     status.textContent =
       `${wasEdit ? "Updated" : "Saved"} (entry #${saved.id}). Net Bal Hand off ${saved.net_bal_hand_off}.` +
@@ -239,6 +262,45 @@ async function save() {
       err.status === 409
         ? `${err.message} Reload the page for this pump/date to edit it.`
         : `Save failed — ${err.message || err}`;
+  }
+}
+
+// Clears the operator-entered fields back to a blank new-entry state (used after
+// Delete). Last Shift Reading / Rate / Opening Stock stay owned by loadPrefill().
+function clearOperatorFields() {
+  setVal("hs-current", "");
+  setVal("ms-current", "");
+  OIL_KEYS.forEach((k) => setVal(`${k}-qty`, ""));
+  ["exp1", "exp2", "exp3"].forEach((id) => setVal(id, ""));
+  document.querySelectorAll(".cc-amount").forEach((el) => (el.value = ""));
+  document.querySelectorAll("#nc-rows tr").forEach((tr) => {
+    tr.querySelector(".nc-ltrs").value = "";
+    tr.querySelector(".nc-rate").value = "";
+  });
+  document.querySelectorAll(".oc-amount").forEach((el) => (el.value = ""));
+  setVal("pp-settled", "");
+  setVal("pp-unsettled", "");
+  setVal("night-cash", "");
+}
+
+async function deleteEntry() {
+  const status = $("save-status");
+  if (!entryId) return;
+  if (!window.confirm(`Delete Daily Sales entry #${entryId}? This cannot be undone.`)) return;
+  const deletedId = entryId;
+  try {
+    await api.del(`/daily-sales-entry/${deletedId}`);
+    entryId = null;
+    const banner = $("editing-note");
+    if (banner) banner.hidden = true;
+    clearOperatorFields();
+    await loadPrefill();
+    syncButtonState();
+    status.className = "status-line ok";
+    status.textContent = `Deleted (entry #${deletedId}).`;
+  } catch (err) {
+    status.className = "status-line err";
+    status.textContent = `Delete failed — ${err.message || err}`;
   }
 }
 
@@ -257,6 +319,11 @@ function populateInputs(payload, meta) {
 
   setVal("hs-current", payload.hs && payload.hs.current);
   setVal("ms-current", payload.ms && payload.ms.current);
+  // Last Shift Reading is normally backend-owned (loadPrefill() sets it) - but
+  // when there's no carry data yet it's manual input, so a saved manual value
+  // needs restoring here too, or reopening the day would show it blank again.
+  if (!$("hs-last").disabled) setVal("hs-last", payload.hs && payload.hs.last);
+  if (!$("ms-last").disabled) setVal("ms-last", payload.ms && payload.ms.last);
 
   (payload.oils || []).forEach((o, i) => {
     if (OIL_KEYS[i]) setVal(`${OIL_KEYS[i]}-qty`, o.qty);
@@ -426,6 +493,8 @@ async function init() {
   });
 
   $("save-btn").addEventListener("click", save);
+  $("update-btn").addEventListener("click", save); // same request logic; buttons differ by when they're enabled
+  $("delete-btn").addEventListener("click", deleteEntry);
   $("print-btn").addEventListener("click", () => window.print());
   document.querySelectorAll("[data-blank]").forEach((btn) => {
     btn.addEventListener("click", async () => {

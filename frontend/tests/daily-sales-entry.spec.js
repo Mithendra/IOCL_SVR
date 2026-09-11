@@ -5,9 +5,9 @@ const { apiBase } = require("./_helpers");
 
 const SCREEN = `/screens/daily-sales-entry/index.html?apiBase=${encodeURIComponent(apiBase)}`;
 
-async function login(page) {
+async function login(page, user = "gsales") {
   await page.goto(`/index.html?apiBase=${encodeURIComponent(apiBase)}`);
-  await page.fill("#login-name", "gsales");
+  await page.fill("#login-name", user);
   await page.fill("#password", "demo1234");
   await page.click("#login-form button[type=submit]");
   await expect(page.locator("#nav-links .nav-item").first()).toBeVisible();
@@ -23,13 +23,52 @@ test("Sales user reaches Daily Sales Entry from the nav", async ({ page }) => {
   await expect(page.locator(".section-title").first()).toContainText("Gas Sale(s)");
 });
 
-test("prefill fills the locked Last Shift Reading and Rate fields", async ({ page }) => {
+test("prefill fills the locked Rate fields; Last Shift Reading is open when there's no carry data", async ({
+  page,
+}) => {
+  // A pump/date with no earlier entry anywhere - nothing to carry (SDD 7.7), so
+  // the very first reading has to be enterable by hand. Picked at the seeded
+  // Rate Master's own effective_date (2026-08-11, migration 0001) so the Sell
+  // Rate is actually in effect, and before every other date this suite uses.
   await login(page);
   await page.goto(SCREEN);
+  await page.fill("#shift-date", "2026-08-11");
+  await page.locator("#shift-date").dispatchEvent("change");
+
   await expect(page.locator("#hs-rate")).toHaveValue("105.36");
   await expect(page.locator("#ms-rate")).toHaveValue("117.7");
-  await expect(page.locator("#hs-last")).toBeDisabled();
   await expect(page.locator("#hs-rate")).toBeDisabled();
+  await expect(page.locator("#hs-last")).toBeEnabled();
+  await expect(page.locator("#ms-last")).toBeEnabled();
+});
+
+test("Last Shift Reading locks once a prior day's reading exists (carry-forward)", async ({ page }) => {
+  const PRIOR = "1999-06-01";
+  const NEXT = "1999-06-02";
+  const ctx = await request.newContext();
+  const token = (
+    await (
+      await ctx.post(`${apiBase}/auth/login`, { data: { login_name: "gsales", password: "demo1234" } })
+    ).json()
+  ).token;
+  await ctx.post(`${apiBase}/daily-sales-entry`, {
+    headers: { Authorization: `Bearer ${token}` },
+    data: {
+      pump_serial: "12BC4523V-OFF", shift_date: PRIOR,
+      hs: { current: "500" }, ms: { current: "300" },
+    },
+  });
+  await ctx.dispose();
+
+  await login(page);
+  await page.goto(SCREEN);
+  await page.fill("#shift-date", NEXT);
+  await page.locator("#shift-date").dispatchEvent("change");
+
+  await expect(page.locator("#hs-last")).toBeDisabled();
+  await expect(page.locator("#hs-last")).toHaveValue("500");
+  await expect(page.locator("#ms-last")).toHaveValue("300");
+  await expect(page.locator("#carried-note")).toContainText(PRIOR);
 });
 
 test("typing Current Reading updates Amount via the backend /calc", async ({ page }) => {
@@ -54,6 +93,9 @@ test("Save persists the entry and stamps last-updated-by", async ({ page }) => {
 
   await expect(page.locator("#save-status")).toContainText(/(Saved|Updated) \(entry #/);
   await expect(page.locator("#last-updated-by")).toHaveText("gsales");
+  // Save is for a new day only - once bound to a saved row, Update takes over.
+  await expect(page.locator("#save-btn")).toBeDisabled();
+  await expect(page.locator("#update-btn")).toBeEnabled();
 
   // Confirm the row is really in the backend.
   const ctx = await request.newContext();
@@ -85,9 +127,12 @@ test("re-opening a saved day loads it for edit; Save updates the same row", asyn
   await page.fill("#shift-date", DATE);
   await expect(page.locator("#editing-note")).toContainText("Editing saved entry #");
   await expect(page.locator("#hs-current")).toHaveValue("2000.5");
+  // Save is disabled once bound to an existing row - Update is the only path in.
+  await expect(page.locator("#save-btn")).toBeDisabled();
+  await expect(page.locator("#update-btn")).toBeEnabled();
 
   await page.fill("#hs-current", "2100");
-  await page.click("#save-btn");
+  await page.click("#update-btn");
   await expect(page.locator("#save-status")).toContainText("Updated (entry #");
 
   const ctx = await request.newContext();
@@ -107,6 +152,90 @@ test("re-opening a saved day loads it for edit; Save updates the same row", asyn
   expect(rows.length).toBe(1); // updated in place, no duplicate
   expect(String(rows[0].payload.hs.current)).toBe("2100");
   await ctx.dispose();
+});
+
+async function seedEntry(shiftDate, pump = "12BC4523V-OFF") {
+  const ctx = await request.newContext();
+  const token = (
+    await (
+      await ctx.post(`${apiBase}/auth/login`, { data: { login_name: "gsales", password: "demo1234" } })
+    ).json()
+  ).token;
+  await ctx.post(`${apiBase}/daily-sales-entry`, {
+    headers: { Authorization: `Bearer ${token}` },
+    data: { pump_serial: pump, shift_date: shiftDate, hs: { current: "1500" }, ms: { current: "0" } },
+  });
+  await ctx.dispose();
+}
+
+test("Delete button is hidden for Sales, even on their own saved entry", async ({ page }) => {
+  const DATE = "2026-07-17";
+  await seedEntry(DATE);
+  await login(page, "gsales");
+  await page.goto(SCREEN);
+  await page.fill("#shift-date", DATE);
+  await expect(page.locator("#editing-note")).toContainText("Editing saved entry #");
+  await expect(page.locator("#delete-btn")).toBeHidden();
+});
+
+test("Manager can Delete a saved entry; the form clears and the row is gone", async ({ page }) => {
+  const DATE = "2026-07-18";
+  await seedEntry(DATE);
+  await login(page, "mmanager");
+  await page.goto(SCREEN);
+  await page.fill("#shift-date", DATE);
+  await expect(page.locator("#editing-note")).toContainText("Editing saved entry #");
+  await expect(page.locator("#delete-btn")).toBeVisible();
+
+  page.once("dialog", (d) => d.accept());
+  await page.click("#delete-btn");
+  await expect(page.locator("#save-status")).toContainText(/Deleted \(entry #/);
+  await expect(page.locator("#editing-note")).toBeHidden();
+  await expect(page.locator("#hs-current")).toHaveValue(""); // form cleared
+  await expect(page.locator("#save-btn")).toBeEnabled();
+  await expect(page.locator("#update-btn")).toBeDisabled();
+
+  const ctx = await request.newContext();
+  const token = (
+    await (
+      await ctx.post(`${apiBase}/auth/login`, { data: { login_name: "mmanager", password: "demo1234" } })
+    ).json()
+  ).token;
+  const rows = await (
+    await ctx.get(`${apiBase}/daily-sales-entry?shift_date=${DATE}&pump_serial=12BC4523V-OFF`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+  ).json();
+  expect(rows.length).toBe(0); // gone
+  await ctx.dispose();
+});
+
+test("Print Blank Form fills the right pump serial, blanks readings, and hides Section 8 for print", async ({
+  page,
+}) => {
+  await login(page);
+  await page.goto(SCREEN);
+  // Stub window.print so the native OS dialog never blocks the test.
+  await page.evaluate(() => {
+    window.__printCalls = 0;
+    window.print = () => {
+      window.__printCalls += 1;
+    };
+  });
+
+  await page.click('[data-blank="11CC2012V-RDF"]');
+  await expect(page.locator("#pump-serial")).toHaveValue("11CC2012V-RDF");
+  await expect(page.locator("#hs-current")).toHaveValue("");
+  await expect(page.locator("#ms-current")).toHaveValue("");
+  expect(await page.evaluate(() => window.__printCalls)).toBe(1);
+
+  // Section 8 / operational banners aren't on the physical paper form - hidden
+  // from the printed output (visible on-screen, hidden under print media).
+  await expect(page.locator("#daily-summary-block")).toBeVisible();
+  await page.emulateMedia({ media: "print" });
+  await expect(page.locator("#daily-summary-block")).toBeHidden();
+  await expect(page.locator("#toolbar-hint")).toBeHidden();
+  await page.emulateMedia({ media: "screen" });
 });
 
 test("theme swatch changes --io-accent; language toggle switches headings", async ({ page }) => {

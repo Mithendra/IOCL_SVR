@@ -70,7 +70,7 @@
           <tr>
             <td>Diesel (HS)</td>
             <td><input id="hs-current" data-calc /></td>
-            <td><input id="hs-last" disabled placeholder="auto @ 23:59 IST" /></td>
+            <td><input id="hs-last" disabled data-calc placeholder="auto @ 23:59 IST" /></td>
             <td><input id="hs-cons" disabled placeholder="auto" /></td>
             <td><input id="hs-rate" disabled placeholder="auto (Sell Rate HS)" /></td>
             <td><input id="hs-amount" disabled placeholder="auto" /></td>
@@ -79,7 +79,7 @@
           <tr>
             <td>Petrol (MS)</td>
             <td><input id="ms-current" data-calc /></td>
-            <td><input id="ms-last" disabled placeholder="auto @ 23:59 IST" /></td>
+            <td><input id="ms-last" disabled data-calc placeholder="auto @ 23:59 IST" /></td>
             <td><input id="ms-cons" disabled placeholder="auto" /></td>
             <td><input id="ms-rate" disabled placeholder="auto (Sell Rate MS)" /></td>
             <td><input id="ms-amount" disabled placeholder="auto" /></td>
@@ -178,6 +178,8 @@
 
         <div class="export-bar">
           <button type="button" class="export-btn" id="save-btn" style="order:-1">Save</button>
+          <button type="button" class="export-btn" id="update-btn" style="order:-1" disabled>Update</button>
+          <button type="button" class="export-btn secondary" id="delete-btn" style="order:-1;border-color:var(--io-red);color:var(--io-red)" hidden>Delete</button>
           <button type="button" class="export-btn secondary" id="print-btn">Print</button>
           <button type="button" class="export-btn secondary" data-blank="12BC4523V-OFF">Print Blank — 12BC4523V-OFF</button>
           <button type="button" class="export-btn secondary" data-blank="11CC2012V-RDF">Print Blank — 11CC2012V-RDF</button>
@@ -186,20 +188,24 @@
           <button type="button" class="export-btn" id="export-btn">Export to Excel</button>
         </div>
         <p id="save-status" class="status-line"></p>
-        <p style="font-size:11px;color:var(--io-blue-dark);text-align:right;margin:2px 0 0">
+        <p id="toolbar-hint" style="font-size:11px;color:var(--io-blue-dark);text-align:right;margin:2px 0 0">
           Print, Print Blank, Scan/Upload, Import, and Export apply to Sections 1–7 only
         </p>
 
-        <!-- 8. Daily Summary -->
-        <div class="section-title">
-          8. <span class="tt" data-en="Daily Summary" data-te="రోజువారీ సారాంశం">Daily Summary</span>
+        <!-- 8. Daily Summary - an internal report, not part of the physical paper
+             form (compare docs/.../ocr-samples/*.pdf: sections 1-7 + Verified by
+             only). Hidden from Print / Print Blank output, see @media print. -->
+        <div id="daily-summary-block">
+          <div class="section-title">
+            8. <span class="tt" data-en="Daily Summary" data-te="రోజువారీ సారాంశం">Daily Summary</span>
+          </div>
+          <table>
+            <tr><th>Item</th><th>Total</th></tr>
+            <tr><td>Total HS</td><td><input id="ds-hs" disabled /></td></tr>
+            <tr><td>Total MS</td><td><input id="ds-ms" disabled /></td></tr>
+            <tbody id="ds-oil-rows"></tbody>
+          </table>
         </div>
-        <table>
-          <tr><th>Item</th><th>Total</th></tr>
-          <tr><td>Total HS</td><td><input id="ds-hs" disabled /></td></tr>
-          <tr><td>Total MS</td><td><input id="ds-ms" disabled /></td></tr>
-          <tbody id="ds-oil-rows"></tbody>
-        </table>
 
         <div class="verify-grid">
           <div class="field"><label>Verified By</label><input id="verify-name" disabled /></div>

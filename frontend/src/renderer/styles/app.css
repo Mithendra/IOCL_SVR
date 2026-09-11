@@ -509,6 +509,7 @@ td input:disabled {
 }
 .status-line {
   font-size: 12px;
+  font-weight: 700;
   color: var(--io-blue-dark);
   text-align: right;
   margin: 4px 0 0;
@@ -525,7 +526,12 @@ td input:disabled {
   .last-updated-bar,
   .add-row-btn,
   .export-bar,
-  .shell-sidebar {
+  .shell-sidebar,
+  #daily-summary-block,
+  #carried-note,
+  #editing-note,
+  #save-status,
+  #toolbar-hint {
     display: none !important;
   }
   @page {
