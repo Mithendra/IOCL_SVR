@@ -22,6 +22,26 @@ module per fix, per the Daily Sales Entry reference pattern.
   before calling it correct. The design was built this way for 100+ sessions;
   keep the discipline.
 
+### What "done" means here — two rules, both learned the hard way
+
+1. **A module is not done until its figures reconcile to a filled client form,
+   to the paisa, locked in as a permanent test** (client-set 2026-09-11, after
+   the Net Bal sign bug). *"The fields parse"* and *"it loads and saves"* are
+   **never** completion claims. `HANDOVER.md` §5.5 once read "Daily Sales Entry +
+   Daily Trial Balance forms load and save ✅" — both had real defects at the
+   time.
+2. **A module is not done until every section of the client's form is on the
+   screen** (2026-09-12, after the Trial Balance shipped with seven of its eleven
+   sections behind a raw JSON textarea). A decision about *how a section is
+   stored* is not a decision that it needs no UI. If part of a form is not built,
+   the word in the docs is **"not built"** — never "final design", never "out of
+   scope", never a ✅ with a caveat somewhere else. Anything less and it gets
+   reported as ready, because the next person to read it has no way to tell.
+
+   Before writing a completion claim, state plainly which parts a user can
+   actually use and which they cannot. If that list is uncomfortable to write,
+   that is the signal it is needed.
+
 ## Non-negotiable conventions (from the SDD)
 
 | Rule | Where |
@@ -81,13 +101,30 @@ module per fix, per the Daily Sales Entry reference pattern.
   no longer match the live workbook's printed section labels; current row numbers
   for each, in the live SEP06 tab, are recorded in
   `docs/01-BRD-Requirement-Gathering/SVR-Trial-Balance-Audit-2026-09-06.md`
-  (second addendum)) stay as the free-form `manual_json` blob already implemented
-  (`TrialBalanceUpsert.manual: dict`, round-trip covered by
-  `test_manual_blob_round_trips`). **No code change required** — this is the final
-  design, not an interim one; computed rollups for these sections are out of scope
-  unless the client asks again later for a specific section. Sections **1, 3, 6, 7**
-  remain the only server-computed sections (SDD §9 formulas; Section 3 pulled
-  read-only from Daily Sales Summary).
+  (second addendum)) are **stored** as the free-form `manual_json` blob
+  (`TrialBalanceUpsert.manual: dict`). That storage decision still stands.
+
+  **READ THE NEXT PARAGRAPH BEFORE QUOTING THE ONE ABOVE.** This entry used to
+  end "**No code change required** — this is the final design, not an interim
+  one; computed rollups are out of scope". That wording was wrong, and it did
+  real damage. Those seven sections had **no form at all** — they were a single
+  raw JSON textarea — and "final design, not interim" turned that hole into a
+  decision. After 2026-09-06 nothing in this repo said the form was unfinished,
+  so it was reported as ready and shipped to the station that way. The client
+  found it in live testing on 2026-09-12, and was then told "that's ADR-1"
+  **twice** before anyone built it.
+
+  **Built in full 2026-09-12** (`a9bd61d`, `f7ab0fa`), from the client's own
+  SEP12 tab: all eleven sections as real labelled fields, the station's own
+  workbook numbering, every cross-section total computed server-side
+  (`derive_manual`), Section 2 pulled live from Daily Sales Entries, and the
+  sheet's six dropdown lists. Reconciled to SEP12 to the paisa by
+  `backend/tests/test_trial_balance_sep12.py`. Sections **1, 5, 6** (workbook
+  numbering) are the engine-computed ones.
+
+  **The lesson, which applies to every module:** ADR-1 decided *where those
+  sections are stored*. It never said they shouldn't have a form. Do not let a
+  storage decision be quoted as evidence that a screen is finished.
   ~~Also: the Section 6 stock-value litres sign (`diff − consumption`) ... not yet
   cross-checked against the AUG11/AUG12 workbooks~~ — **RESOLVED 2026-09-06**: this
   was a genuine formula bug, not a sign ambiguity. Cross-checked against AUG11,

@@ -12,8 +12,18 @@ Read this first, then [`CLAUDE.md`](CLAUDE.md) and
 ## 1. Where the project stands
 
 - **All 12 modules are built** end-to-end (backend + Electron screen + tests).
-  Backend `pytest` 87, frontend Playwright 32, `ruff`/`eslint` clean. Module 12
-  (Daily Trial Balance) ships partial — see the README table.
+  Backend `pytest` 87, frontend Playwright 32, `ruff`/`eslint` clean.
+
+  > **Correction, 2026-09-12.** Module 12 (Daily Trial Balance) said "ships
+  > partial" here and was recorded elsewhere as ADR-1's "final design, not an
+  > interim one". In fact **seven of its eleven sections had no form at all** —
+  > they were a single raw JSON textarea nobody at a station could fill in. The
+  > caveat above was one line, and it was contradicted by §5.5 below and by the
+  > ADR-1 wording, so the module read as finished and was shipped that way. The
+  > client found it in live testing. It is now built in full against their SEP12
+  > tab (`a9bd61d`, `f7ab0fa`) and reconciled to it by
+  > `backend/tests/test_trial_balance_sep12.py`. See `CLAUDE.md` → "What 'done'
+  > means here".
 - **Packaging is code-complete and builds cleanly** on a dev machine: a single
   NSIS installer (`SVR-IOCL-Station-Setup-<version>.exe`) that bundles a
   PyInstaller-frozen backend **plus a portable Tesseract OCR engine** (SDD ADR-6),
@@ -188,7 +198,7 @@ Test-Path "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup\SVR IOCL S
 | 5.2 Services | ✅ `SVR-IOCL-Backend` + `SVR-IOCL-Scheduler` both `Running` |
 | 5.3 Data tree / logs | ✅ `backend-service.log` has continuous real `uvicorn.access` entries spanning 2026-08-31 → 2026-09-04 (`/health`, `/auth/login`, `/auth/me`, `/daily-sales-entry/*`, `/daily-trial-balance/*`, all `200`) — confirms migrations ran, DB healthy, `SVR_LOG_DIR` machine env var reached the service |
 | 5.4 `/health` | ✅ (implied by the log entries above) |
-| 5.5 App + login | ✅ Logged in as `mmanager`; Daily Sales Entry + Daily Trial Balance forms load and save |
+| 5.5 App + login | ⚠️ **Overstated — corrected 2026-09-12.** What was checked: logged in as `mmanager`, both screens rendered, a save round-tripped. That is *not* validation and this row should never have carried a ✅. Both forms had real defects at the time — Daily Sales Entry's Net Bal had the wrong sign on every non-cash line (found 2026-09-11), and Daily Trial Balance was missing seven of its eleven sections (found 2026-09-12). Re-validate against a filled client form, to the paisa, per `CLAUDE.md` → "What 'done' means here". |
 | 5.6 Reboot | ✅ **Confirmed 2026-09-04** — after restarting the testing PC, both services were up on their own and the app auto-launched from the Startup shortcut and reached the backend, no manual intervention |
 | 5.7 Uninstall | ⏸ **Deferred on purpose (2026-09-04)** — the testing PC stays installed for continued use rather than being torn down now. Uninstall gets verified at actual deployment/decommission time, not before. |
 
