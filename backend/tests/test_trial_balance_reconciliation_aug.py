@@ -42,12 +42,14 @@ def test_section1_matches_the_real_workbooks():
         assert round(pump_cons + diff, 2) == want_benefit, f"{tab} {fuel} benefit/loss"
 
 
-def test_deduct_testing_shape_matches_but_the_seeded_constant_does_not():
+def test_deduct_testing_shape_matches_the_workbooks():
     """``deduct_testing = consumption - testing_deduction`` is the right shape.
 
     The workbooks imply a deduction of **10.5** per fuel on 4/4 rows, while
-    ``system_parameter.testing_density_deduction`` is seeded **10**. Recorded
-    here rather than silently changed - see the note at the bottom of this file.
+    ``system_parameter.testing_density_deduction`` is seeded **10**.
+    **Client decision 2026-09-11: leave it at 10** - it is a cost line, the half
+    litre is immaterial, and it is Owner-editable if that ever changes. This
+    test records what the workbooks say; it does not require the seed to match.
     """
     implied = {round(pump_cons - deduct, 4) for _, _, _, _, pump_cons, _, _, deduct in AUG}
     assert implied == {10.5}, "the workbooks are internally consistent at 10.5"
@@ -86,19 +88,26 @@ def test_section6_stock_and_section7_total_match_aug11():
 
 
 # ---------------------------------------------------------------------------
-# FINDINGS RAISED WITH THE CLIENT 2026-09-11 - data, not arithmetic.
+# FINDINGS RAISED WITH THE CLIENT 2026-09-11 - data, not arithmetic. Both are
+# CLOSED. Neither affects the formulas above, all of which reproduce the real
+# workbooks exactly.
 #
-# 1. testing_density_deduction is seeded 10; AUG11/AUG12 imply 10.5 on 4/4 rows
-#    (both fuels, both days). CLAUDE.md records 10 as a "final value", so this
-#    needs the client's word rather than a unilateral change. It is Owner-
-#    editable via system_parameter (ADR-3), so no migration is required either
-#    way - only the seed would change.
+# 1. testing_density_deduction seeded 10 vs 10.5 implied by AUG11/AUG12.
+#    CLOSED - client: "it is just a cost, there is no need to worry about it."
+#    Left at 10. Owner-editable via system_parameter (ADR-3) if it ever matters.
 #
-# 2. Buy Rates are seeded 101.50 (HS) / 112.30 (MS) effective 2026-08-11, but
-#    the AUG11 tab prices stock at 102.75 / 113.56 on that same date. Sell rates
-#    (105.36 / 117.70) are confirmed correct by the September sheets, so this is
-#    the buy side only. Buy rates move, and only August data is on hand, so the
-#    current figures may simply be a later revision - again, the client's call.
+# 2. Buy Rates seeded 101.50 (HS) / 112.30 (MS) effective 2026-08-11, while the
+#    AUG11 tab prices stock at 102.75 / 113.56 on that same date.
+#    CLOSED as a code question - this is Rate Master data, entered by the Owner
+#    with an effective date, exactly as designed (confirmed 2026-09-06).
 #
-# Neither affects the formulas above, all of which reproduce the real workbooks.
+#    Scope, for whoever hits this next: Buy Rate feeds ONE thing - Section 6
+#    Stock Value (current IOCL reading x Buy Rate) and hence the Section 7
+#    total. Daily Sales Entry never uses it (Sell Rate only, confirmed correct
+#    by the September sheets), so Daily Sales testing is unaffected. On AUG11
+#    volumes (13,767 L) the 1.25/L gap is ~17,000 on a ~1.49M stock value.
+#
+#    Note the September files cannot settle this: they are Daily Sales Reports
+#    and carry no Buy Rate at all. The current rates come off the IOCL invoice
+#    and should be entered in Rate Master before Trial Balance testing.
 # ---------------------------------------------------------------------------
