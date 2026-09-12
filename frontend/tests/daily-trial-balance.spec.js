@@ -69,6 +69,98 @@ test("Sales sees the Daily Trial Balance nav link (maker) but not the Close & Si
   await expect(page.locator("#save-btn")).toBeVisible();
 });
 
+test("all eleven workbook sections are on the form, not just the computed ones", async ({
+  page,
+}) => {
+  await login(page, "mmanager");
+  await page.goto(SCREEN);
+  await expect(page.locator("#body")).toBeVisible();
+
+  // Until 2026-09-12 only 1/5/6 were rendered and the other seven sections were a
+  // single raw JSON textarea - which is why the form looked like it had three
+  // sections. Numbering here is the station's own workbook numbering.
+  for (const title of [
+    "1. IOCL Stock Readings",
+    "2. Day Sales Report",
+    "3. Daily Cash & Bank Balances",
+    "4. Cash/Book Value Reconciliation",
+    "5. Stock Value",
+    "6. Trial Balance — Actual Reported — Today",
+    "7. Trial Balance - Projected - Today",
+    "8. Daily Management Reporting",
+    "9. Daily Mgr Calculation",
+    "10. Load/Unload Details",
+    "11. Old/New Credit Sales Details",
+  ]) {
+    await expect(page.locator(".section-title, .summary-box h3").filter({ hasText: title }))
+      .toHaveCount(1);
+  }
+
+  // The raw JSON box is gone.
+  await expect(page.locator("#manual-json")).toHaveCount(0);
+  // Representative fields from the sections that used to be JSON-only.
+  await expect(page.locator('[data-manual="section3.onhand"]')).toBeVisible();
+  await expect(page.locator('[data-manual="section4.diff"]')).toBeVisible();
+  await expect(page.locator('[data-manual="section7.total5"]')).toBeVisible();
+  await expect(page.locator('[data-manual="section8.f5"]')).toBeVisible();
+  await expect(page.locator('[data-manual="section10.hs_total"]')).toBeVisible();
+  await expect(page.locator('[data-manual="section11.new_airtel"]')).toBeVisible();
+  // Section 9's running ledger keeps all 26 workbook columns.
+  await expect(page.locator('[data-rows="section9.ledger"]')).toHaveCount(1);
+});
+
+test("manual sections save into the record's manual block and survive a reload", async ({
+  page,
+}) => {
+  const MANUAL_DATE = "2026-10-25";
+  await login(page, "mmanager");
+  await page.goto(SCREEN);
+  // Wait for init() to finish before touching the date: it sets #tb-date to today
+  // itself, so filling too early is silently overwritten and the Save lands on
+  // TODAY's Trial Balance - which then blocks every later date via the ADR-2 gate.
+  await expect(page.locator("#body")).toBeVisible();
+  await page.fill("#tb-date", MANUAL_DATE);
+  await page.click("#load-btn");
+
+  await page.fill('[data-manual="section3.onhand"]', "12345.67");
+  await page.fill('[data-manual="section4.reported"]', "98765.43");
+  await page.fill('[data-manual="section11.new_airtel"]', "500");
+  // A repeating row, including its dropdown.
+  const creditRows = page.locator('[data-rows="section3.new_credits"] tr');
+  await creditRows.first().locator("select").selectOption("AirTel Hari New Credit");
+  await creditRows.first().locator('[data-col="amount"]').fill("2500");
+
+  await page.click("#save-btn");
+  await expect(page.locator("#save-status")).toContainText("recalculated");
+
+  await page.reload();
+  await expect(page.locator("#body")).toBeVisible();
+  await page.fill("#tb-date", MANUAL_DATE);
+  await page.click("#load-btn");
+  await expect(page.locator('[data-manual="section3.onhand"]')).toHaveValue("12345.67");
+  await expect(page.locator('[data-manual="section4.reported"]')).toHaveValue("98765.43");
+  await expect(page.locator('[data-manual="section11.new_airtel"]')).toHaveValue("500");
+  await expect(creditRows.first().locator("select")).toHaveValue("AirTel Hari New Credit");
+  await expect(creditRows.first().locator('[data-col="amount"]')).toHaveValue("2500");
+});
+
+test("Section 2 shows the day's real per-pump figures, pulled not typed", async ({ page }) => {
+  await login(page, "mmanager");
+  await page.goto(SCREEN);
+  await expect(page.locator("#body")).toBeVisible(); // init() owns #tb-date until then
+  await page.fill("#tb-date", DATE);
+  await page.click("#load-btn");
+  await expect(page.locator("#s3-src")).toContainText("Daily Sales Summary");
+
+  // Four gas rows - two fuels x two pumps - each naming its own serial and side.
+  await expect(page.locator("#s2-gas-rows tr")).toHaveCount(4);
+  await expect(page.locator("#s2-gas-rows")).toContainText(`${PUMP_B} (Office)`);
+  await expect(page.locator("#s2-gas-rows")).toContainText(`${PUMP_A} (Road)`);
+  // Combined HS consumption is the seeded 50 L (30 + 20), and it is read-only.
+  await expect(page.locator("#s2-total-ltrs")).toHaveText(/^\d+\.\d{2}$/);
+  await expect(page.locator("#s2-gas-rows input")).toHaveCount(0);
+});
+
 test("Manager enters Section 1, sees computed columns + pulled Section 3, then finalizes", async ({
   page,
 }) => {
