@@ -74,9 +74,13 @@ function optionMarkup(key, selected) {
 
 // Add a value to one of the dropdowns. Saved server-side, so it is there
 // tomorrow and for everyone - not just this browser session.
-async function addOption(listKey, label) {
-  const raw = window.prompt(`Add a new ${label}:`);
-  if (raw === null || !raw.trim()) return;
+//
+// Typed into an inline box, NOT window.prompt(): Electron blocks prompt()
+// outright, so in the installed app the old button appeared to do nothing at all
+// (client, 2026-09-12). An inline field also keeps the interaction next to the
+// block it belongs to.
+async function addOption(listKey, raw) {
+  if (!raw || !raw.trim()) return;
   const status = $("save-status");
   try {
     OPTIONS = await api.post("/daily-trial-balance/options", {
@@ -131,14 +135,7 @@ function rowsBlock(sectionKey, block) {
   const path = `${sectionKey}.${block.key}`;
   const head = block.columns.map((c) => `<th>${c.label}</th>`).join("");
   const listed = block.columns.find((c) => c.optionList);
-  const addNew = listed
-    ? ` <button type="button" class="add-row-btn tb-inline-btn" ` +
-      `data-add-option="${esc(listed.optionList)}" ` +
-      `data-add-label="${esc(listed.label.toLowerCase())}">+ New ${listed.label}</button>`
-    : "";
-  const title = block.title
-    ? `<div class="tb-block-title">${block.title}${addNew}</div>`
-    : "";
+  const title = block.title ? `<div class="tb-block-title">${block.title}</div>` : "";
   const note = block.note
     ? `<p style="font-size:11px;color:var(--io-blue-dark);margin:4px 0 0">${block.note}</p>`
     : "";
@@ -151,10 +148,24 @@ function rowsBlock(sectionKey, block) {
     `<table class="tb-rows${width}"${block.wide ? ' style="min-width:2600px"' : ""}>` +
     `<tr>${head}<th style="width:1%"></th></tr>` +
     `<tbody data-rows="${esc(path)}"></tbody>${totalRow}</table>`;
+  // Buttons live in a bar directly under their own table, left-aligned - they
+  // used to float to the far right of the sheet, nowhere near the block they
+  // belonged to. Section 9's placement is the model (client, 2026-09-12).
+  const newOpt = listed
+    ? `<button type="button" class="add-row-btn" data-add-option="${esc(listed.optionList)}">` +
+      `+ New ${listed.label}</button>` +
+      `<span class="tb-newopt" data-newopt="${esc(listed.optionList)}" hidden>` +
+      `<input data-newopt-input placeholder="New ${esc(listed.label.toLowerCase())}">` +
+      `<button type="button" class="add-row-btn" data-newopt-save>Add</button>` +
+      `<button type="button" class="add-row-btn" data-newopt-cancel>Cancel</button></span>`
+    : "";
   return (
     title +
     (block.wide ? `<div style="overflow-x:auto">${table}</div>` : table) +
+    `<div class="tb-actions">` +
     `<button type="button" class="add-row-btn" data-add-row="${esc(path)}">+ Add row</button>` +
+    newOpt +
+    `</div>` +
     note
   );
 }
@@ -183,6 +194,18 @@ function gridBlock(sectionKey, block) {
   return `<table class="tb-grid"><tr><th></th>${head}</tr>${body}</table>${note}`;
 }
 
+function noteBlock(sectionKey, block) {
+  // Free text. The sheet has no field for it, so operators have been typing
+  // commentary into the labels themselves (SEP10 A36: "Indian bank Statement
+  // Ending Balance @Fraud Pending -Rs 13367"). This gives them somewhere to put it.
+  return (
+    `<div class="tb-block-title">Special Note</div>` +
+    `<textarea class="tb-note" rows="2" ` +
+    `data-manual="${esc(`${sectionKey}.${block.key}`)}" ` +
+    `placeholder="Anything worth recording about this section today"></textarea>`
+  );
+}
+
 function signoffBlock(sectionKey, block) {
   const rows = block.rows
     .map(
@@ -192,12 +215,17 @@ function signoffBlock(sectionKey, block) {
         `${optionMarkup(block.optionList, null)}</select></td></tr>`
     )
     .join("");
-  const addNew =
-    ` <button type="button" class="add-row-btn tb-inline-btn" ` +
-    `data-add-option="${esc(block.optionList)}" data-add-label="name">+ New Name</button>`;
   return (
-    `<div class="tb-block-title">${block.title}${addNew}</div>` +
-    `<table class="tb-fields"><tr><th>Role</th><th>Name</th></tr>${rows}</table>`
+    `<div class="tb-block-title">${block.title}</div>` +
+    `<table class="tb-fields"><tr><th>Role</th><th>Name</th></tr>${rows}</table>` +
+    `<div class="tb-actions">` +
+    `<button type="button" class="add-row-btn" data-add-option="${esc(block.optionList)}">` +
+    `+ New Name</button>` +
+    `<span class="tb-newopt" data-newopt="${esc(block.optionList)}" hidden>` +
+    `<input data-newopt-input placeholder="New name">` +
+    `<button type="button" class="add-row-btn" data-newopt-save>Add</button>` +
+    `<button type="button" class="add-row-btn" data-newopt-cancel>Cancel</button></span>` +
+    `</div>`
   );
 }
 
@@ -208,22 +236,48 @@ function buildManualSections() {
     const hint = section.hint
       ? ` <span style="font-weight:400;font-size:11px">${section.hint}</span>`
       : "";
+    host.className = `tb-sec tb-w-${section.width || "std"}`;
     let html = `<div class="section-title">${section.n}. ${section.title}${hint}</div>`;
     for (const block of section.blocks) {
       if (block.type === "fields") html += fieldsBlock(section.key, block);
       else if (block.type === "rows") html += rowsBlock(section.key, block);
       else if (block.type === "grid") html += gridBlock(section.key, block);
       else if (block.type === "signoff") html += signoffBlock(section.key, block);
+      else if (block.type === "note") html += noteBlock(section.key, block);
     }
     host.innerHTML = html;
   }
   document.querySelectorAll("[data-add-row]").forEach((btn) => {
     btn.addEventListener("click", () => addRow(btn.dataset.addRow));
   });
+  // "+ New ..." reveals the inline box beside it; Add saves; Cancel closes.
   document.querySelectorAll("[data-add-option]").forEach((btn) => {
-    btn.addEventListener("click", () =>
-      addOption(btn.dataset.addOption, btn.dataset.addLabel)
+    const box = btn.parentElement.querySelector(
+      `[data-newopt="${btn.dataset.addOption}"]`
     );
+    btn.addEventListener("click", () => {
+      box.hidden = !box.hidden;
+      if (!box.hidden) box.querySelector("[data-newopt-input]").focus();
+    });
+  });
+  document.querySelectorAll("[data-newopt]").forEach((box) => {
+    const field = box.querySelector("[data-newopt-input]");
+    const save = async () => {
+      await addOption(box.dataset.newopt, field.value);
+      field.value = "";
+      box.hidden = true;
+    };
+    box.querySelector("[data-newopt-save]").addEventListener("click", save);
+    box.querySelector("[data-newopt-cancel]").addEventListener("click", () => {
+      field.value = "";
+      box.hidden = true;
+    });
+    field.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        save();
+      }
+    });
   });
 }
 
@@ -451,32 +505,6 @@ async function exportSection8() {
   } catch (err) {
     st.className = "status-line err";
     st.textContent = `Export failed — ${err.message || err}`;
-  }
-}
-
-// Opens WhatsApp with the Section 8 figures already typed into the message. It
-// does NOT send by itself: there is no WhatsApp Business API account wired up,
-// and a button that silently posted nothing would be worse than one that opens
-// the real chat for you to press send. The .xlsx is attached by hand if wanted.
-async function sendSection8Whatsapp() {
-  const st = $("s8-send-status");
-  const raw = $("s8-whatsapp").value.trim();
-  const number = raw.replace(/[^\d]/g, "");
-  if (!number) {
-    st.className = "status-line err";
-    st.textContent = "Enter the WhatsApp number to send to.";
-    return;
-  }
-  try {
-    const res = await api.get(`/daily-trial-balance/${$("tb-date").value}/section8-message`);
-    window.open(`https://wa.me/${number}?text=${encodeURIComponent(res.text)}`, "_blank");
-    st.className = "status-line ok";
-    st.textContent =
-      "WhatsApp opened with the Section 8 figures — press send there. " +
-      "Attach the Excel export too if management wants the detail.";
-  } catch (err) {
-    st.className = "status-line err";
-    st.textContent = `Could not prepare the message — ${err.message || err}`;
   }
 }
 
@@ -814,7 +842,6 @@ async function init() {
   $("tb-date").addEventListener("change", load);
   $("save-btn").addEventListener("click", save);
   $("s8-export-btn").addEventListener("click", exportSection8);
-  $("s8-whatsapp-btn").addEventListener("click", sendSection8Whatsapp);
   $("s8-snapshot-btn").addEventListener("click", snapshotSection8);
   await load();
 }

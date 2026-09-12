@@ -43,6 +43,7 @@
 
         <div id="body" style="display:none">
           <!-- ============================ 1 ============================ -->
+          <div class="tb-sec tb-w-full">
           <div class="section-title">
             1. IOCL Stock Readings
             <span style="font-weight:400;font-size:11px">[independent regulatory reading — manual entry, NOT pulled from Section 2]</span>
@@ -61,9 +62,11 @@
                 <td><input id="hs-diff" disabled placeholder="auto"></td><td><input id="hs-cons" disabled placeholder="auto"></td><td><input id="hs-cpd" disabled placeholder="auto"></td>
                 <td><input id="hs-dt" disabled placeholder="auto"></td>
                 <td><input data-manual="section1.hs_margin" /></td>
-                <td></td><td></td><td></td>
+                <td><input disabled placeholder="n/a" title="Printed once, on the Petrol row — it combines both fuels" /></td>
+                <td><input disabled placeholder="n/a" title="Printed once, on the Petrol row — it combines both fuels" /></td>
+                <td><input disabled placeholder="n/a" title="Printed once, on the Petrol row — it combines both fuels" /></td>
                 <td><input data-manual="section1.hs_iocl_adv" /></td>
-                <td></td>
+                <td><input disabled placeholder="n/a" title="Printed once, on the Petrol row — it combines both fuels" /></td>
               </tr>
               <tr>
                 <td>Petrol (MS)</td>
@@ -85,7 +88,10 @@
             <span id="ms-bl"></span>; Stock Ltrs <span id="hs-sl"></span> / <span id="ms-sl"></span>.
           </p>
 
+          </div>
+
           <!-- ============================ 2 ============================ -->
+          <div class="tb-sec tb-w-wide">
           <div class="section-title">
             2. Day Sales Report
             <span style="font-weight:400;font-size:11px">[pulled live from the day's Daily Sales Entries — read-only]</span>
@@ -115,11 +121,14 @@
           </table>
           <p style="font-size:11px;color:var(--io-blue-dark);margin:4px 0 0" id="s3-src"></p>
 
+          </div>
+
           <!-- 3, 4 rendered from the schema in sections.js -->
           <div id="sec-3"></div>
           <div id="sec-4"></div>
 
           <!-- ============================ 5 ============================ -->
+          <div class="tb-sec tb-w-half">
           <div class="section-title">
             5. Stock Value
             <span style="font-weight:400;font-size:11px">[Computer On-hand Stock Readings × Buy Rate]</span>
@@ -131,7 +140,10 @@
             <tr class="total-row"><td colspan="3">Total Stock Value</td><td><input id="s6-total" disabled placeholder="auto"></td></tr>
           </table>
 
+          </div>
+
           <!-- ============================ 6 ============================ -->
+          <div class="tb-sec tb-w-half">
           <div class="summary-box">
             <h3>6. Trial Balance — Actual Reported — Today</h3>
             <div class="summary-row"><span>Today's Actual Reported SVR Cash/Book Value</span>
@@ -143,6 +155,8 @@
             </p>
           </div>
 
+          </div>
+
           <!-- 7 .. 11 rendered from the schema in sections.js -->
           <div id="sec-7"></div>
           <div id="sec-8"></div>
@@ -150,32 +164,17 @@
                WhatsApp message (BRD; reconfirmed by the client 2026-09-12). So it
                exports by itself, not as part of a whole-form dump. -->
           <div class="tb-block-title">8.10 Send to Management</div>
-          <div class="meta-grid" style="max-width:720px">
-            <div class="field">
-              <label for="s8-whatsapp">WhatsApp number</label>
-              <input id="s8-whatsapp" placeholder="+91 XXXXXXXXXX" />
-            </div>
-            <div class="field">
-              <label>&nbsp;</label>
-              <button type="button" class="export-btn secondary" id="s8-export-btn">Export Section 8 to Excel</button>
-            </div>
-            <div class="field">
-              <label>&nbsp;</label>
-              <button type="button" class="export-btn secondary" id="s8-whatsapp-btn">Send via WhatsApp</button>
-            </div>
-            <div class="field">
-              <label>&nbsp;</label>
-              <button type="button" class="export-btn" id="s8-snapshot-btn">Snapshot &rarr; Clipboard</button>
-            </div>
+          <div class="tb-actions">
+            <button type="button" class="export-btn" id="s8-snapshot-btn">Snapshot &rarr; Clipboard</button>
+            <button type="button" class="export-btn secondary" id="s8-export-btn">Export Section 8 to Excel</button>
           </div>
           <!-- Management's own layout, built from the live figures and captured as
                the picture they receive daily. Hidden until Snapshot is pressed. -->
           <div id="s8-snapshot-view" hidden></div>
-          <p style="font-size:11px;color:var(--io-blue-dark);margin:0 0 6px;max-width:720px">
-            <b>Snapshot</b> copies Section 8 as a picture — same colours as on screen — straight to the
-            clipboard, and saves a PNG in your Downloads folder. Open WhatsApp, pick the chat, press
-            Ctrl+V, send. That is the whole flow; there is no WhatsApp account wired into the app, so
-            nothing is sent without you pressing send.
+          <p style="font-size:11px;color:var(--io-blue-dark);margin:0 0 6px;max-width:1010px">
+            <b>Snapshot</b> builds the picture management already receives every day and copies it to
+            the clipboard, saving a PNG in your Downloads folder too. Open WhatsApp, pick the chat,
+            press Ctrl+V, send.
           </p>
           <p id="s8-send-status" class="status-line"></p>
           <div id="sec-9"></div>

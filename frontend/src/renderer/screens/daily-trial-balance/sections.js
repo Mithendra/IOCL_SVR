@@ -56,6 +56,7 @@ export const MGR_CALC_COLUMNS = [
 export const SECTIONS = [
   {
     n: "3",
+    width: "std",
     key: "section3",
     title: "Daily Cash &amp; Bank Balances",
     hint: "[IOCL Spana · Indian Bank · Yes Bank · Other Ongoing · New Credits]",
@@ -96,11 +97,13 @@ export const SECTIONS = [
         fields: [["3.15", "Total Cash/Book Amount as of Today",
           { derived: "section3.total15" }]],
       },
+      { type: "note", key: "special_note" },
     ],
   },
 
   {
     n: "4",
+    width: "std",
     key: "section4",
     title: "Cash/Book Value Reconciliation",
     blocks: [
@@ -154,6 +157,7 @@ export const SECTIONS = [
 
   {
     n: "7",
+    width: "std",
     key: "section7",
     title: "Trial Balance — Projected — Today",
     hint: "[more value depends on Consump Difference]",
@@ -170,11 +174,13 @@ export const SECTIONS = [
           ["7.5", "Today's Actual Reported Trial Balance", { derived: "section7.total5" }],
         ],
       },
+      { type: "note", key: "special_note" },
     ],
   },
 
   {
     n: "8",
+    width: "wide",
     key: "section8",
     title: "Daily Management Reporting",
     blocks: [
@@ -234,6 +240,7 @@ export const SECTIONS = [
           ["", "Actual Profit after all Daily Expenses", "mgmt_actual_profit"],
         ],
       },
+      { type: "note", key: "special_note" },
       {
         type: "signoff",
         title: "8.9 Sign-off",
@@ -249,6 +256,7 @@ export const SECTIONS = [
 
   {
     n: "9",
+    width: "full",
     key: "section9",
     title: "Daily Mgr Calculation",
     hint: "[running ledger — scrolls horizontally]",
@@ -264,6 +272,7 @@ export const SECTIONS = [
 
   {
     n: "10",
+    width: "wide",
     key: "section10",
     title: "Load/Unload Details",
     hint: "[applicable only when IOCL delivers the load]",
@@ -287,6 +296,7 @@ export const SECTIONS = [
 
   {
     n: "11",
+    width: "std",
     key: "section11",
     title: "Old/New Credit Sales Details",
     hint: "[Credit Master Entry]",

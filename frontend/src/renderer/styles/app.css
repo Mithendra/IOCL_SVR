@@ -431,24 +431,33 @@ td input:disabled {
    bring it back to the density of every other form in the app (client,
    2026-09-12): the label column takes only the width it needs, the amount
    column is one input wide, and the table stops rather than running to the edge. */
-.tb-fields {
-  max-width: 720px;
+/* Section width system.
+   One rule for the whole Daily Trial Balance: a section declares its width, and
+   the orange heading bar plus every table under it take that width. Before this,
+   the bar ran the full sheet while a narrow table sat beneath it, which is the
+   "no consistency" the client called out (2026-09-12). Section 9's ledger is the
+   exception - it scrolls, so it stays full width. */
+.tb-sec {
+  margin-bottom: 2px;
+}
+.tb-sec table {
+  max-width: 100%;
+}
+.tb-w-std {
+  max-width: 820px;
+}
+.tb-w-half {
+  max-width: 600px;
+}
+.tb-w-wide {
+  max-width: 1010px;
+}
+.tb-w-full {
+  max-width: 100%;
 }
 .tb-fields td:last-child,
 .tb-fields th:last-child {
   width: 170px;
-}
-/* Repeating blocks sized to their column count, not to the sheet. A Type|Amount
-   list spanning 1100px is the "waste space" the client called out. The trailing
-   narrow column is the row-delete button. */
-.tb-rows-2 {
-  max-width: 520px;
-}
-.tb-rows-3 {
-  max-width: 700px;
-}
-.tb-rows-4 {
-  max-width: 620px;
 }
 .tb-rows td:last-child,
 .tb-rows th:last-child {
@@ -458,136 +467,49 @@ td input:disabled {
 .tb-rows th:nth-last-child(2) {
   width: 150px;
 }
-/* Section 2's pulled tables: six columns of real data, so wider than a field
-   list but still not the full sheet. */
-.tb-wide {
-  max-width: 980px;
-}
 .tb-wide td:not(:first-child),
 .tb-wide th:not(:first-child) {
   width: 130px;
   text-align: right;
 }
-/* Values the engine calculates render as a read-only box, not bare text, so a
-   computed cell still reads as a cell - matching the mockup's disabled inputs. */
-.sheet [data-derived] {
-  text-align: right;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-}
-.tb-grid {
-  max-width: 900px;
-}
-.tb-grid td input,
-.tb-fields td input,
-.tb-fields td select {
-  text-align: right;
-}
-.tb-fields td:first-child {
-  text-align: left;
-}
-/* Section heading for a sub-block, with its "+ New ..." button inline. */
-.tb-block-title {
-  font-weight: 700;
-  font-size: 12px;
-  margin: 12px 0 4px;
+/* Buttons sit in a bar directly under their own table, left-aligned - they used
+   to float to the far right of the sheet, nowhere near the block they act on. */
+.tb-actions {
   display: flex;
   align-items: center;
-  gap: 8px;
-  color: var(--io-blue-dark);
+  gap: 6px;
+  flex-wrap: wrap;
+  margin: 5px 0 10px;
 }
-.tb-inline-btn {
+.tb-actions .add-row-btn {
   margin: 0;
-  font-weight: 400;
-  font-size: 11px;
-  padding: 2px 8px;
 }
-/* Repeating blocks (credits, expenses, remittance) are narrow tables too - a
-   two- or three-column list has no business spanning 1100px. */
-.sheet [data-rows] {
-  font-variant-numeric: tabular-nums;
+.tb-newopt {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
 }
-
-/* ---- Section 8 management snapshot ---------------------------------------
-   Deliberately NOT the app's own house style. Management has received the same
-   picture every day for years - green header bands, figures in red, the notes
-   beside the lines they belong to, and the Difference / Yes Bank Return / Total
-   panel repeated down the right (client sent today's, 2026-09-12). Sending them
-   the app's orange-and-input-boxes version would be sending them something they
-   have to re-learn, so this block reproduces their layout instead.
-
-   Fixed colours on purpose: this is captured as an image and sent outside the
-   app, so it must not follow the viewer's accent choice or a dark theme. */
-.snap-wrap {
-  display: flex;
-  gap: 10px;
-  align-items: flex-start;
-  background: #fff;
-  padding: 8px;
-  width: max-content;
-  max-width: 100%;
-  overflow-x: auto;
+/* A class that sets `display` beats the browser's own [hidden] rule, so without
+   this the box never closes. */
+.tb-newopt[hidden] {
+  display: none;
 }
-table.snap {
-  border-collapse: collapse;
-  background: #fff;
-  border: 1px solid #d0d0d0;
-  font-family: Calibri, "Segoe UI", Arial, sans-serif;
-  font-size: 13px;
-  width: auto;
+.tb-newopt input {
+  padding: 3px 6px;
+  border: 1px solid var(--io-blue);
+  border-radius: 3px;
+  font-size: 12px;
+  min-width: 220px;
 }
-table.snap td {
-  border: 1px solid #d9d9d9;
-  padding: 2px 8px;
-  color: #000;
-  white-space: nowrap;
-}
-table.snap td:first-child {
-  min-width: 430px;
-}
-.snap-mid {
-  min-width: 120px;
-  color: #000;
-}
-.snap-val {
-  min-width: 130px;
-  text-align: left;
-  color: #ff0000;
-  font-variant-numeric: tabular-nums;
-}
-.snap-note {
-  color: #ff0000;
-  font-weight: 700;
-  padding-left: 10px !important;
-}
-.snap-band td {
-  background: #92d050;
-  font-weight: 700;
-}
-.snap-red td:first-child {
-  color: #ff0000;
-  font-weight: 700;
-}
-.snap-name {
-  color: #000;
-}
-table.snap-panel {
-  border-collapse: collapse;
-  margin-bottom: 26px;
-  width: auto;
-  background: #fff;
-}
-table.snap-panel td {
-  border: 1px solid #000;
-  padding: 3px 12px;
-  color: #ff0000;
-  font-weight: 700;
-  font-size: 15px;
-  white-space: nowrap;
-}
-table.snap-panel td:last-child {
-  text-align: right;
-  font-variant-numeric: tabular-nums;
+.tb-note {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 5px 7px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  font: inherit;
+  font-size: 12px;
+  resize: vertical;
 }
 
 /* A two-column Description | Amount table whose Amount cell is written into by

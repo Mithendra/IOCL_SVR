@@ -173,9 +173,13 @@ test("the SEP12 dropdown lists are on the form, and a new value can be added", a
   // Adding one is saved server-side, so it survives a reload - not a value that
   // only exists in this browser session.
   const NEW = `Test Creditor ${Date.now()}`;
-  page.once("dialog", (d) => d.accept(NEW));
   await page.locator('[data-add-option="creditors"]').first().click();
+  const box = page.locator('[data-newopt="creditors"]').first();
+  await expect(box).toBeVisible();
+  await box.locator("[data-newopt-input]").fill(NEW);
+  await box.locator("[data-newopt-save]").click();
   await expect(page.locator("#save-status")).toContainText("added");
+  await expect(box).toBeHidden();
   await expect(
     page.locator('[data-rows="section3.new_credits"] tr').first().locator("select option")
   ).toContainText([NEW]);
@@ -196,11 +200,11 @@ test("a category added in 4.6 Expenses also appears in 8.6 Regular Expenses", as
   await expect(page.locator("#body")).toBeVisible();
 
   const NEW = `Test Category ${Date.now()}`;
-  page.once("dialog", (d) => d.accept(NEW));
-  await page.locator('[data-rows="section4.expenses"]')
-    .locator("xpath=preceding::div[@class='tb-block-title'][1]")
-    .locator('[data-add-option="expenses"]')
-    .click();
+  const bar = page.locator('[data-rows="section4.expenses"]')
+    .locator("xpath=ancestor::table[1]/following-sibling::div[@class='tb-actions'][1]");
+  await bar.locator('[data-add-option="expenses"]').click();
+  await bar.locator("[data-newopt-input]").fill(NEW);
+  await bar.locator("[data-newopt-save]").click();
   await expect(page.locator("#save-status")).toContainText("added");
 
   for (const block of ["section4.expenses", "section8.regular_expenses"]) {
@@ -394,23 +398,10 @@ test("Section 8 can be exported on its own and sent to management", async ({ pag
   expect((await download).suggestedFilename()).toMatch(/^SVR-Section8-\d{4}-\d{2}-\d{2}\.xlsx$/);
   await expect(page.locator("#s8-send-status")).toContainText("Exported");
 
-  // WhatsApp needs a number, and says so rather than doing nothing.
-  await page.click("#s8-whatsapp-btn");
-  await expect(page.locator("#s8-send-status")).toHaveClass(/err/);
-
-  // With one, it opens the real chat with the figures prefilled. It does not
-  // claim to have sent anything - there is no WhatsApp API account wired up.
-  await page.fill("#s8-whatsapp", "+91 90000 00000");
-  const popup = page.waitForEvent("popup");
-  await page.click("#s8-whatsapp-btn");
-  const url = (await popup).url();
-  expect(url).toContain("919000000000"); // wa.me redirects to api.whatsapp.com
-  // WhatsApp form-encodes the body, so spaces arrive as "+" - decodeURIComponent
-  // alone does not undo those.
-  expect(decodeURIComponent(url.replace(/\+/g, " "))).toContain(
-    "Daily Management Reporting"
-  );
-  await expect(page.locator("#s8-send-status")).toContainText("press send there");
+  // The WhatsApp number field and Send button were removed (client, 2026-09-12):
+  // the snapshot is the thing that goes out, pasted into the chat by hand.
+  await expect(page.locator("#s8-whatsapp")).toHaveCount(0);
+  await expect(page.locator("#s8-whatsapp-btn")).toHaveCount(0);
 });
 
 test("every figure on the form reads to two decimals, never more", async ({ page }) => {
@@ -467,4 +458,66 @@ test("Section 8 snapshot says plainly it needs the installed app", async ({ page
   await expect(snap.locator("table.snap-panel").first()).toContainText("Yes Bank Return Amount");
   // Figures carry Indian digit grouping, as on the sheet management receives.
   await expect(snap.locator(".snap-val").first()).toHaveText(/^[\d,]*\.\d{2}$|^$/);
+});
+
+test("Special Note is available where the sheet has commentary", async ({ page }) => {
+  // The sheet has no field for it, so operators type commentary into the labels
+  // (SEP10 A36: "Indian bank Statement Ending Balance @Fraud Pending -Rs 13367").
+  const NOTE_DATE = "2026-02-10"; // early: ADR-2 blocks a date while an earlier one is open
+  await login(page, "mmanager");
+  await page.goto(SCREEN);
+  await expect(page.locator("#body")).toBeVisible();
+  await page.fill("#tb-date", NOTE_DATE);
+  await page.click("#load-btn");
+
+  for (const sec of ["section3", "section7", "section8"]) {
+    await expect(page.locator(`textarea[data-manual="${sec}.special_note"]`)).toBeVisible();
+  }
+
+  await page.fill('textarea[data-manual="section3.special_note"]', "Yes Bank returned 8,525.95");
+  await page.click("#save-btn");
+  await expect(page.locator("#save-status")).toContainText("recalculated");
+
+  await page.reload();
+  await expect(page.locator("#body")).toBeVisible();
+  await page.fill("#tb-date", NOTE_DATE);
+  await page.click("#load-btn");
+  await expect(page.locator('textarea[data-manual="section3.special_note"]')).toHaveValue(
+    "Yes Bank returned 8,525.95"
+  );
+});
+
+test("each section's heading bar is the same width as the tables under it", async ({ page }) => {
+  // The bar used to run the full sheet while a narrow table sat beneath it - the
+  // "no consistency" the client called out (2026-09-12).
+  await login(page, "mmanager");
+  await page.goto(SCREEN);
+  await expect(page.locator("#body")).toBeVisible();
+
+  for (const id of ["sec-3", "sec-4", "sec-7", "sec-8", "sec-10", "sec-11"]) {
+    const host = page.locator(`#${id}`);
+    await expect(host).toHaveClass(/tb-sec tb-w-/);
+    const bar = await host.locator(".section-title").first().boundingBox();
+    const table = await host.locator("table").first().boundingBox();
+    expect(Math.abs(bar.width - table.width)).toBeLessThanOrEqual(2);
+  }
+
+  // Buttons sit under their own table, not floated to the far right of the sheet.
+  const actions = page.locator('[data-rows="section3.new_credits"]')
+    .locator("xpath=ancestor::table[1]/following-sibling::div[@class='tb-actions'][1]");
+  const bar = await actions.boundingBox();
+  const table = await page.locator('[data-rows="section3.new_credits"]')
+    .locator("xpath=ancestor::table[1]").boundingBox();
+  expect(bar.x).toBeLessThanOrEqual(table.x + 4);
+});
+
+test("Section 1's cross-fuel columns are marked n/a on the Diesel row", async ({ page }) => {
+  // They are blank there because the sheet prints them once, on the Petrol row.
+  // Empty cells with no control just looked broken (client, 2026-09-12).
+  await login(page, "mmanager");
+  await page.goto(SCREEN);
+  await expect(page.locator("#body")).toBeVisible();
+  const diesel = page.locator("#hs-y").locator("xpath=ancestor::tr[1]");
+  await expect(diesel.locator('input[placeholder="n/a"]')).toHaveCount(4);
+  await expect(diesel.locator("td")).toHaveCount(13); // Fuel + 12 columns
 });
