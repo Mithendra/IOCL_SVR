@@ -199,6 +199,77 @@ def _view(conn: sqlite3.Connection, shift_date: str) -> dict:
     }
 
 
+OPTION_LISTS = ("creditors", "expenses", "remittance", "old_credit", "staff")
+
+
+class OptionCreate(BaseModel):
+    list_key: str
+    value: str
+
+
+@router.get("/options")
+def get_options(
+    _: Principal = Depends(require("Sales", "Manager", "Owner")),
+    conn: sqlite3.Connection = Depends(get_db),
+) -> dict[str, list[str]]:
+    """The form's dropdown lists (migration 0021).
+
+    Declared BEFORE /{shift_date} so "options" is not swallowed by the date route.
+    """
+    out: dict[str, list[str]] = {k: [] for k in OPTION_LISTS}
+    for row in conn.execute(
+        "SELECT list_key, value FROM trial_balance_option ORDER BY list_key, sort_order, id"
+    ):
+        out.setdefault(row["list_key"], []).append(row["value"])
+    return out
+
+
+@router.post("/options", status_code=status.HTTP_201_CREATED)
+def add_option(
+    body: OptionCreate,
+    principal: Principal = Depends(require("Sales", "Manager", "Owner")),
+    conn: sqlite3.Connection = Depends(get_db),
+) -> dict[str, list[str]]:
+    """Add a value to one of the dropdowns and return the refreshed lists.
+
+    Open to Sales as well as Manager/Owner on purpose: a new customer asking for
+    credit is discovered mid-entry by the maker, and a form that cannot accept
+    the name until someone else logs in is a form that gets bypassed on paper.
+    Every addition is audited.
+    """
+    key = body.list_key.strip()
+    value = " ".join(body.value.split())  # collapse stray whitespace, keep the wording
+    if key not in OPTION_LISTS:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"Unknown list '{key}' - expected one of {', '.join(OPTION_LISTS)}",
+        )
+    if not value:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Value cannot be blank")
+    existing = conn.execute(
+        "SELECT id FROM trial_balance_option WHERE list_key = ? AND value = ?", (key, value)
+    ).fetchone()
+    if existing is not None:
+        raise HTTPException(status.HTTP_409_CONFLICT, f'"{value}" is already in that list')
+
+    with transaction(conn):
+        nxt = conn.execute(
+            "SELECT COALESCE(MAX(sort_order), 0) + 1 AS n FROM trial_balance_option "
+            "WHERE list_key = ?",
+            (key,),
+        ).fetchone()["n"]
+        cur = conn.execute(
+            "INSERT INTO trial_balance_option (list_key, value, sort_order, created_by) "
+            "VALUES (?, ?, ?, ?)",
+            (key, value, nxt, principal.login_name),
+        )
+        record_write(
+            conn, table="trial_balance_option", record_id=cur.lastrowid, action="create",
+            actor=principal.login_name, new={"list_key": key, "value": value},
+        )
+    return get_options(principal, conn)
+
+
 @router.get("/{shift_date}")
 def get_trial_balance(
     shift_date: str,

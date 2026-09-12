@@ -424,6 +424,60 @@ td input:disabled {
   background: #f4f6fb;
   color: #55627d;
 }
+/* ---- Daily Trial Balance -------------------------------------------------
+   That form is ~70 label/amount rows. Left to stretch the full sheet width it
+   reads as a wall of empty space with a lone figure adrift on the right edge,
+   and cells whose value is only text look like gaps in the grid. These rules
+   bring it back to the density of every other form in the app (client,
+   2026-09-12): the label column takes only the width it needs, the amount
+   column is one input wide, and the table stops rather than running to the edge. */
+.tb-fields {
+  max-width: 760px;
+}
+.tb-fields td:last-child,
+.tb-fields th:last-child {
+  width: 170px;
+}
+/* Values the engine calculates render as a read-only box, not bare text, so a
+   computed cell still reads as a cell - matching the mockup's disabled inputs. */
+.sheet [data-derived] {
+  text-align: right;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.tb-grid {
+  max-width: 900px;
+}
+.tb-grid td input,
+.tb-fields td input,
+.tb-fields td select {
+  text-align: right;
+}
+.tb-fields td:first-child {
+  text-align: left;
+}
+/* Section heading for a sub-block, with its "+ New ..." button inline. */
+.tb-block-title {
+  font-weight: 700;
+  font-size: 12px;
+  margin: 12px 0 4px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--io-blue-dark);
+}
+.tb-inline-btn {
+  margin: 0;
+  font-weight: 400;
+  font-size: 11px;
+  padding: 2px 8px;
+}
+/* Repeating blocks (credits, expenses, remittance) are narrow tables too - a
+   two- or three-column list has no business spanning 1100px. */
+.sheet [data-rows] {
+  font-variant-numeric: tabular-nums;
+}
+
 /* A two-column Description | Amount table whose Amount cell is written into by
    hand on the printed form, using the paper's running-sum style
    ("527+588+100=1215"). Sized to hold 9999999999999999 with slack rather than to

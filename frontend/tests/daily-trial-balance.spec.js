@@ -127,7 +127,7 @@ test("all eleven workbook sections are on the form, not just the computed ones",
     .toHaveCount(26);
 });
 
-test("the six SEP12 dropdown lists are on the form, with the sheet's own values", async ({
+test("the SEP12 dropdown lists are on the form, and a new value can be added", async ({
   page,
 }) => {
   await login(page, "mmanager");
@@ -163,6 +163,82 @@ test("the six SEP12 dropdown lists are on the form, with the sheet's own values"
   }
   await expect(page.locator('select[data-manual="section8.prepared_by"] option'))
     .toContainText(["Gopi", "Girish", "Sriharsha"]);
+
+  // Every list-backed block offers "+ New ..." - a new customer asking for credit
+  // has to be enterable the same day (client, 2026-09-12).
+  for (const list of ["creditors", "expenses", "remittance", "old_credit", "staff"]) {
+    await expect(page.locator(`[data-add-option="${list}"]`).first()).toBeVisible();
+  }
+
+  // Adding one is saved server-side, so it survives a reload - not a value that
+  // only exists in this browser session.
+  const NEW = `Test Creditor ${Date.now()}`;
+  page.once("dialog", (d) => d.accept(NEW));
+  await page.locator('[data-add-option="creditors"]').first().click();
+  await expect(page.locator("#save-status")).toContainText("added");
+  await expect(
+    page.locator('[data-rows="section3.new_credits"] tr').first().locator("select option")
+  ).toContainText([NEW]);
+
+  await page.reload();
+  await expect(page.locator("#body")).toBeVisible();
+  await expect(
+    page.locator('[data-rows="section3.new_credits"] tr').first().locator("select option")
+  ).toContainText([NEW]);
+});
+
+test("a category added in 4.6 Expenses also appears in 8.6 Regular Expenses", async ({
+  page,
+}) => {
+  // The SEP12 sheet points both at the same Excel validation range.
+  await login(page, "mmanager");
+  await page.goto(SCREEN);
+  await expect(page.locator("#body")).toBeVisible();
+
+  const NEW = `Test Category ${Date.now()}`;
+  page.once("dialog", (d) => d.accept(NEW));
+  await page.locator('[data-rows="section4.expenses"]')
+    .locator("xpath=preceding::div[@class='tb-block-title'][1]")
+    .locator('[data-add-option="expenses"]')
+    .click();
+  await expect(page.locator("#save-status")).toContainText("added");
+
+  for (const block of ["section4.expenses", "section8.regular_expenses"]) {
+    await expect(
+      page.locator(`[data-rows="${block}"] tr`).first().locator("select option")
+    ).toContainText([NEW]);
+  }
+});
+
+test("Section 2.1 Oil Sales has no Indent column", async ({ page }) => {
+  // Removed on the client's instruction, 2026-09-12 - it was not needed.
+  await login(page, "mmanager");
+  await page.goto(SCREEN);
+  await expect(page.locator("#body")).toBeVisible();
+  await page.fill("#tb-date", DATE);
+  await page.click("#load-btn");
+  await expect(page.locator("#s3-src")).toContainText("Daily Sales Summary");
+
+  await expect(page.locator("#s2-oil-rows input")).toHaveCount(0);
+  await expect(page.locator('[data-manual^="section2.indent"]')).toHaveCount(0);
+  // The column header goes too - it lives in index.html, not the row builder, so
+  // removing only the cells left a stray "Indent (oil's)" heading behind.
+  const oilTable = page.locator("#s2-oil-rows").locator("xpath=ancestor::table[1]");
+  await expect(oilTable).not.toContainText("Indent");
+  await expect(oilTable.locator("tr").first().locator("th")).toHaveCount(6);
+});
+
+test("calculated cells render as boxed read-only inputs, like every other form", async ({
+  page,
+}) => {
+  // They used to be bare text in a <td>, which read as a hole in the grid.
+  await login(page, "mmanager");
+  await page.goto(SCREEN);
+  await expect(page.locator("#body")).toBeVisible();
+
+  const derived = page.locator('[data-derived="section3.total6"]');
+  await expect(derived).toHaveJSProperty("tagName", "INPUT");
+  await expect(derived).toBeDisabled();
 });
 
 test("cross-section totals are calculated from what you type, to the SEP12 formulas", async ({
@@ -196,12 +272,12 @@ test("cross-section totals are calculated from what you type, to the SEP12 formu
   await page.click("#save-btn");
   await expect(page.locator("#save-status")).toContainText("recalculated");
 
-  await expect(page.locator('[data-derived="section3.total6"]')).toHaveText("146527.41");
-  await expect(page.locator('[data-derived="section3.total7"]')).toHaveText("146527.41");
-  await expect(page.locator('[data-derived="section3.total13"]')).toHaveText("1972806.46");
-  await expect(page.locator('[data-derived="section3.total15"]')).toHaveText("1984480.46");
-  await expect(page.locator('[data-derived="section10.hs.total"]')).toHaveText("9872.00");
-  await expect(page.locator('[data-derived="section10.hs.lost"]')).toHaveText("128.00");
+  await expect(page.locator('[data-derived="section3.total6"]')).toHaveValue("146527.41");
+  await expect(page.locator('[data-derived="section3.total7"]')).toHaveValue("146527.41");
+  await expect(page.locator('[data-derived="section3.total13"]')).toHaveValue("1972806.46");
+  await expect(page.locator('[data-derived="section3.total15"]')).toHaveValue("1984480.46");
+  await expect(page.locator('[data-derived="section10.hs.total"]')).toHaveValue("9872.00");
+  await expect(page.locator('[data-derived="section10.hs.lost"]')).toHaveValue("128.00");
 });
 
 test("manual sections save into the record's manual block and survive a reload", async ({

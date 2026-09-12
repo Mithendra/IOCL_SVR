@@ -36,12 +36,57 @@ const SIDE_SERIAL = { road: "12BC4523V-RD", office: "11CC2012V-OFF" };
 
 let me = null;
 let currentStatus = "draft";
+// Dropdown values, from GET /daily-trial-balance/options (migration 0021). Held
+// here so "+ New ..." can refresh every rendered <select> at once - Section 4.6
+// and 8.6 share the `expenses` list, so a category added in one appears in both.
+let OPTIONS = {};
 
 function canFinalize() {
   return me && (me.role === "Manager" || me.role === "Owner");
 }
 
 const esc = (s) => String(s).replace(/"/g, "&quot;");
+const listValues = (key) => OPTIONS[key] || [];
+
+function optionMarkup(key, selected) {
+  return ["", ...listValues(key)]
+    .map(
+      (o) =>
+        `<option value="${esc(o)}"${o === selected ? " selected" : ""}>` +
+        `${o || "— select —"}</option>`
+    )
+    .join("");
+}
+
+// Add a value to one of the dropdowns. Saved server-side, so it is there
+// tomorrow and for everyone - not just this browser session.
+async function addOption(listKey, label) {
+  const raw = window.prompt(`Add a new ${label}:`);
+  if (raw === null || !raw.trim()) return;
+  const status = $("save-status");
+  try {
+    OPTIONS = await api.post("/daily-trial-balance/options", {
+      list_key: listKey,
+      value: raw.trim(),
+    });
+    refreshSelects(listKey);
+    status.className = "status-line ok";
+    status.textContent =
+      `"${raw.trim()}" added — on every row from now on, for everyone.`;
+  } catch (err) {
+    status.className = "status-line err";
+    status.textContent = `Could not add it — ${err.message || err}`;
+  }
+}
+
+// Re-render every <select> bound to a list, keeping what each one had selected.
+function refreshSelects(listKey) {
+  document.querySelectorAll(`select[data-list="${listKey}"]`).forEach((sel) => {
+    const keep = sel.value;
+    sel.innerHTML = optionMarkup(listKey, keep);
+    sel.value = keep;
+  });
+}
 const hintHtml = (h) =>
   h ? ` <span style="font-weight:400;font-size:10px;color:var(--io-blue-dark)">${h}</span>` : "";
 
@@ -53,7 +98,7 @@ function cellFor(sectionKey, spec) {
   if (typeof spec === "string") {
     return `<td><input data-manual="${esc(`${sectionKey}.${spec}`)}" style="text-align:right"></td>`;
   }
-  return `<td data-derived="${esc(spec.derived)}" style="text-align:right;background:#eef1fa;font-weight:600">—</td>`;
+  return `<td><input data-derived="${esc(spec.derived)}" disabled placeholder="auto"></td>`;
 }
 
 function fieldsBlock(sectionKey, block) {
@@ -65,21 +110,27 @@ function fieldsBlock(sectionKey, block) {
       `<tr><td>${no ? `${no} ` : ""}${label}${hintHtml(hint)}</td>${cellFor(sectionKey, spec)}</tr>`
     )
     .join("");
-  return `${title}<table><tr><th>Line</th><th>Amount</th></tr>${rows}</table>`;
+  return `${title}<table class="tb-fields"><tr><th>Line</th><th>Amount</th></tr>${rows}</table>`;
 }
 
 function rowsBlock(sectionKey, block) {
   const path = `${sectionKey}.${block.key}`;
   const head = block.columns.map((c) => `<th>${c.label}</th>`).join("");
+  const listed = block.columns.find((c) => c.optionList);
+  const addNew = listed
+    ? ` <button type="button" class="add-row-btn tb-inline-btn" ` +
+      `data-add-option="${esc(listed.optionList)}" ` +
+      `data-add-label="${esc(listed.label.toLowerCase())}">+ New ${listed.label}</button>`
+    : "";
   const title = block.title
-    ? `<div style="font-weight:700;font-size:12px;margin:10px 0 4px">${block.title}</div>`
+    ? `<div class="tb-block-title">${block.title}${addNew}</div>`
     : "";
   const note = block.note
     ? `<p style="font-size:11px;color:var(--io-blue-dark);margin:4px 0 0">${block.note}</p>`
     : "";
   const totalRow = block.total
     ? `<tr class="total-row"><td colspan="${block.columns.length - 1}">${block.totalLabel}</td>` +
-      `<td data-derived="${esc(block.total)}" style="text-align:right">—</td><td></td></tr>`
+      `<td><input data-derived="${esc(block.total)}" disabled placeholder="auto"></td><td></td></tr>`
     : "";
   const table =
     `<table${block.wide ? ' style="min-width:2600px"' : ""}>` +
@@ -102,8 +153,8 @@ function gridBlock(sectionKey, block) {
         block.columns
           .map(([colKey, , kind]) =>
             kind === "derived"
-              ? `<td data-derived="${esc(`${block.derivedFrom}.${rowKey}.${colKey}`)}" ` +
-                `style="text-align:right;background:#eef1fa;font-weight:600">—</td>`
+              ? `<td><input data-derived="${esc(`${block.derivedFrom}.${rowKey}.${colKey}`)}" ` +
+                `disabled placeholder="auto"></td>`
               : `<td><input data-manual="${esc(`${sectionKey}.${rowKey}_${colKey}`)}" ` +
                 `style="text-align:right"></td>`
           )
@@ -114,24 +165,24 @@ function gridBlock(sectionKey, block) {
   const note = block.note
     ? `<p style="font-size:11px;color:var(--io-blue-dark);margin:4px 0 0">${block.note}</p>`
     : "";
-  return `<table><tr><th></th>${head}</tr>${body}</table>${note}`;
+  return `<table class="tb-grid"><tr><th></th>${head}</tr>${body}</table>${note}`;
 }
 
 function signoffBlock(sectionKey, block) {
-  const opts = (v) =>
-    ["", ...block.options]
-      .map((o) => `<option value="${esc(o)}"${o === v ? " selected" : ""}>${o || "— select —"}</option>`)
-      .join("");
   const rows = block.rows
     .map(
       ([key, label]) =>
-        `<tr><td>${label}</td><td><select data-manual="${esc(`${sectionKey}.${key}`)}">` +
-        `${opts(null)}</select></td></tr>`
+        `<tr><td>${label}</td><td>` +
+        `<select data-manual="${esc(`${sectionKey}.${key}`)}" data-list="${esc(block.optionList)}">` +
+        `${optionMarkup(block.optionList, null)}</select></td></tr>`
     )
     .join("");
+  const addNew =
+    ` <button type="button" class="add-row-btn tb-inline-btn" ` +
+    `data-add-option="${esc(block.optionList)}" data-add-label="name">+ New Name</button>`;
   return (
-    `<div style="font-weight:700;font-size:12px;margin:10px 0 4px">${block.title}</div>` +
-    `<table><tr><th>Role</th><th>Name</th></tr>${rows}</table>`
+    `<div class="tb-block-title">${block.title}${addNew}</div>` +
+    `<table class="tb-fields"><tr><th>Role</th><th>Name</th></tr>${rows}</table>`
   );
 }
 
@@ -154,6 +205,11 @@ function buildManualSections() {
   document.querySelectorAll("[data-add-row]").forEach((btn) => {
     btn.addEventListener("click", () => addRow(btn.dataset.addRow));
   });
+  document.querySelectorAll("[data-add-option]").forEach((btn) => {
+    btn.addEventListener("click", () =>
+      addOption(btn.dataset.addOption, btn.dataset.addLabel)
+    );
+  });
 }
 
 function blockFor(path) {
@@ -174,13 +230,11 @@ function addRow(path, values = {}) {
     block.columns
       .map((col) => {
         const v = values[col.key];
-        if (col.options) {
-          const opts = ["", ...col.options]
-            .map((o) =>
-              `<option value="${esc(o)}"${o === v ? " selected" : ""}>${o || "— select —"}</option>`
-            )
-            .join("");
-          return `<td><select data-col="${esc(col.key)}">${opts}</select></td>`;
+        if (col.optionList) {
+          return (
+            `<td><select data-col="${esc(col.key)}" data-list="${esc(col.optionList)}">` +
+            `${optionMarkup(col.optionList, v)}</select></td>`
+          );
         }
         return `<td><input data-col="${esc(col.key)}" value="${v == null ? "" : esc(v)}"></td>`;
       })
@@ -214,7 +268,7 @@ function fillDerived(derived) {
   const dig = (path) =>
     path.split(".").reduce((acc, part) => (acc == null ? acc : acc[part]), derived || {});
   document.querySelectorAll("[data-derived]").forEach((el) => {
-    el.textContent = fmt2(dig(el.dataset.derived)) || "—";
+    el.value = fmt2(dig(el.dataset.derived));
   });
 }
 
@@ -259,23 +313,11 @@ async function loadDaySales(dateStr) {
   const combined = $("s2-combined-rows");
   const oils = $("s2-oil-rows");
   [gas, combined, oils].forEach((el) => (el.innerHTML = ""));
-  ["s2-total-ltrs", "s2-oil-subtotal", "s2-indent-total", "s2-daily-total"].forEach((id) =>
-    txt(id, null)
-  );
+  ["s2-total-ltrs", "s2-oil-subtotal", "s2-daily-total"].forEach((id) => txt(id, null));
 
   let entries;
-  let oilKeyByLabel = {};
   try {
     entries = await api.get(`/daily-sales-entry?shift_date=${encodeURIComponent(dateStr)}`);
-    // Daily Sales Summary is the one place that hands out the oil rows' own KEYS
-    // alongside their labels. The Indent cell below is stored against that key,
-    // never against the row's position: the Oil Sale(s) list has already been
-    // re-ordered twice (2026-09-12), and a position-keyed value silently ends up
-    // on a different product when it moves. Same discipline as oils_by_key.
-    const summary = await api.get(`/daily-sales-summary/${encodeURIComponent(dateStr)}`);
-    for (const o of (summary.combined && summary.combined.oils) || []) {
-      oilKeyByLabel[o.label] = o.key;
-    }
   } catch {
     return;
   }
@@ -357,18 +399,12 @@ async function loadDaySales(dateStr) {
   let k = 0;
   for (const [label, o] of oilTotals) {
     k += 1;
-    const key = oilKeyByLabel[label] || label.replace(/[^A-Za-z0-9]+/g, "_");
     const tr = document.createElement("tr");
     tr.innerHTML =
       `<td>2.1.${k} ${label}</td><td>${fmt2(o.qty)}</td><td>${fmt2(o.rate)}</td>` +
-      `<td>${fmt2(o.open)}</td><td>${fmt2(o.close)}</td><td>${fmt2(o.amount)}</td>` +
-      `<td><input data-manual="${esc(`section2.indent_${key}`)}" style="text-align:right"></td>`;
+      `<td>${fmt2(o.open)}</td><td>${fmt2(o.close)}</td><td>${fmt2(o.amount)}</td>`;
     oils.appendChild(tr);
   }
-  // The Indent column is the one operator-entered cell in Section 2, so it has to
-  // be refilled after these rows are (re)built.
-  fillManual(lastManual);
-
   txt("s2-total-ltrs", fmt2(grandAmount));
   txt("s2-oil-subtotal", fmt2(oilGrand));
   txt("s2-daily-total", fmt2(grandAmount + oilGrand));
@@ -528,6 +564,11 @@ async function init() {
   }
   $("who").textContent = `${me.full_name} (${me.role})`;
   $("tb-date").value = new Date().toISOString().slice(0, 10);
+  try {
+    OPTIONS = await api.get("/daily-trial-balance/options");
+  } catch {
+    OPTIONS = {}; // dropdowns render empty rather than the screen failing to load
+  }
   buildManualSections();
 
   if (!canFinalize()) {

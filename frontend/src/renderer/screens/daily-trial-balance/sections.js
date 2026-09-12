@@ -14,43 +14,14 @@
 //
 // Section numbering is the station's workbook numbering (1–11).
 
-// --- the six dropdowns, read out of the SEP12 sheet's own Data Validation ------
-// (A42:A45, A54:A57 + A87:A89, A59:A61, A92:A93). Kept verbatim, including the
-// two separate spellings of the Anil creditor, which the sheet itself carries.
-export const DROPDOWN_CREDITORS = [
-  "Anil/Nani New Credit",
-  "Anil New Credit",
-  "AirTel Hari New Credit",
-  "Salary Advance Viaj",
-  "Salary Advance Ashok",
-  "Salary Advance Sriharsha",
-  "Salary Advance Ravindra",
-  "Sajja Function Hall - New Credit",
-];
-
-export const DROPDOWN_EXPENSES = [
-  "Salaries Mid/End of Month - Total",
-  "Power Bill",
-  "Unload Beta",
-  "Salary Advances Total",
-];
-
-export const DROPDOWN_REMITTANCE = [
-  "Sajja Old Credit Remitted Amt",
-  "Anil/Nani Old Credit Remitted Amt",
-  "AirTel Hari Old Credit Remitted Amt",
-  "AirTel New Credit Remitted Amt",
-];
-
-export const DROPDOWN_OLD_CREDIT_COLLECTION = [
-  "Sajja Old Credit Remitted Amt",
-  "Anil Old Credit Remitted",
-  "AirTel Hari Old Credit Remitted",
-  "AirTel New Credit Remitted",
-];
-
-// SEP12 rows 102–104: the sign-off block's own list of names.
-export const DROPDOWN_STAFF = ["Gopi", "Girish", "Sriharsha", "Gopi & Girish", "Girish/Sriharsha"];
+// --- dropdown lists ------------------------------------------------------------
+// These are NOT hard-coded any more. They come from the server
+// (GET /daily-trial-balance/options, migration 0021) so the station can add a
+// value itself and have it stick for everyone - a new customer asking for credit,
+// a new expense category. Each `optionList` below names the list to pull.
+//
+// `expenses` is one shared list: the SEP12 sheet points Section 4.6 and Section
+// 8.6 at the same validation range, so a category added in either shows in both.
 
 // Section 9, the 26-column running ledger (SEP12 row 107, columns A–Z).
 export const MGR_CALC_COLUMNS = [
@@ -114,7 +85,7 @@ export const SECTIONS = [
         key: "new_credits",
         title: "3.14 New Credit / Salary Advance",
         columns: [
-          { key: "type", label: "Type", options: DROPDOWN_CREDITORS },
+          { key: "type", label: "Type", optionList: "creditors" },
           { key: "amount", label: "Amount" },
         ],
         total: "section3.new_credits_total",
@@ -151,7 +122,7 @@ export const SECTIONS = [
         key: "expenses",
         title: "4.6 Expenses",
         columns: [
-          { key: "category", label: "Category", options: DROPDOWN_EXPENSES },
+          { key: "category", label: "Category", optionList: "expenses" },
           { key: "amount", label: "Amount" },
         ],
         total: "section4.expenses_total",
@@ -162,7 +133,7 @@ export const SECTIONS = [
         key: "remittance",
         title: "4.7 Credit Remittance",
         columns: [
-          { key: "type", label: "Type", options: DROPDOWN_REMITTANCE },
+          { key: "type", label: "Type", optionList: "remittance" },
           { key: "given_on", label: "Credit Given on Date" },
           { key: "amount", label: "Amt" },
         ],
@@ -228,7 +199,7 @@ export const SECTIONS = [
           "they should match today's dated rows there, not be a second record of the " +
           "same real-world expense.",
         columns: [
-          { key: "category", label: "Category", options: DROPDOWN_EXPENSES },
+          { key: "category", label: "Category", optionList: "expenses" },
           { key: "amount", label: "Amount" },
         ],
         total: "section8.regular_expenses_total",
@@ -239,7 +210,7 @@ export const SECTIONS = [
         key: "old_credit_collections",
         title: "8.7 Old Credit Collections",
         columns: [
-          { key: "type", label: "Type", options: DROPDOWN_OLD_CREDIT_COLLECTION },
+          { key: "type", label: "Type", optionList: "old_credit" },
           { key: "amount", label: "Amount" },
         ],
         total: "section8.old_credit_total",
@@ -271,7 +242,7 @@ export const SECTIONS = [
           ["verified_by", "Verified by"],
           ["sent_by", "Sent to SVR and Bank Statement to Group Email"],
         ],
-        options: DROPDOWN_STAFF,
+        optionList: "staff",
       },
     ],
   },

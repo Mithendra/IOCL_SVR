@@ -241,3 +241,71 @@ def test_finalize_without_projected_total_skips_the_check(client, auth_headers):
     ok = client.post(f"/daily-trial-balance/{DATE}/finalize", headers=auth_headers("Manager"))
     assert ok.status_code == 200
     assert ok.json()["variance_amount"] is None
+
+
+# --- dropdown lists (migration 0021) -----------------------------------------
+
+
+def test_option_lists_come_from_the_database(client, auth_headers):
+    """The SEP12 sheet's own Data Validation lists, seeded. They are served rather
+    than hard-coded in the renderer so the station can extend them itself."""
+    lists = client.get("/daily-trial-balance/options", headers=auth_headers("Sales")).json()
+    assert "Anil/Nani New Credit" in lists["creditors"]
+    assert "Anil New Credit" in lists["creditors"]        # the sheet carries both spellings
+    assert lists["expenses"] == [
+        "Salaries Mid/End of Month - Total", "Power Bill", "Unload Beta",
+        "Salary Advances Total",
+    ]
+    assert "Sajja Old Credit Remitted Amt" in lists["remittance"]
+    assert "Anil Old Credit Remitted" in lists["old_credit"]
+    assert "Gopi" in lists["staff"]
+
+
+def test_sales_can_add_a_creditor_mid_entry(client, auth_headers, conn):
+    """A new customer asking for credit is discovered by the maker, mid-entry. A
+    form that can't take the name until a Manager logs in gets bypassed on paper,
+    so Sales may add one - and it is audited."""
+    r = client.post(
+        "/daily-trial-balance/options",
+        json={"list_key": "creditors", "value": "  Ramesh   Transport New Credit "},
+        headers=auth_headers("Sales"),
+    )
+    assert r.status_code == 201
+    # Stray whitespace collapsed, wording otherwise untouched.
+    assert "Ramesh Transport New Credit" in r.json()["creditors"]
+
+    again = client.get("/daily-trial-balance/options", headers=auth_headers("Manager")).json()
+    assert "Ramesh Transport New Credit" in again["creditors"]  # persists for everyone
+
+    assert conn.execute(
+        "SELECT COUNT(*) c FROM audit_log WHERE table_name = 'trial_balance_option'"
+    ).fetchone()["c"] == 1
+
+
+def test_a_duplicate_or_unknown_list_is_refused(client, auth_headers):
+    assert client.post(
+        "/daily-trial-balance/options",
+        json={"list_key": "expenses", "value": "Power Bill"},
+        headers=auth_headers("Manager"),
+    ).status_code == 409
+    assert client.post(
+        "/daily-trial-balance/options",
+        json={"list_key": "not_a_list", "value": "x"},
+        headers=auth_headers("Manager"),
+    ).status_code == 400
+    assert client.post(
+        "/daily-trial-balance/options",
+        json={"list_key": "expenses", "value": "   "},
+        headers=auth_headers("Manager"),
+    ).status_code == 400
+
+
+def test_expenses_is_one_shared_list_for_sections_4_and_8(client, auth_headers):
+    """The SEP12 sheet points 4.6 and 8.6 at the same validation range, so a
+    category added in either place must appear in both. One list key, not two."""
+    added = client.post(
+        "/daily-trial-balance/options",
+        json={"list_key": "expenses", "value": "Borewell Repair"},
+        headers=auth_headers("Owner"),
+    ).json()
+    assert added["expenses"][-1] == "Borewell Repair"
