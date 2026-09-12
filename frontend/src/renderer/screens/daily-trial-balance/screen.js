@@ -45,6 +45,7 @@ let currentStatus = "draft";
 // here so "+ New ..." can refresh every rendered <select> at once - Section 4.6
 // and 8.6 share the `expenses` list, so a category added in one appears in both.
 let OPTIONS = {};
+let lastView = null;
 
 function canFinalize() {
   return me && (me.role === "Manager" || me.role === "Owner");
@@ -479,12 +480,178 @@ async function sendSection8Whatsapp() {
   }
 }
 
+// The management snapshot.
+//
+// This is NOT the on-screen Section 8. Management has been receiving the same
+// picture every day for years - green header bands, figures in red, the notes
+// beside the lines they belong to, and the Difference / Yes Bank Return / Total
+// panel on the right (client sent today's, 2026-09-12). Sending them the app's
+// own orange-and-input-boxes version would be sending them something they have
+// to re-learn, so the snapshot is rendered in THEIR layout, from the live
+// figures, and that is what gets captured.
+const inr = (v) => {
+  const n = Number(v);
+  // en-US grouping on purpose: the sheet management has always received prints
+  // 1,861,869.74, not the Indian 18,61,869.74. Match the sheet, not the locale.
+  return Number.isFinite(n)
+    ? n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+    : "";
+};
+
+function snapLine(label, value, note, opts = {}) {
+  const cls = [opts.band ? "snap-band" : "", opts.redLabel ? "snap-red" : ""].join(" ").trim();
+  return (
+    `<tr class="${cls}"><td>${label}</td>` +
+    `<td class="snap-mid">${opts.mid || ""}</td>` +
+    `<td class="snap-val">${value === undefined || value === null ? "" : value}</td>` +
+    `<td class="snap-note">${note || ""}</td></tr>`
+  );
+}
+
+function buildSnapshot(view) {
+  const manual = view.manual || {};
+  const s8 = manual.section8 || {};
+  const s4 = manual.section4 || {};
+  const d = ((view.computed || {}).derived || {}).section8 || {};
+  const d4 = ((view.computed || {}).derived || {}).section4 || {};
+
+  const OVER100 = "#OK Anything Above Rs 100 Call/inform mgmt immediately";
+  // "SEPT 12, 12:00 PM IST" - the date it covers plus the time it went out,
+  // which is how management reads it. IST explicitly, never the host timezone.
+  const day = new Date(`${view.shift_date}T00:00:00`)
+    .toLocaleDateString("en-GB", { day: "numeric", month: "short" })
+    .toUpperCase();
+  const time = new Date().toLocaleTimeString("en-US", {
+    timeZone: "Asia/Kolkata", hour: "numeric", minute: "2-digit",
+  });
+  const stamp = `${day}, ${time} IST`;
+
+  // The right-hand reconciliation panel, printed twice on the real snapshot.
+  const panel =
+    `<table class="snap-panel">` +
+    `<tr><td>Difference Amount</td><td>${inr(d.f5)}</td></tr>` +
+    `<tr><td>Yes Bank Return Amount</td><td>${inr(s4.yesbank_return)}</td></tr>` +
+    `<tr><td>Total difference</td><td>${inr(d4.total_difference)}</td></tr>` +
+    `</table>`;
+
+  let rows = snapLine(
+    `8. Daily Management Reporting — ${stamp}`, "", "", { band: true }
+  );
+  rows += snapLine("8.1 Yesterday's SVR Cash/Book Value", inr(s8.f1));
+  rows += snapLine(
+    "8.2 Today's Sales After Expenses, Testing and Density Adjustments", inr(s8.f2)
+  );
+  rows += snapLine("8.3 Projected SVR Cash/Book Value", inr(d.f3),
+    "# Duplicate Section for mgmt Reporting 4.Cash Reconcilation");
+  rows += snapLine("8.4 Actual Reported SVR Cash/Book Value", inr(s8.f4));
+  rows += snapLine("8.5 Difference — Actual Reported Minus Projected", inr(d.f5), OVER100);
+
+  rows += snapLine("Regular Expenses", "", "", { band: true });
+  for (const r of s8.regular_expenses || []) {
+    rows += snapLine(r.category || "", inr(r.amount));
+  }
+  rows += snapLine("Total Regular Expenses", inr(d.regular_expenses_total), "", { band: true });
+
+  rows += snapLine("Old Credit Collections [Remove/Update the row above]", "", "", { band: true });
+  for (const r of s8.old_credit_collections || []) {
+    rows += snapLine(r.type || "", inr(r.amount), "", { mid: "Write to the nxt Col" });
+  }
+
+  rows += snapLine(
+    "Cash Value Difference — Escalate if Absolute Difference Exceeds ₹100",
+    inr(d.f5), OVER100, { redLabel: true }
+  );
+  rows += snapLine("Today's Actual Reported Trial Balance / SVR Net Worth",
+    inr(d.mgmt_actual_networth));
+  rows += snapLine("Yesterday's Actual Reported Trial Balance", inr(s8.mgmt_yesterday_tb));
+  rows += snapLine("Daily Profit Including 2T Sales", inr(s8.mgmt_profit));
+  rows += snapLine("Projected SVR Net Worth", inr(d.mgmt_projected_networth));
+  rows += snapLine("Actual Reported SVR Net Worth", inr(d.mgmt_actual_networth));
+  rows += snapLine("Difference — Actual Reported Minus Projected", inr(d.mgmt_networth_diff),
+    "#Possitive Number is Good could be related to Consump Difference");
+  rows += snapLine("Actual Profit all Daily Expenses Rs3300", inr(s8.mgmt_actual_profit), "",
+    { redLabel: true });
+
+  for (const [label, key] of [
+    ["Prepared by", "prepared_by"],
+    ["Verified by", "verified_by"],
+    ["Sent to SVR and Bank Statement to Group Email BY", "sent_by"],
+  ]) {
+    rows += snapLine(
+      label,
+      `<b class="snap-name">${(s8[key] || "").toUpperCase()}</b>`,
+      "",
+      { mid: (listValues("staff") || []).slice(0, 3).join("/") }
+    );
+  }
+
+  return (
+    `<div class="snap-wrap"><table class="snap">${rows}</table>` +
+    `<div class="snap-side">${panel}${panel}</div></div>`
+  );
+}
+
+// Snapshot of Section 8 as a picture, copied to the clipboard.
+//
+// This is the one management actually wants: the block as it looks on screen,
+// colours and all, pasted into a WhatsApp chat. There is no WhatsApp Business
+// account behind the app and there will not be one, so nothing can post a
+// message by itself - what happens in real life is a person opens WhatsApp and
+// sends it. Putting the image on the clipboard makes that one Ctrl+V.
+//
+// A picture, not the .xlsx, because a phone will not open a spreadsheet on the
+// road; and captured from the live pixels, not re-drawn, so it cannot disagree
+// with what the operator is looking at.
+async function snapshotSection8() {
+  const st = $("s8-send-status");
+  const block = $("s8-snapshot-view");
+  if (!lastView) {
+    st.className = "status-line err";
+    st.textContent = "Load a date first.";
+    return;
+  }
+  // Build management's own layout and show it, so what is captured is what they
+  // can see they are about to send.
+  block.innerHTML = buildSnapshot(lastView);
+  block.hidden = false;
+
+  if (!window.svr || typeof window.svr.captureSection !== "function") {
+    st.className = "status-line err";
+    st.textContent =
+      "Snapshot is shown below. Copying it to the clipboard needs the installed " +
+      "SVR app — from a browser tab, screenshot it or use Export Section 8 to Excel.";
+    return;
+  }
+  st.className = "status-line";
+  st.textContent = "Capturing…";
+  block.scrollIntoView({ block: "start" });
+  await new Promise((r) => setTimeout(r, 150)); // let the scroll settle before the capture
+  const r = block.getBoundingClientRect();
+  try {
+    const out = await window.svr.captureSection({
+      x: r.left,
+      y: r.top,
+      width: r.width,
+      height: r.height,
+      label: $("tb-date").value,
+    });
+    st.className = "status-line ok";
+    st.textContent =
+      `Copied to the clipboard — open WhatsApp, pick the chat, press Ctrl+V, send. ` +
+      `A copy is saved at ${out.file}.`;
+  } catch (err) {
+    st.className = "status-line err";
+    st.textContent = `Snapshot failed — ${err.message || err}`;
+  }
+}
+
 // ------------------------------------------------------------------ main render
 
 let lastManual = {};
 
 function render(view) {
   currentStatus = view.status;
+  lastView = view;
   lastManual = view.manual || {};
   $("status-tag").textContent = view.status;
   const i = view.inputs;
@@ -648,6 +815,7 @@ async function init() {
   $("save-btn").addEventListener("click", save);
   $("s8-export-btn").addEventListener("click", exportSection8);
   $("s8-whatsapp-btn").addEventListener("click", sendSection8Whatsapp);
+  $("s8-snapshot-btn").addEventListener("click", snapshotSection8);
   await load();
 }
 

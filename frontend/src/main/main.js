@@ -10,7 +10,7 @@
 // resources/backend/svr-backend.exe. In dev (`npm start`) there is no bundled exe;
 // a dev backend on :8756 is assumed and the renderer loads regardless.
 
-const { app, BrowserWindow, Menu, ipcMain } = require("electron");
+const { app, BrowserWindow, Menu, clipboard, ipcMain } = require("electron");
 const path = require("path");
 const http = require("http");
 const fs = require("fs");
@@ -122,6 +122,47 @@ async function showPrintPreview(sourceWebContents) {
   });
   return true;
 }
+
+// Section 8 snapshot for WhatsApp.
+//
+// The station has no WhatsApp Business account and will not be getting one, so
+// nothing can post a message programmatically. What actually happens is: someone
+// opens WhatsApp on the PC or the phone and sends it (client, 2026-09-12). The
+// thing management wants is the Section 8 block as it looks on screen - colours
+// and all - not a spreadsheet they have to open on a phone.
+//
+// So: capture that block as a PNG, put it straight on the CLIPBOARD, and also
+// drop a copy on disk. In WhatsApp it is then one Ctrl+V. That is as close to a
+// one-button send as is possible without an API, and nothing about it pretends
+// to have sent anything.
+//
+// capturePage() is used rather than an HTML-to-canvas library because it takes
+// the real rendered pixels - the snapshot cannot drift from what the operator is
+// looking at, which is the whole point of sending a picture of it.
+async function captureSection(sourceWebContents, rect) {
+  const round = (n) => Math.max(0, Math.round(n));
+  const image = await sourceWebContents.capturePage({
+    x: round(rect.x),
+    y: round(rect.y),
+    width: round(rect.width),
+    height: round(rect.height),
+  });
+  if (image.isEmpty()) throw new Error("Nothing to capture - scroll Section 8 into view first.");
+
+  clipboard.writeImage(image);
+  const file = path.join(
+    app.getPath("downloads"),
+    `SVR-Section8-${rect.label || "snapshot"}.png`
+  );
+  await fs.promises.writeFile(file, image.toPNG());
+  return { file, copied: true };
+}
+
+ipcMain.handle("svr:capture-section", (event, rect) =>
+  captureSection(event.sender, rect || {}).catch((err) => {
+    throw new Error(err && err.message ? err.message : String(err));
+  })
+);
 
 ipcMain.handle("svr:print-preview", (event) =>
   showPrintPreview(event.sender).catch((err) => {

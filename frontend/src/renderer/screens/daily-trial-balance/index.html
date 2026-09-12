@@ -163,7 +163,20 @@
               <label>&nbsp;</label>
               <button type="button" class="export-btn secondary" id="s8-whatsapp-btn">Send via WhatsApp</button>
             </div>
+            <div class="field">
+              <label>&nbsp;</label>
+              <button type="button" class="export-btn" id="s8-snapshot-btn">Snapshot &rarr; Clipboard</button>
+            </div>
           </div>
+          <!-- Management's own layout, built from the live figures and captured as
+               the picture they receive daily. Hidden until Snapshot is pressed. -->
+          <div id="s8-snapshot-view" hidden></div>
+          <p style="font-size:11px;color:var(--io-blue-dark);margin:0 0 6px;max-width:720px">
+            <b>Snapshot</b> copies Section 8 as a picture — same colours as on screen — straight to the
+            clipboard, and saves a PNG in your Downloads folder. Open WhatsApp, pick the chat, press
+            Ctrl+V, send. That is the whole flow; there is no WhatsApp account wired into the app, so
+            nothing is sent without you pressing send.
+          </p>
           <p id="s8-send-status" class="status-line"></p>
           <div id="sec-9"></div>
           <div id="sec-10"></div>

@@ -435,3 +435,36 @@ test("every figure on the form reads to two decimals, never more", async ({ page
     await expect(page.locator(`#${id}`)).toHaveValue(twoDp);
   }
 });
+
+test("Section 8 snapshot says plainly it needs the installed app", async ({ page }) => {
+  // The capture uses Electron's own capturePage through the preload bridge, so in
+  // a browser tab there is nothing to call. It must say so rather than appear to
+  // work - page-mode has no window.svr.
+  await login(page, "mmanager");
+  await page.goto(SCREEN);
+  await expect(page.locator("#body")).toBeVisible();
+
+  await page.fill("#tb-date", DATE);
+  await page.click("#load-btn");
+  await expect(page.locator("#s3-src")).toContainText("Daily Sales Summary");
+
+  await page.click("#s8-snapshot-btn");
+  // The snapshot itself renders either way - what needs the app is copying it to
+  // the clipboard, and it says so rather than appearing to have worked.
+  await expect(page.locator("#s8-snapshot-view")).toBeVisible();
+  await expect(page.locator("#s8-send-status")).toHaveClass(/err/);
+  await expect(page.locator("#s8-send-status")).toContainText("installed SVR app");
+
+  // It is management's layout, not the app's: green bands, red figures, their
+  // own wording, and the Difference / Yes Bank / Total panel printed twice.
+  const snap = page.locator("#s8-snapshot-view");
+  await expect(snap).toContainText("8. Daily Management Reporting");
+  await expect(snap).toContainText("8.5 Difference — Actual Reported Minus Projected");
+  await expect(snap).toContainText("#OK Anything Above Rs 100 Call/inform mgmt immediately");
+  await expect(snap).toContainText("Cash Value Difference");
+  await expect(snap).toContainText("Sent to SVR and Bank Statement to Group Email BY");
+  await expect(snap.locator("table.snap-panel")).toHaveCount(2);
+  await expect(snap.locator("table.snap-panel").first()).toContainText("Yes Bank Return Amount");
+  // Figures carry Indian digit grouping, as on the sheet management receives.
+  await expect(snap.locator(".snap-val").first()).toHaveText(/^[\d,]*\.\d{2}$|^$/);
+});

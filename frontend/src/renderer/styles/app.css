@@ -508,6 +508,88 @@ td input:disabled {
   font-variant-numeric: tabular-nums;
 }
 
+/* ---- Section 8 management snapshot ---------------------------------------
+   Deliberately NOT the app's own house style. Management has received the same
+   picture every day for years - green header bands, figures in red, the notes
+   beside the lines they belong to, and the Difference / Yes Bank Return / Total
+   panel repeated down the right (client sent today's, 2026-09-12). Sending them
+   the app's orange-and-input-boxes version would be sending them something they
+   have to re-learn, so this block reproduces their layout instead.
+
+   Fixed colours on purpose: this is captured as an image and sent outside the
+   app, so it must not follow the viewer's accent choice or a dark theme. */
+.snap-wrap {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  background: #fff;
+  padding: 8px;
+  width: max-content;
+  max-width: 100%;
+  overflow-x: auto;
+}
+table.snap {
+  border-collapse: collapse;
+  background: #fff;
+  border: 1px solid #d0d0d0;
+  font-family: Calibri, "Segoe UI", Arial, sans-serif;
+  font-size: 13px;
+  width: auto;
+}
+table.snap td {
+  border: 1px solid #d9d9d9;
+  padding: 2px 8px;
+  color: #000;
+  white-space: nowrap;
+}
+table.snap td:first-child {
+  min-width: 430px;
+}
+.snap-mid {
+  min-width: 120px;
+  color: #000;
+}
+.snap-val {
+  min-width: 130px;
+  text-align: left;
+  color: #ff0000;
+  font-variant-numeric: tabular-nums;
+}
+.snap-note {
+  color: #ff0000;
+  font-weight: 700;
+  padding-left: 10px !important;
+}
+.snap-band td {
+  background: #92d050;
+  font-weight: 700;
+}
+.snap-red td:first-child {
+  color: #ff0000;
+  font-weight: 700;
+}
+.snap-name {
+  color: #000;
+}
+table.snap-panel {
+  border-collapse: collapse;
+  margin-bottom: 26px;
+  width: auto;
+  background: #fff;
+}
+table.snap-panel td {
+  border: 1px solid #000;
+  padding: 3px 12px;
+  color: #ff0000;
+  font-weight: 700;
+  font-size: 15px;
+  white-space: nowrap;
+}
+table.snap-panel td:last-child {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
 /* A two-column Description | Amount table whose Amount cell is written into by
    hand on the printed form, using the paper's running-sum style
    ("527+588+100=1215"). Sized to hold 9999999999999999 with slack rather than to
