@@ -10,10 +10,11 @@
 // resources/backend/svr-backend.exe. In dev (`npm start`) there is no bundled exe;
 // a dev backend on :8756 is assumed and the renderer loads regardless.
 
-const { app, BrowserWindow, Menu } = require("electron");
+const { app, BrowserWindow, Menu, ipcMain } = require("electron");
 const path = require("path");
 const http = require("http");
 const fs = require("fs");
+const os = require("os");
 const { spawn } = require("child_process");
 
 const API_BASE = process.env.SVR_API_BASE || "http://127.0.0.1:8756";
@@ -91,6 +92,44 @@ const SPLASH_HTML = `<!doctype html><meta charset="utf-8">
   <div style="font-weight:700;margin-bottom:10px">SVR IOCL Station</div>
   <div>Starting&nbsp;<span class="dot"></span><span class="dot"></span><span class="dot"></span></div>
 </div>`;
+
+// Print preview. Electron's bare window.print() goes straight to the Windows
+// print dialog with no preview pane, and a form printed blind is a form printed
+// wrong - the client reported both no preview and a one-page report spilling
+// over three pages (2026-09-11). Rendering to an A4 PDF first and opening it in
+// a window gives a true preview of the page breaks, and Chromium's built-in PDF
+// viewer supplies Print and Save buttons for free.
+async function showPrintPreview(sourceWebContents) {
+  const pdf = await sourceWebContents.printToPDF({
+    pageSize: "A4",
+    landscape: false,
+    printBackground: true,
+    preferCSSPageSize: true, // honour the @page rule in app.css
+  });
+  const file = path.join(os.tmpdir(), `svr-print-${Date.now()}.pdf`);
+  await fs.promises.writeFile(file, pdf);
+
+  const preview = new BrowserWindow({
+    width: 900,
+    height: 1100,
+    title: "Print preview — SVR IOCL Station",
+    autoHideMenuBar: true,
+    webPreferences: { contextIsolation: true, nodeIntegration: false },
+  });
+  await preview.loadURL(`file://${file.replace(/\\/g, "/")}`);
+  preview.on("closed", () => {
+    fs.promises.unlink(file).catch(() => {}); // best-effort temp cleanup
+  });
+  return true;
+}
+
+ipcMain.handle("svr:print-preview", (event) =>
+  showPrintPreview(event.sender).catch((err) => {
+    // Surfaced to the renderer as a rejected promise so the screen can show it
+    // in its own status line rather than failing silently.
+    throw new Error(`Print preview failed: ${err.message}`);
+  })
+);
 
 function createWindow() {
   const win = new BrowserWindow({

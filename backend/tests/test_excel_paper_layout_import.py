@@ -139,7 +139,9 @@ def test_multi_sheet_workbook_picks_the_sheet_for_the_selected_pump():
     assert road_payload["hs"] == {"current": 267859.1, "last": 267841.93}
     # This side of the form is almost entirely the paper's own "-" markers -
     # every one of them reads back as blank, not as a literal dash (2026-09-11).
-    assert road_payload["oils"] == [{"qty": None, "opening": None}] * 5
+    # Rate is the exception: a blank Rate cell is a real 0, so it can never fall
+    # back to Rate Master downstream (2026-09-11 oil-rate fix).
+    assert road_payload["oils"] == [{"qty": None, "rate": 0, "opening": None}] * 5
     assert road_payload["credit_card_amounts"] == []
     assert road_payload["phone_pay_settled"] is None
     assert road_payload["night_cash"] is None

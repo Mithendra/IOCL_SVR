@@ -564,4 +564,81 @@ td input:disabled {
   .sheet .section-title {
     break-inside: avoid;
   }
+
+  /* ---- Compact print metrics ------------------------------------------------
+     The screen layout is built at 1122px wide; A4 portrait gives ~194mm (~733px)
+     of content width and roughly 281mm of height. At screen density the Daily
+     Sales form ran to three pages (client, 2026-09-11). These rules squeeze the
+     chrome and the row heights - not the figures - so a standard form lands on
+     one sheet, matching the density of the client's own reference blank forms
+     (docs/.../ocr-samples/SVR_DSR_EMPTY_<serial>.pdf).
+
+     A heavy day can still legitimately run to a second page: Credit Cards, New
+     Credits and Old Credits grow row by row. That is the paper form's behaviour
+     too - it is not a layout failure. */
+  .sheet .header {
+    padding: 3px 8px;
+  }
+  .sheet .header p {
+    font-size: 9px;
+    margin: 0;
+  }
+  .sheet .header-logo img {
+    height: 16px;
+  }
+  .sheet .header-logo {
+    padding: 1px 4px;
+  }
+  .flamebar {
+    display: none;
+  }
+  .body-pad {
+    padding: 0 8px 3px;
+  }
+  .meta-grid {
+    gap: 2px;
+    margin-bottom: 2px;
+  }
+  .section-title {
+    padding: 2px 0 1px;
+    font-size: 9px;
+    line-height: 1.15;
+  }
+  th {
+    font-size: 7.5px;
+    padding: 0 3px;
+    line-height: 1.15;
+  }
+  td {
+    font-size: 8px;
+    padding: 0 3px;
+    line-height: 1;
+  }
+  td input,
+  td select,
+  .meta-grid input,
+  .meta-grid select {
+    font-size: 8px;
+    padding: 0 2px;
+    height: 9px;
+    line-height: 9px;
+    border-radius: 0;
+  }
+  .meta-grid label,
+  .field label {
+    font-size: 7.5px;
+  }
+  /* Inputs print as ruled boxes, like the paper form's write-in fields. */
+  td input:disabled {
+    background: transparent;
+  }
+  table {
+    border-radius: 0;
+  }
+  /* The Query/Browse controls are an on-screen lookup aid, not part of the form. */
+  #query-btn,
+  #browse-btn,
+  #browse-panel {
+    display: none !important;
+  }
 }

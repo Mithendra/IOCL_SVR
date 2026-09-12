@@ -78,7 +78,11 @@ def restock(
 def set_item_policy(
     item_key: str,
     body: ReorderIn,
-    principal: Principal = Depends(require("Owner")),
+    # Manager as well as Owner (widened 2026-09-11): this is the only way to
+    # *set* a stock level rather than add to it, and correcting a miscount is
+    # day-to-day floor work, not an ownership decision. Restock stays additive -
+    # it is a receipt log - so without this there was no correction path at all.
+    principal: Principal = Depends(require("Manager", "Owner")),
     conn: sqlite3.Connection = Depends(get_db),
 ) -> dict:
     item = conn.execute(

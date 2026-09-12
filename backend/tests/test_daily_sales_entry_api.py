@@ -30,7 +30,9 @@ def test_calc_endpoint_uses_engine(client, auth_headers):
         headers=auth_headers("Sales"),
     )
     assert resp.status_code == 200
-    assert resp.json()["hs"]["amount"] == 138813.9072
+    # 1317.52 x 105.36 = 138813.9072 exactly; row amounts are truncated to paise
+    # the way the station's own forms do (trunc2, 2026-09-11).
+    assert resp.json()["hs"]["amount"] == 138813.90
 
 
 def test_create_locks_sell_rates_and_carried_last_reading(client, auth_headers, conn):

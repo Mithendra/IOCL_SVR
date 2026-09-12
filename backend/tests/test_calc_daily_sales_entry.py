@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import math
 
-from svr_backend.calc.amounts import is_blank, parse_amt, round4
+from svr_backend.calc.amounts import is_blank, parse_amt, round4, trunc2
 from svr_backend.calc.daily_sales_entry import (
     DailySalesEntryInput,
     GasRow,
@@ -19,12 +19,22 @@ from svr_backend.calc.daily_sales_entry import (
 
 
 def test_worked_example_no_float_drift():
-    """HS 1317.52 x 105.36 = 138813.9072 - used throughout the BRD (SDD 9)."""
+    """HS 1317.52 x 105.36 = 138813.9072 exactly - the SDD 9 worked example.
+
+    The station's own forms cut every row amount at two decimals rather than
+    rounding (client-confirmed 2026-09-11, see ``trunc2``), so what the app now
+    reports for this example is **138813.90**. The point of the example is that
+    the multiplication carries no float drift, and that still holds: the exact
+    product is asserted below before truncation is applied.
+    """
     data = DailySalesEntryInput(hs=GasRow(current="1317.52", last="0", rate="105.36"))
     result = compute(data)
     assert result.hs.cons == 1317.52
-    assert result.hs.amount == 138813.9072
-    assert math.isclose(result.gas_total, 138813.9072, rel_tol=0, abs_tol=1e-9)
+    # No drift in the underlying arithmetic - the SDD figure, to the last digit.
+    assert math.isclose(1317.52 * 105.36, 138813.9072, rel_tol=0, abs_tol=1e-9)
+    # What the form shows: truncated to paise, matching the paper.
+    assert result.hs.amount == 138813.90
+    assert result.gas_total == 138813.90
 
 
 def test_gas_blank_guard():
@@ -65,6 +75,20 @@ def test_round4_truncates_to_four_places():
     assert round4(1.00019) == 1.0002  # clearly above the half - rounds up (not banker's)
 
 
+def test_trunc2_cuts_at_paise_and_never_rounds_up():
+    """The station's forms cut, they don't round - the two real cases that prove
+    it, plus the float-noise guard."""
+    assert trunc2(66323.0664) == 66323.06  # rounding would give .07
+    assert trunc2(68435.488) == 68435.48  # rounding would give .49
+    assert trunc2(68683.835) == 68683.83
+    assert trunc2(138813.9072) == 138813.90
+    # 0.29 is stored as 0.28999999999999998 - must still cut to 0.29, not 0.28.
+    assert trunc2(0.29) == 0.29
+    assert trunc2(170.0) == 170.0
+    # Negatives cut toward zero (Net Bal can go negative on a heavy-expense day).
+    assert trunc2(-1.559) == -1.55
+
+
 def test_oil_rows_amount_and_closing_stock():
     data = DailySalesEntryInput(
         oils=[
@@ -96,22 +120,24 @@ def test_full_chain_net_bal_hand_off():
     )
     result = compute(data)
 
-    gas = 138813.9072 + 117700.0
+    # Row amounts are truncated to paise before they are summed (trunc2), so the
+    # HS row contributes 138813.90, not 138813.9072.
+    gas = 138813.90 + 117700.0
     oil = 248.0
     expenses = 850.0
     new_credits = 1053.6
     cards = 1500.0
-    # Net Bal Hand off includes Phone Pay Settled (client-corrected 2026-09-11 -
-    # the original mockup formula omitted it; confirmed a real gap, not intentional).
-    net_bal = gas + oil - expenses + 150.0 + 200.0 + new_credits + cards + 5000.0
+    # EVERY non-cash line is subtracted - Net Bal is the physical cash handed
+    # over (client-confirmed 2026-09-11 against three real filled forms).
+    net_bal = gas + oil - expenses - 150.0 - 200.0 - new_credits - cards - 5000.0
 
-    assert result.gas_total == round4(gas)
+    assert result.gas_total == gas
     assert result.oil_total == oil
     assert result.expenses_total == expenses
     assert result.new_credits_total == new_credits
     assert result.credit_cards_total == cards
-    assert result.sum_cash == round4(gas + oil)
-    assert result.net_bal_hand_off == round4(net_bal)
+    assert result.sum_cash == gas + oil
+    assert result.net_bal_hand_off == trunc2(net_bal)
     # Section 6 is excluded from today's total, reported separately.
     assert result.sum_old_credit == 300.0
 

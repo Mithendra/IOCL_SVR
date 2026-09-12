@@ -80,7 +80,11 @@ test("typing Current Reading updates Amount via the backend /calc", async ({ pag
   await expect(page.locator("#hs-amount")).not.toHaveValue("");
   const amount = Number(await page.locator("#hs-amount").inputValue());
   const cons = Number(await page.locator("#hs-cons").inputValue());
-  expect(amount).toBeCloseTo(cons * 105.36, 2);
+  // Row amounts are truncated to paise, so the figure sits within one paisa
+  // below the raw product - never above it (trunc2, 2026-09-11).
+  const exact = cons * 105.36;
+  expect(amount).toBeLessThanOrEqual(exact + 1e-9);
+  expect(amount).toBeGreaterThan(exact - 0.01 - 1e-9);
 });
 
 test("Save persists the entry and stamps last-updated-by", async ({ page }) => {
@@ -189,7 +193,33 @@ test("Oil Sale(s) Opening Stock is editable and a manual override survives Save 
   await page.fill("#shift-date", DATE);
   await expect(page.locator("#editing-note")).toContainText("Editing saved entry #");
   await expect(page.locator("#oil1-opening")).toHaveValue("500");
-  await expect(page.locator("#oil1-closing")).toHaveValue("496"); // 500 - 4
+  // Computed figures read to exactly two decimals (2026-09-11).
+  await expect(page.locator("#oil1-closing")).toHaveValue("496.00"); // 500 - 4
+});
+
+test("computed figures show exactly two decimals and Net Bal subtracts non-cash lines", async ({
+  page,
+}) => {
+  await login(page);
+  await page.goto(SCREEN);
+  await page.fill("#shift-date", "2026-06-11");
+  await page.fill("#hs-current", "900000");
+  await page.fill("#pp-settled", "1000");
+  await page.fill("#pp-unsettled", "500");
+  await page.fill("#night-cash", "200");
+  await page.locator("#night-cash").blur();
+
+  // Every displayed figure carries exactly two decimals (client, 2026-09-11).
+  const twoDp = /^-?\d+\.\d{2}$/;
+  await expect(page.locator("#hs-amount")).toHaveValue(twoDp);
+  await expect(page.locator("#sum-cash")).toHaveValue(twoDp);
+  await expect(page.locator("#sum-netbal")).toHaveValue(twoDp);
+
+  // Net Bal takes every non-cash line OFF the cash figure. Derived from what's
+  // on screen so the carried Last Shift Reading can't make this brittle.
+  const cash = Number(await page.locator("#sum-cash").inputValue());
+  const netBal = Number(await page.locator("#sum-netbal").inputValue());
+  expect(netBal).toBeCloseTo(cash - 1000 - 500 - 200, 2);
 });
 
 test("Delete button is hidden for Sales, even on their own saved entry", async ({ page }) => {
@@ -347,35 +377,66 @@ test("theme swatch changes --io-accent; language toggle switches headings", asyn
   await expect(page.locator(".section-title").first()).toContainText("గ్యాస్ అమ్మకాలు");
 });
 
-test("Scan / Upload (OCR) returns a flagged draft (or reports the engine is absent)", async ({
-  page,
-}) => {
-  const fs = require("fs");
-  const path = require("path");
-  const sample = path.join(
-    __dirname,
-    "..",
-    "..",
-    "docs",
-    "01-BRD-Requirement-Gathering",
-    "ocr-samples",
-    "SVR-daily-sales-2026-09-08-road-scan.pdf",
-  );
+test("a blank form prints on a single A4 portrait page", async ({ page, browserName }) => {
+  // The client reported a one-page report spilling across three (2026-09-11).
+  // page.pdf() applies the same print CSS the packaged app's preview does, so
+  // this measures the real thing rather than trusting the stylesheet by eye.
+  test.skip(browserName !== "chromium", "page.pdf() is Chromium-only");
   await login(page);
   await page.goto(SCREEN);
-  await page.fill("#shift-date", "2026-08-25"); // isolated - no existing row to bind to
-  await page.setInputFiles('input[type="file"][accept*="pdf"]', {
-    name: "scan.pdf",
-    mimeType: "application/pdf",
-    buffer: fs.readFileSync(sample),
-  });
-  // With the bundled Tesseract staged -> "OCR DRAFT ... Check EVERY value".
-  // Without it (e.g. CI) -> "OCR engine not available". Either is a pass.
-  // OCR of a full-page scan takes a few seconds, so allow generous time.
-  await expect(page.locator("#save-status")).toContainText(
-    /OCR DRAFT|Read \d+ field|OCR engine not available/,
-    { timeout: 45000 },
-  );
+  await page.fill("#shift-date", "2026-06-14");
+  const pdf = await page.pdf({ printBackground: true, preferCSSPageSize: true });
+  const pages = (pdf.toString("latin1").match(/\/Type\s*\/Page[^s]/g) || []).length;
+  expect(pages).toBe(1);
+});
+
+test("Scan / Upload (OCR) is gone from the screen", async ({ page }) => {
+  // Removed 2026-09-11 at the client's request: stock Tesseract never read the
+  // station's handwriting, and for a typed document Import from Excel reads
+  // every section while OCR only ever covered gas readings + 3 summary lines.
+  await login(page);
+  await page.goto(SCREEN);
+  await expect(page.locator("#scan-btn")).toHaveCount(0);
+  await expect(page.locator('input[type="file"][accept*="pdf"]')).toHaveCount(0);
+  await expect(page.locator("#toolbar-hint")).not.toContainText("Scan");
+  // The paths that replaced it are still there.
+  await expect(page.locator("#import-btn")).toBeVisible();
+});
+
+test("Query retrieves a saved day and says so when there is nothing saved", async ({ page }) => {
+  await login(page);
+  await page.goto(SCREEN);
+  await page.fill("#shift-date", "2026-06-12"); // nothing saved on this day
+  await page.click("#query-btn");
+  await expect(page.locator("#save-status")).toContainText("No saved entry for 2026-06-12");
+
+  // Save a day, then prove Query brings it back rather than leaving a blank form.
+  await page.fill("#hs-current", "1600.25");
+  await page.click("#save-btn");
+  await expect(page.locator("#save-status")).toContainText(/Saved \(entry #\d+\)/);
+
+  await page.reload();
+  await page.fill("#shift-date", "2026-06-12");
+  await page.click("#query-btn");
+  await expect(page.locator("#save-status")).toContainText(/Loaded saved entry #\d+/);
+  await expect(page.locator("#hs-current")).toHaveValue("1600.25");
+});
+
+test("Browse finds saved entries across a date range", async ({ page }) => {
+  await login(page);
+  await page.goto(SCREEN);
+  await page.fill("#shift-date", "2026-06-13");
+  await page.fill("#hs-current", "1700");
+  await page.click("#save-btn");
+  await expect(page.locator("#save-status")).toContainText(/Saved \(entry #\d+\)/);
+
+  await page.click("#browse-btn");
+  await page.fill("#q-from", "2026-06-01");
+  await page.fill("#q-to", "2026-06-30");
+  await page.click("#q-search-btn");
+  await expect(page.locator("#q-status")).toContainText(/saved entr(y|ies) found/);
+  await expect(page.locator("#q-rows tr").first()).toBeVisible();
+  await expect(page.locator("#q-rows")).toContainText("2026-06-13");
 });
 
 test("Export to Excel downloads an .xlsx for a saved entry", async ({ page }) => {

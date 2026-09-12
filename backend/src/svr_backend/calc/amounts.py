@@ -53,8 +53,29 @@ def round4(n: float) -> float:
 
     Python's built-in ``round`` uses banker's rounding, which the mockup does not;
     ``math.floor(x + 0.5)`` reproduces ``Math.round`` for both signs.
+
+    Retained for callers that genuinely want 4-dp. Daily Sales Entry now uses
+    ``trunc2`` instead - see below.
     """
     return math.floor(n * 10000 + 0.5) / 10000
+
+
+def trunc2(n: float) -> float:
+    """2-dp truncation (toward zero) - what the station's own forms actually do.
+
+    Proven against the real filled client sheets (2026-09-11): every row amount
+    on the paper form is the product cut off at two decimals, never rounded.
+    Truncation reproduced 4/4 sampled gas rows where rounding failed 2/4 -
+    e.g. ``629.49 * 105.36 = 66323.0664`` is printed as ``66323.06``, not
+    ``.07``, and ``581.44 * 117.7 = 68435.488`` as ``68435.48``, not ``.49``.
+    Applying this per row and then summing reproduces all three sheets' Net Bal
+    figures exactly (23298.77 / 38993.84 / 1601.20).
+
+    The inner ``round(..., 6)`` absorbs binary-float noise before the cut, so a
+    value that is mathematically ``x.29`` but stored as ``x.28999999999999998``
+    truncates to ``.29`` rather than ``.28``.
+    """
+    return math.trunc(round(n * 100, 6)) / 100
 
 
 def is_blank(raw: Number) -> bool:

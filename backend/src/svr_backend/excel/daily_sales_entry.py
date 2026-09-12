@@ -423,14 +423,15 @@ def _parse_paper_layout(rows: list[tuple]) -> tuple[dict, dict, list[str]]:
     if oil_hdr is None:
         warnings.append("Could not find the Oil Sale(s) table - quantities were not read.")
     else:
+        # Every Oil Sale(s) column comes from the sheet (client-confirmed
+        # 2026-09-11: "the Excel sheet has the correct values"). Rate especially:
+        # it used to be dropped here and re-locked from Rate Master on save,
+        # whose oil rates were stale placeholders - on the real Sep 9 sheet that
+        # turned an oil total of 290 into 1310 and put Net Bal out by 1020.01.
         col_qty = _col_of(rows[oil_hdr], "quantity")
-        # Rate is read too but ultimately ignored - the backend always locks Oil
-        # Rate from Rate Master on save regardless of import (SDD ADR-3), same as
-        # Gas Rate. Opening Stock DOES matter: it's the manual-override field
-        # (2026-09-11 short-term fix) and must come through from a filled sheet,
-        # not be silently left at Inventory Tracking's default (2026-09-11 fix -
-        # this was the real gap behind "Oil Sales not populating").
+        col_rate = _col_of(rows[oil_hdr], "rate")
         col_opening = _col_of(rows[oil_hdr], "opening stock")
+        col_closing = _col_of(rows[oil_hdr], "closing stock")
         stop = _find_row(rows, "total amt", start=oil_hdr + 1)
         stop = stop if stop is not None else min(oil_hdr + 8, len(rows))
         oils = []
@@ -441,7 +442,29 @@ def _parse_paper_layout(rows: list[tuple]) -> tuple[dict, dict, list[str]]:
                 None,
             )
             row = rows[ridx] if ridx is not None else None
-            oils.append({"qty": _cell(row, col_qty), "opening": _cell(row, col_opening)})
+            qty = _cell(row, col_qty)
+            rate = _cell(row, col_rate)
+            oils.append({
+                "qty": qty,
+                # A blank or "-" Rate is a real zero, not "no opinion" - coerced
+                # here so it can never fall back to Rate Master downstream.
+                "rate": 0 if rate is None else rate,
+                "opening": _cell(row, col_opening),
+            })
+            # Closing Stock is recomputed as opening - qty (which reproduces every
+            # closing figure on the real sheets). The sheet's own figure is only
+            # cross-checked and flagged on disagreement, never trusted - ADR-5.
+            sheet_closing = _cell(row, col_closing)
+            opening = oils[-1]["opening"]
+            if sheet_closing is not None and opening is not None and qty is not None:
+                try:
+                    if abs(float(sheet_closing) - (float(opening) - float(qty))) > _EPS:
+                        warnings.append(
+                            f"{OIL_LABELS[key]}: sheet shows Closing Stock {sheet_closing}, "
+                            f"recomputes to {float(opening) - float(qty)} - using recomputed."
+                        )
+                except (TypeError, ValueError):
+                    pass
         payload["oils"] = oils
 
     # ---- 3. Expenses (3 fixed description rows, Amount is the last cell) ----

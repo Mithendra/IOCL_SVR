@@ -61,16 +61,30 @@ def test_sold_today_and_low_stock_status(client, auth_headers):
 
 
 def test_owner_can_correct_reorder_and_on_hand(client, auth_headers):
-    assert client.put(
-        "/inventory/oil1", json={"reorder_level": 5}, headers=auth_headers("Manager")
-    ).status_code == 403
-
     out = client.put(
         "/inventory/oil1",
         json={"reorder_level": 5, "on_hand": 100},
         headers=auth_headers("Owner"),
     ).json()
     assert out == {"item_key": "oil1", "reorder_level": 5, "on_hand": 100}
+
+
+def test_manager_can_set_stock_outright_including_zero(client, auth_headers):
+    """Setting stock is Manager-or-Owner (widened 2026-09-11). Restock adds; this
+    replaces, which is the only way to establish an opening count or correct a
+    miscount - and 0 has to be settable, not treated as "no value given"."""
+    assert client.put(
+        "/inventory/oil1", json={"on_hand": 42}, headers=auth_headers("Manager")
+    ).status_code == 200
+
+    out = client.put(
+        "/inventory/oil1", json={"on_hand": 0}, headers=auth_headers("Manager")
+    ).json()
+    assert out["on_hand"] == 0
+
+    assert client.put(
+        "/inventory/oil1", json={"on_hand": 1}, headers=auth_headers("Sales")
+    ).status_code == 403
 
 
 def test_daily_sales_entry_opening_stock_comes_from_inventory(client, auth_headers):

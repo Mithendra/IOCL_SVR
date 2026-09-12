@@ -5,6 +5,7 @@
 
 import { api, getToken } from "../../lib/api.js";
 import * as mirror from "../../lib/calc-mirror.js";
+import { fmt2 } from "../../lib/format.js";
 
 const OIL_KEYS = ["oil1", "oil2", "oil3", "oil4", "oil5"];
 // Client's own reference blank forms (SVR_DSR_EMPTY_<serial>.pdf) print this
@@ -18,6 +19,10 @@ const setVal = (id, v) => {
   const el = $(id);
   if (el) el.value = v === null || v === undefined ? "" : v;
 };
+// For computed, read-only figures only - every one reads to exactly two decimals
+// (2026-09-11). Never used for a field the operator types into: the inline
+// scratch-sum syntax ("527+588+100=1215") has to survive untouched.
+const setNum = (id, v) => setVal(id, fmt2(v));
 
 let entryId = null; // set after first Save (or on loading an existing day) -> Update = PUT
 let calcTimer = null;
@@ -110,37 +115,37 @@ function readForm() {
 }
 
 function applyResult(r) {
-  setVal("hs-cons", r.hs.cons);
-  setVal("hs-amount", r.hs.amount);
-  setVal("ms-cons", r.ms.cons);
-  setVal("ms-amount", r.ms.amount);
-  setVal("gas-total", r.gas_total);
+  setNum("hs-cons", r.hs.cons);
+  setNum("hs-amount", r.hs.amount);
+  setNum("ms-cons", r.ms.cons);
+  setNum("ms-amount", r.ms.amount);
+  setNum("gas-total", r.gas_total);
 
   r.oils.forEach((o, i) => {
     const k = OIL_KEYS[i];
     if (!k) return;
-    setVal(`${k}-closing`, o.closing);
-    setVal(`${k}-amount`, o.amount);
+    setNum(`${k}-closing`, o.closing);
+    setNum(`${k}-amount`, o.amount);
   });
-  setVal("oil-total", r.oil_total);
+  setNum("oil-total", r.oil_total);
 
-  setVal("exp-total", r.expenses_total);
-  setVal("cc-total", r.credit_cards_total);
+  setNum("exp-total", r.expenses_total);
+  setNum("cc-total", r.credit_cards_total);
   document.querySelectorAll(".nc-amount").forEach((el, i) => {
-    el.value = r.new_credit_amounts[i] ?? "";
+    el.value = fmt2(r.new_credit_amounts[i]);
   });
-  setVal("nc-total", r.new_credits_total);
+  setNum("nc-total", r.new_credits_total);
 
-  setVal("sum-cash", r.sum_cash);
-  setVal("sum-expenses", r.sum_expenses);
-  setVal("sum-newcredits", r.sum_new_credits);
-  setVal("sum-cc", r.sum_credit_cards);
-  setVal("sum-netbal", r.net_bal_hand_off);
-  setVal("sum-oldcredit", r.sum_old_credit);
+  setNum("sum-cash", r.sum_cash);
+  setNum("sum-expenses", r.sum_expenses);
+  setNum("sum-newcredits", r.sum_new_credits);
+  setNum("sum-cc", r.sum_credit_cards);
+  setNum("sum-netbal", r.net_bal_hand_off);
+  setNum("sum-oldcredit", r.sum_old_credit);
 
-  setVal("ds-hs", r.daily_summary.hs);
-  setVal("ds-ms", r.daily_summary.ms);
-  (r.daily_summary.oils || []).forEach((q, i) => setVal(`ds-${OIL_KEYS[i]}`, q));
+  setNum("ds-hs", r.daily_summary.hs);
+  setNum("ds-ms", r.daily_summary.ms);
+  (r.daily_summary.oils || []).forEach((q, i) => setNum(`ds-${OIL_KEYS[i]}`, q));
 }
 
 function refresh() {
@@ -203,8 +208,8 @@ function syncButtonState() {
 // If this pump + date already has a saved entry, bind to it so Save is a PUT
 // (a correction edits that row, it does not stack a second one). With
 // { populate: true } the form is filled from the saved record; otherwise the
-// current form values are kept (used after an Excel/scan import over an
-// existing day).
+// current form values are kept (used after an Excel import over an existing
+// day).
 async function loadExisting({ populate = false } = {}) {
   const pump = val("pump-serial");
   const dateStr = val("shift-date");
@@ -238,6 +243,80 @@ async function loadExisting({ populate = false } = {}) {
   }
   syncButtonState();
   if (populate) refresh();
+  return row;
+}
+
+// Query - retrieve the saved entry for the Shift Date + Pump Serial on screen.
+// loadExisting() already does the fetch; this makes it an explicit action and,
+// crucially, always says what happened. Silently doing nothing when a day has
+// no saved entry is what made saved data look unreachable (client, 2026-09-11).
+async function queryCurrent() {
+  const status = $("save-status");
+  const dateStr = val("shift-date");
+  const pump = val("pump-serial");
+  if (!dateStr || !pump) {
+    status.className = "status-line err";
+    status.textContent = "Pick a Shift Date and a Pump Serial# first.";
+    return;
+  }
+  status.className = "status-line";
+  status.textContent = "Looking for a saved entry…";
+  await loadPrefill();
+  const row = await loadExisting({ populate: true });
+  if (row) {
+    status.className = "status-line ok";
+    status.textContent =
+      `Loaded saved entry #${row.id} for ${dateStr} — ${pump}, submitted by ` +
+      `${row.submitted_by}. Use Update to correct it.`;
+  } else {
+    status.className = "status-line err";
+    status.textContent = `No saved entry for ${dateStr} — ${pump}. Enter it, then Save.`;
+  }
+}
+
+// Browse saved entries over a date range / pump, so history can be found without
+// already knowing the exact date.
+async function searchEntries() {
+  const status = $("q-status");
+  const table = $("q-results");
+  const body = $("q-rows");
+  const qs = new URLSearchParams();
+  if (val("q-from")) qs.set("date_from", val("q-from"));
+  if (val("q-to")) qs.set("date_to", val("q-to"));
+  if (val("q-pump")) qs.set("pump_serial", val("q-pump"));
+  status.className = "status-line";
+  status.textContent = "Searching…";
+  let rows;
+  try {
+    rows = await api.get(`/daily-sales-entry?${qs.toString()}`);
+  } catch (err) {
+    status.className = "status-line err";
+    status.textContent = `Search failed — ${err.message || err}`;
+    return;
+  }
+  body.innerHTML = "";
+  if (!rows.length) {
+    table.hidden = true;
+    status.className = "status-line err";
+    status.textContent = "No saved entries match those filters.";
+    return;
+  }
+  for (const r of rows) {
+    const tr = document.createElement("tr");
+    tr.innerHTML =
+      `<td>${r.shift_date}</td><td>${r.pump_serial}</td><td>${r.submitted_by}</td>` +
+      `<td style="text-align:right">${fmt2(r.result && r.result.net_bal_hand_off)}</td>` +
+      `<td><button type="button" class="export-btn secondary q-open">Open</button></td>`;
+    tr.querySelector(".q-open").addEventListener("click", async () => {
+      $("shift-date").value = r.shift_date;
+      $("pump-serial").value = r.pump_serial;
+      await queryCurrent();
+    });
+    body.appendChild(tr);
+  }
+  table.hidden = false;
+  status.className = "status-line ok";
+  status.textContent = `${rows.length} saved entr${rows.length === 1 ? "y" : "ies"} found.`;
 }
 
 async function save() {
@@ -441,34 +520,32 @@ async function importExcel(file) {
   }
 }
 
-// Scan / Upload. A typed / machine-generated PDF is read from its text layer
-// (reliable); a scan/photo goes through OCR (handwriting is a rough guess only).
-async function importScan(file) {
-  const status = $("save-status");
-  status.className = "status-line";
-  status.textContent = "Reading the upload…";
-  try {
-    const res = await api.upload("/daily-sales-entry/ocr", file);
-    entryId = null;
-    await loadPrefill();
-    populateInputs(res.payload);
-    await loadExisting(); // if that day already has an entry, Save updates it
-    refresh();
-    const filled = (res.fields || []).filter((f) => f.value !== null && f.value !== "").length;
-    const fromTextLayer = res.engine === "PDF text layer";
-    status.className = fromTextLayer ? "status-line ok" : "status-line err";
-    status.textContent = fromTextLayer
-      ? `Read ${filled} field(s) from "${file.name}" (PDF text layer). Check each value + the pump/date, then Save.`
-      : `OCR DRAFT from "${file.name}" (${res.engine}). Handwriting is NOT read reliably — ` +
-        `${filled} field(s) are guesses. Check EVERY value against the scan before Save.`;
-  } catch (err) {
-    status.className = "status-line err";
-    status.textContent =
-      err.status === 503
-        ? "This file needs OCR and the engine isn't available on this install."
-        : `Upload failed — ${err.message || err}`;
+// Print. In the packaged Electron app this renders the page to an A4 PDF and
+// opens a real preview window (Electron's window.print() shows no preview pane
+// on Windows). In a plain browser - and in the Playwright page-mode tests -
+// there is no bridge, so it falls back to window.print(), whose Chromium dialog
+// has its own preview.
+async function printSheet() {
+  if (window.svr && typeof window.svr.printPreview === "function") {
+    try {
+      await window.svr.printPreview();
+      return;
+    } catch (err) {
+      const status = $("save-status");
+      status.className = "status-line err";
+      status.textContent = `${err.message || err} — falling back to the system print dialog.`;
+    }
   }
+  window.print();
 }
+
+// Scan / Upload (OCR) was removed from this screen on 2026-09-11 at the client's
+// request - stock Tesseract never read the station's handwriting reliably, and
+// for a typed document Import from Excel reads every section while the OCR path
+// only ever covered gas readings plus three summary lines. The backend
+// /daily-sales-entry/ocr endpoint is left in place for now; retiring it also
+// means unbundling Tesseract from the installer (~175 MB), which is its own
+// change.
 
 // --------------------------------------------------------------------------- init
 
@@ -518,7 +595,7 @@ async function syncAndPrint(pumpSerial) {
           .map(([key, c]) => `${key}: ${c.from} → ${c.to}`)
           .join(", ")}). Printing…`
       : "Inventory already up to date (nothing new to sync). Printing…";
-    window.print();
+    await printSheet();
   } catch (err) {
     status.className = "status-line err";
     status.textContent = `Sync failed — ${err.message || err}`;
@@ -574,33 +651,38 @@ async function init() {
     });
   });
 
+  $("query-btn").addEventListener("click", queryCurrent);
+  $("browse-btn").addEventListener("click", () => {
+    const panel = $("browse-panel");
+    panel.hidden = !panel.hidden;
+    if (!panel.hidden && !val("q-from")) {
+      // Default the range to the month around the day on screen, so Search is
+      // useful on the first click rather than returning everything.
+      const d = val("shift-date") || new Date().toISOString().slice(0, 10);
+      const from = new Date(d);
+      from.setDate(from.getDate() - 30);
+      $("q-from").value = from.toISOString().slice(0, 10);
+      $("q-to").value = d;
+    }
+  });
+  $("q-search-btn").addEventListener("click", searchEntries);
+
   $("save-btn").addEventListener("click", save);
   $("update-btn").addEventListener("click", save); // same request logic; buttons differ by when they're enabled
   $("delete-btn").addEventListener("click", deleteEntry);
-  $("print-btn").addEventListener("click", () => window.print());
+  $("print-btn").addEventListener("click", printSheet);
   document.querySelectorAll("[data-blank]").forEach((btn) => {
     btn.addEventListener("click", async () => {
       $("pump-serial").value = btn.dataset.blank;
       setVal("hs-current", "");
       setVal("ms-current", "");
       await loadPrefill();
-      window.print();
+      await printSheet();
     });
   });
   document.querySelectorAll("[data-sync]").forEach((btn) => {
     btn.addEventListener("click", () => syncAndPrint(btn.dataset.sync));
   });
-  const scanInput = document.createElement("input");
-  scanInput.type = "file";
-  scanInput.accept = ".pdf,.png,.jpg,.jpeg,application/pdf,image/*";
-  scanInput.style.display = "none";
-  document.body.appendChild(scanInput);
-  scanInput.addEventListener("change", () => {
-    if (scanInput.files[0]) importScan(scanInput.files[0]);
-    scanInput.value = "";
-  });
-  $("scan-btn").addEventListener("click", () => scanInput.click());
-
   const xlsxInput = document.createElement("input");
   xlsxInput.type = "file";
   xlsxInput.accept =

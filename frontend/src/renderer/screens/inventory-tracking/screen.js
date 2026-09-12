@@ -1,8 +1,15 @@
 // Inventory Tracking screen (SDD 5.10). Manager + Owner only. Section 1 is the
-// derived stock snapshot; Section 2 logs a delivery. Owner may edit the Reorder
-// Level inline; the stock decrement from sales lands at Trial Balance finalization.
+// derived stock snapshot; Section 2 logs a delivery.
+//
+// Two different ways stock moves, and the difference matters (client, 2026-09-11):
+//   * Restock ADDS - it is a receipt log ("30 more arrived today").
+//   * Opening Stock SETS - it establishes the true count outright, including 0.
+// Before this, only Restock was reachable from the UI, so entering a corrected
+// figure added to the old one instead of replacing it and there was no way to
+// establish an opening count at all. Both Manager and Owner can set it.
 
 import { api, getToken } from "../../lib/api.js";
+import { fmt2 } from "../../lib/format.js";
 
 const $ = (id) => document.getElementById(id);
 let me = null;
@@ -10,6 +17,11 @@ let items = [];
 
 function isOwner() {
   return me && me.role === "Owner";
+}
+
+// Setting stock outright is Manager or Owner; Reorder Level stays Owner-only.
+function canSetStock() {
+  return me && (me.role === "Manager" || me.role === "Owner");
 }
 
 function renderStock(rows) {
@@ -21,9 +33,12 @@ function renderStock(rows) {
     const low = r.status === "low";
     tr.innerHTML =
       `<td>${r.item_label}</td><td>${r.unit}</td>` +
-      `<td>${r.opening_stock}</td><td>${r.received_today}</td>` +
-      `<td>${r.sold_today}</td><td>${r.closing_stock}</td>` +
-      `<td><input class="reorder" data-key="${r.item_key}" value="${r.reorder_level}" ${isOwner() ? "" : "disabled"}></td>` +
+      `<td><input class="on-hand" data-key="${r.item_key}" value="${fmt2(r.opening_stock)}" ` +
+      `title="Sets the stock level outright - it does not add to it" ` +
+      `${canSetStock() ? "" : "disabled"}></td>` +
+      `<td>${fmt2(r.received_today)}</td>` +
+      `<td>${fmt2(r.sold_today)}</td><td>${fmt2(r.closing_stock)}</td>` +
+      `<td><input class="reorder" data-key="${r.item_key}" value="${fmt2(r.reorder_level)}" ${isOwner() ? "" : "disabled"}></td>` +
       `<td style="color:${low ? "var(--io-red)" : "#157347"};font-weight:700">${low ? "Low" : "OK"}</td>`;
     body.appendChild(tr);
   }
@@ -31,6 +46,33 @@ function renderStock(rows) {
     for (const el of document.querySelectorAll(".reorder")) {
       el.addEventListener("change", () => saveReorder(el.dataset.key, el.value));
     }
+  }
+  if (canSetStock()) {
+    for (const el of document.querySelectorAll(".on-hand")) {
+      el.addEventListener("change", () => saveOnHand(el.dataset.key, el.value));
+    }
+  }
+}
+
+// Replaces the tracked stock level with exactly what was typed - including 0.
+async function saveOnHand(key, value) {
+  const st = $("restock-status");
+  const qty = Number(value);
+  if (!Number.isFinite(qty) || qty < 0) {
+    st.className = "status-line err";
+    st.textContent = "Opening Stock must be 0 or more.";
+    await load(); // put the old figure back
+    return;
+  }
+  try {
+    await api.put(`/inventory/${key}`, { on_hand: qty });
+    await load();
+    st.className = "status-line ok";
+    st.textContent = `Opening Stock for ${key} set to ${fmt2(qty)} (replaced, not added).`;
+  } catch (err) {
+    st.className = "status-line err";
+    st.textContent = `Failed — ${err.message || err}`;
+    await load();
   }
 }
 

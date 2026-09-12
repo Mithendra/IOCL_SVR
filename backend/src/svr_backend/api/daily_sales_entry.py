@@ -158,11 +158,17 @@ def _apply_locked_context(
     for i, key in enumerate(OIL_KEYS):
         src = oils[i] if i < len(oils) else {}
         manual_opening = _num(src.get("opening"))
+        manual_rate = _num(src.get("rate"))
         normalized.append(
             {
                 "label": OIL_LABELS[key],
                 "qty": src.get("qty"),
-                "rate": oil_rates[key],
+                # Oil Rate comes from the submitted form/sheet when given, else
+                # Rate Master (client-confirmed 2026-09-11: the sheet's rate is
+                # authoritative for oils). Unlike Gas Rate, which stays fully
+                # backend-locked, oil rates vary per delivery and the paper form
+                # records the one that actually applied on the day.
+                "rate": manual_rate if manual_rate is not None else oil_rates[key],
                 # Opening Stock defaults to the tracked Inventory on_hand, but the
                 # submitter can override it by hand (short-term fix, 2026-09-11):
                 # oil sales are handled by only one person on a given day, so on a
@@ -249,19 +255,36 @@ def get_entry(
 def list_entries(
     shift_date: str | None = None,
     pump_serial: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    limit: int = 200,
     _: Principal = Depends(get_principal),
     conn: sqlite3.Connection = Depends(get_db),
 ) -> list[EntryOut]:
+    """Saved entries, newest first.
+
+    ``shift_date`` pins one day (what the screen uses to reopen a day for
+    editing); ``date_from``/``date_to`` select a range, for looking up history
+    without re-keying it (client-required 2026-09-11 - previously a saved day
+    could only be reached by landing on its exact date).
+    """
     clauses, params = [], []
     if shift_date:
         clauses.append("shift_date = ?")
         params.append(shift_date)
+    if date_from:
+        clauses.append("shift_date >= ?")
+        params.append(date_from)
+    if date_to:
+        clauses.append("shift_date <= ?")
+        params.append(date_to)
     if pump_serial:
         clauses.append("pump_serial = ?")
         params.append(pump_serial)
     where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
     rows = conn.execute(
-        f"SELECT * FROM {TABLE}{where} ORDER BY shift_date DESC, id DESC", params
+        f"SELECT * FROM {TABLE}{where} ORDER BY shift_date DESC, id DESC LIMIT ?",
+        [*params, max(1, min(limit, 1000))],
     ).fetchall()
     return [_row_to_out(r) for r in rows]
 

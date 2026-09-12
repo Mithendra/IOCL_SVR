@@ -42,8 +42,12 @@ def test_typed_pdf_recomputes_to_the_paper_figures():
     calc = compute_payload(res.payload)
     assert calc["hs"]["cons"] == 310.68          # 1487828.110 - 1487517.430
     assert calc["ms"]["cons"] == 583.55
-    assert round(calc["hs"]["amount"], 2) == 32733.24
-    assert round(calc["ms"]["amount"], 2) == 68683.84
+    # These are the figures printed on the paper form itself. The MS row is the
+    # one that proves the station truncates rather than rounds: 583.55 x 117.70
+    # = 68683.835, and the form prints 68683.83. This assertion previously read
+    # .84 - it had encoded the rounding error rather than the real form.
+    assert calc["hs"]["amount"] == 32733.24
+    assert calc["ms"]["amount"] == 68683.83
 
 
 def test_text_layer_warning_is_not_the_handwriting_one():

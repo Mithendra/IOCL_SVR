@@ -49,12 +49,46 @@
             <span id="pump-side-label" style="font-size:11px;color:var(--io-blue-dark);display:block"></span>
           </div>
           <div class="field">
+            <!-- Retrieve a previously saved day for the selected Shift Date +
+                 Pump Serial. The form auto-loads a saved entry on open, but the
+                 button makes retrieval explicit and always reports what it
+                 found (client-required 2026-09-11). -->
+            <label for="query-btn">Saved records</label>
+            <button type="button" class="export-btn" id="query-btn">Query</button>
+          </div>
+          <div class="field">
             <label>Name</label><input id="ds-name" disabled />
           </div>
           <div class="field">
             <label>Mgr Name</label><input id="mgr-name" disabled />
           </div>
         </div>
+
+        <!-- Browse saved entries across a date range, rather than one day at a
+             time. Collapsed until Browse is clicked. -->
+        <div style="margin:0 0 8px">
+          <button type="button" class="export-btn secondary" id="browse-btn">Browse saved entries…</button>
+          <div id="browse-panel" hidden style="margin-top:6px;padding:8px;border:1px solid var(--line);border-radius:4px">
+            <label style="font-size:11px">From <input type="date" id="q-from" /></label>
+            <label style="font-size:11px;margin-left:8px">To <input type="date" id="q-to" /></label>
+            <label style="font-size:11px;margin-left:8px">Pump
+              <select id="q-pump">
+                <option value="">All pumps</option>
+                <option value="12BC4523V-RD">12BC4523V-RD</option>
+                <option value="11CC2012V-OFF">11CC2012V-OFF</option>
+              </select>
+            </label>
+            <button type="button" class="export-btn" id="q-search-btn" style="margin-left:8px">Search</button>
+            <p id="q-status" class="status-line" style="margin:6px 0 0"></p>
+            <table id="q-results" hidden style="margin-top:6px">
+              <thead>
+                <tr><th>Shift Date</th><th>Pump Serial#</th><th>Submitted By</th><th>Net Bal Hand Off</th><th></th></tr>
+              </thead>
+              <tbody id="q-rows"></tbody>
+            </table>
+          </div>
+        </div>
+
         <p id="carried-note" style="font-size:11px;color:var(--io-blue-dark);margin:0 0 8px"></p>
         <p id="editing-note" hidden
            style="font-size:12px;font-weight:700;color:var(--io-blue);background:#eef3fb;border:1px solid var(--io-blue);border-radius:4px;padding:5px 8px;margin:0 0 8px"></p>
@@ -171,7 +205,7 @@
           <div class="summary-row"><span>Credit Cards Swiping Total Amt</span><span><input id="sum-cc" disabled /></span></div>
           <div class="summary-row"><span>Night Cash Hand Off Total Amt</span><span><input id="night-cash" data-calc /></span></div>
           <div class="summary-row net">
-            <span>Net Bal Hand off (Cash - Expenses + Phone Pay Settled + Phone Pay Not Settled + New Credits + Card Swiping + Night Cash)</span>
+            <span>Net Bal Hand off (Cash - Expenses - Phone Pay Settled - Phone Pay Not Settled - New Credits - Card Swiping - Night Cash)</span>
             <span><input id="sum-netbal" disabled /></span>
           </div>
           <div class="summary-row"><span>Total Old Credit Amt (do NOT include in today's total)</span><span><input id="sum-oldcredit" disabled /></span></div>
@@ -186,13 +220,12 @@
           <button type="button" class="export-btn secondary" data-blank="11CC2012V-OFF">Print Blank — 11CC2012V-OFF</button>
           <button type="button" class="export-btn secondary" data-sync="12BC4523V-RD" hidden>Print &amp; Sync — 12BC4523V-RD</button>
           <button type="button" class="export-btn secondary" data-sync="11CC2012V-OFF" hidden>Print &amp; Sync — 11CC2012V-OFF</button>
-          <button type="button" class="export-btn secondary" id="scan-btn">Scan / Upload (OCR)</button>
           <button type="button" class="export-btn secondary" id="import-btn">Import from Excel</button>
           <button type="button" class="export-btn" id="export-btn">Export to Excel</button>
         </div>
         <p id="save-status" class="status-line"></p>
         <p id="toolbar-hint" style="font-size:11px;color:var(--io-blue-dark);text-align:right;margin:2px 0 0">
-          Print, Print Blank, Scan/Upload, Import, and Export apply to Sections 1–7 only
+          Print, Print Blank, Import, and Export apply to Sections 1–7 only
         </p>
 
         <!-- 8. Daily Summary - an internal report, not part of the physical paper

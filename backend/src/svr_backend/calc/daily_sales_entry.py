@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from svr_backend.calc.amounts import Number, is_blank, parse_amt, round4
+from svr_backend.calc.amounts import Number, is_blank, parse_amt, trunc2
 
 # Fixed oil SKUs, in form order (SDD session log 34/35). Extra operator-added items
 # follow these with manually entered rate/opening stock.
@@ -182,20 +182,20 @@ class DailySalesEntryResult:
 def _gas(row: GasRow) -> GasResult:
     if is_blank(row.current):
         return GasResult(cons=None, amount=None)
-    cons = parse_amt(row.current) - parse_amt(row.last)
-    amount = cons * parse_amt(row.rate)
-    return GasResult(cons=round4(cons), amount=round4(amount))
+    cons = trunc2(parse_amt(row.current) - parse_amt(row.last))
+    amount = trunc2(cons * parse_amt(row.rate))
+    return GasResult(cons=cons, amount=amount)
 
 
 def _oil(row: OilRow) -> tuple[OilResult, float]:
     opening = parse_amt(row.opening)
     if is_blank(row.qty):
         # Closing mirrors opening unchanged; no amount yet.
-        return OilResult(label=row.label, closing=round4(opening), amount=None), 0.0
+        return OilResult(label=row.label, closing=trunc2(opening), amount=None), 0.0
     qty = parse_amt(row.qty)
-    amount = qty * parse_amt(row.rate)
+    amount = trunc2(qty * parse_amt(row.rate))
     return (
-        OilResult(label=row.label, closing=round4(opening - qty), amount=round4(amount)),
+        OilResult(label=row.label, closing=trunc2(opening - qty), amount=amount),
         amount,
     )
 
@@ -206,8 +206,10 @@ def compute(data: DailySalesEntryInput) -> DailySalesEntryResult:
     # 1. Gas Sale(s)
     result.hs = _gas(data.hs)
     result.ms = _gas(data.ms)
+    # Totals are the sum of the already-truncated row amounts, never a truncation
+    # of the raw sum - that row-by-row order is what reproduces the paper forms.
     gas_total = (result.hs.amount or 0.0) + (result.ms.amount or 0.0)
-    result.gas_total = round4(gas_total)
+    result.gas_total = trunc2(gas_total)
 
     # 2. Oil Sale(s) - 5 fixed rows + any operator-added rows
     oil_total = 0.0
@@ -215,58 +217,70 @@ def compute(data: DailySalesEntryInput) -> DailySalesEntryResult:
         oil_res, amount = _oil(row)
         result.oils.append(oil_res)
         oil_total += amount
-    result.oil_total = round4(oil_total)
+    result.oil_total = trunc2(oil_total)
 
     # 3. Expenses (each cell may be a "a+b+c=total" expression)
-    expenses_total = sum(parse_amt(x) for x in data.expenses)
-    result.expenses_total = round4(expenses_total)
+    expenses_total = sum(trunc2(parse_amt(x)) for x in data.expenses)
+    result.expenses_total = trunc2(expenses_total)
 
     # 4. Credit Cards Swiping(s)
-    credit_cards_total = sum(parse_amt(x) for x in data.credit_card_amounts)
-    result.credit_cards_total = round4(credit_cards_total)
+    credit_cards_total = sum(trunc2(parse_amt(x)) for x in data.credit_card_amounts)
+    result.credit_cards_total = trunc2(credit_cards_total)
 
     # 5. Today New Credit(s) - Amount = In Ltrs * Rate per row
     new_credits_total = 0.0
     for nc in data.new_credits:
-        amt = parse_amt(nc.ltrs) * parse_amt(nc.rate)
-        result.new_credit_amounts.append(round4(amt))
+        amt = trunc2(parse_amt(nc.ltrs) * parse_amt(nc.rate))
+        result.new_credit_amounts.append(amt)
         new_credits_total += amt
-    result.new_credits_total = round4(new_credits_total)
+    result.new_credits_total = trunc2(new_credits_total)
 
     # 6. Old/Pending Credit Received - reference only, excluded from today's total
-    old_credit_total = sum(parse_amt(x) for x in data.old_credit_amounts)
-    result.old_credit_total = round4(old_credit_total)
+    old_credit_total = sum(trunc2(parse_amt(x)) for x in data.old_credit_amounts)
+    result.old_credit_total = trunc2(old_credit_total)
 
     # 7. Summary - Cash Hand Off
-    pp_settled = parse_amt(data.phone_pay_settled)
-    pp_unsettled = parse_amt(data.phone_pay_unsettled)
-    night_cash = parse_amt(data.night_cash)
-    result.sum_cash = round4(gas_total + oil_total)
+    pp_settled = trunc2(parse_amt(data.phone_pay_settled))
+    pp_unsettled = trunc2(parse_amt(data.phone_pay_unsettled))
+    night_cash = trunc2(parse_amt(data.night_cash))
+    result.sum_cash = trunc2(gas_total + oil_total)
     result.sum_expenses = result.expenses_total
     result.sum_new_credits = result.new_credits_total
     result.sum_credit_cards = result.credit_cards_total
-    # Net Bal Hand off = Cash - Expenses + Phone Pay Settled + Phone Pay Not
-    #                    Settled + New Credits + Card Swiping + Night Cash
-    #                    Hand Off (client-corrected 2026-09-11 - the original
-    #                    mockup formula omitted Phone Pay Settled; confirmed
-    #                    this was missing, not intentional).
+    # Net Bal Hand off = Cash - Expenses - Phone Pay Settled - Phone Pay Not
+    #                    Settled - New Credits - Card Swiping - Night Cash.
+    #
+    # EVERY non-cash line is SUBTRACTED (client-confirmed 2026-09-11). Net Bal is
+    # the *physical cash* handed over, so anything collected electronically
+    # (phone pay, card swipes), given on credit, or already handed off at night
+    # is money that is not in the drawer and comes off the total.
+    #
+    # This reverses the mockup's original all-additions formula. The paper form's
+    # own printed label still reads "+" and contradicts its own arithmetic -
+    # verified against three real filled sheets, which reproduce exactly only
+    # under subtraction: 23298.77 (Sep 9 OFF), 38993.84 (Sep 10 OFF, incl. card
+    # swiping), 1601.20 (Sep 10 RD). See tests/test_client_reconciliation_*.py.
+    #
+    # New Credits and Night Cash are blank on all three sample forms, so their
+    # sign follows the same "not received as cash" logic rather than direct
+    # evidence - revisit if a filled sample ever contradicts it.
     net_bal = (
         (gas_total + oil_total)
         - expenses_total
-        + pp_settled
-        + pp_unsettled
-        + new_credits_total
-        + credit_cards_total
-        + night_cash
+        - pp_settled
+        - pp_unsettled
+        - new_credits_total
+        - credit_cards_total
+        - night_cash
     )
-    result.net_bal_hand_off = round4(net_bal)
+    result.net_bal_hand_off = trunc2(net_bal)
     result.sum_old_credit = result.old_credit_total
 
     # 8. Daily Summary - HS/MS consumption and each oil quantity, pulled from 1 & 2
     result.daily_summary_hs = result.hs.cons
     result.daily_summary_ms = result.ms.cons
     result.daily_summary_oils = [
-        round4(parse_amt(row.qty)) if not is_blank(row.qty) else 0.0 for row in data.oils
+        trunc2(parse_amt(row.qty)) if not is_blank(row.qty) else 0.0 for row in data.oils
     ]
 
     return result

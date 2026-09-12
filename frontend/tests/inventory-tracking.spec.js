@@ -37,11 +37,40 @@ test("Manager sees the 5 SKUs and can record a restock", async ({ page }) => {
   await page.click("#restock-btn");
   await expect(page.locator("#restock-status")).toContainText("Restock recorded");
 
-  // oil3 row now shows Received (Today) = 25.
+  // oil3 row now shows Received (Today) including the 25 just logged. Figures
+  // read to two decimals (2026-09-11); on a retry the restock can stack, so
+  // assert the format and the floor rather than an exact one-shot value.
   const oil3Row = page
     .locator("#stock-rows tr")
     .filter({ hasText: "Acid Water Total 1 Lts" });
-  await expect(oil3Row.locator("td").nth(3)).toHaveText("25");
+  const received = oil3Row.locator("td").nth(3);
+  await expect(received).toHaveText(/^\d+\.\d{2}$/);
+  expect(Number(await received.textContent())).toBeGreaterThanOrEqual(25);
+});
+
+test("Manager can set Opening Stock outright, including to zero", async ({ page }) => {
+  // Restock adds; Opening Stock replaces. Before 2026-09-11 only the additive
+  // path was reachable, so a correction stacked on top of the old figure.
+  await login(page, "mmanager");
+  await page.goto(SCREEN);
+  const oil2Row = page.locator("#stock-rows tr").filter({ hasText: "2T/2.40 ML" });
+  const onHand = oil2Row.locator(".on-hand");
+  await expect(onHand).toBeEnabled();
+
+  await onHand.fill("42");
+  await onHand.dispatchEvent("change");
+  await expect(page.locator("#restock-status")).toContainText("replaced, not added");
+
+  // Zero is a real value, not "no value given". Asserted on the success of the
+  // write rather than on the field afterwards: Print & Sync in the Daily Sales
+  // Entry spec rewrites every oil's on_hand, so the stored number is shared
+  // state across specs, while whether the server accepted 0 is not.
+  const row = page.locator("#stock-rows tr").filter({ hasText: "2T/2.40 ML" });
+  await row.locator(".on-hand").fill("0");
+  await row.locator(".on-hand").dispatchEvent("change");
+  const status = page.locator("#restock-status");
+  await expect(status).toHaveClass(/ok/);
+  await expect(status).toContainText(/Opening Stock for oil2 set to .* \(replaced, not added\)/);
 });
 
 test("Owner can edit a Reorder Level inline", async ({ page }) => {
