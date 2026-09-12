@@ -1,7 +1,7 @@
 # HANDOFF — install the updated build on the remote PC & re-validate
 
 **Written:** 2026-09-12 · **Repo:** `https://github.com/Mithendra/IOCL_SVR.git` ·
-**Branch:** `main` · **HEAD:** `51bab24`
+**Branch:** `main` · **HEAD:** `1125e7d`
 
 Paste this whole file as the first message of the Claude Code session on the
 remote PC, then read (in order): this file → [`installer/RUNBOOK.md`](RUNBOOK.md)
@@ -19,16 +19,16 @@ build goes on, that machine is testing against bugs that are already fixed.
 
 ```
 C:\Mithendra\SVR\installer\output\SVR-IOCL-Station-Setup-0.1.0.exe   (177.8 MB)
-built 2026-09-12 13:57 from 51bab24
+built 2026-09-12 (evening) from 1125e7d
 ```
 
 - **Unsigned** — by decision (no cert; SmartScreen "Run anyway" once), same as
   every build so far.
-- Freeze smoke passed: `migrate` applied **all 18 migrations**, `serve --help`,
+- Freeze smoke passed: `migrate` applied **all 20 migrations**, `serve --help`,
   and **`selfcheck` imported the full app graph inside the frozen exe — 20
   routes**.
-- Gate at build time: backend **198 pytest passed** (1 environment-dependent
-  skip, unrelated), ruff clean. Frontend **59 Playwright passed**, eslint clean.
+- Gate at build time: backend **211 pytest passed** (1 environment-dependent
+  skip, unrelated), ruff clean. Frontend **64 Playwright passed**, eslint clean.
 - It is **NOT in git** (`installer/output/` is ignored) — transfer it the same
   way as last time (you used Google Drive).
 
@@ -85,21 +85,51 @@ nothing on a part-filled day.
 
 ### Schema DOES change this time
 
-Migrations `0015`–`0018` run on install. **Entries already saved on that PC keep
+Migrations `0015`–`0020` run on install. **Entries already saved on that PC keep
 working**: the Oil Sale(s) row *order* changed, so anything that reads a stored
 record resolves each row by its own saved label rather than by position
 (`oils_by_key` in the engine, mirrored on the screen). That was built for
 exactly this upgrade. Pump serials are unchanged.
 
-### Known, NOT fixed in this build
+### Also in this build — Daily Trial Balance, rebuilt in full
 
-**Daily Trial Balance still shows only Sections 1 / 3 / 6 / 7 plus a raw JSON
-textarea** for Sections 2/4/5/8/9/10/11 — that's SDD ADR-1, confirmed
-2026-09-06, and it has been that way since 2026-08-29. The on-screen section
-*numbers* also don't match the live workbook's own numbering (screen "6. Stock
-Value" is the workbook's section 5). The client raised both on 2026-09-12;
-building those sections out is an open scope decision, not a regression, and
-nothing here touches it. Don't log it as an install failure.
+**`f7ab0fa` / `a9bd61d`.** The screen rendered four sections and put the other
+seven behind a raw JSON textarea, so in live testing it looked like it had three
+sections. It is now the client's **SEP12 tab** end to end
+(`docs/01-BRD-Requirement-Gathering/ocr-samples/Trail_balance_12-SEP-2026.xlsx`):
+
+- **All 11 sections**, in the station's own workbook numbering (1–11). It used to
+  show the SDD §9 numbering, so the screen said "6. Stock Value" where the
+  workbook says **5**.
+- **Totals are calculated, not typed** — 3.6, 3.7, 3.13, 3.15, 4.3, 4.5, 7.3,
+  7.4, 7.5, 8.3, 8.5, the management summary, Section 10's Total/Lost, and
+  Section 1's cross-fuel columns. The sheet says so itself at H9.
+- **Section 2 Day Sales Report** is pulled live from the day's Daily Sales
+  Entries — per-pump blocks with subtotals, the combined block, and 2.1 Oil Sales
+  with Opening/Closing Stock and the Indent column.
+- **All six of the sheet's dropdown lists**, verbatim, plus 8.9 Prepared by /
+  Verified by / Sent to.
+- Oil rates re-read off SEP12 (three of the six inferred in `0018` were wrong),
+  and the testing/density deduction is **5.5**, not 10 — effective-dated, so
+  earlier Trial Balances keep the 10.0 that applied on their own date.
+
+### Known — a one-paisa difference, by design
+
+Daily Sales **truncates** every row amount at paise, because the client's own
+Daily Sales Report forms do (proven 4/4 against filled sheets: `629.49 × 105.36`
+prints `66323.06`, not `.07`). The Trial Balance **workbook** does not truncate —
+it carries full Excel precision. On SEP12 that puts three figures one paisa apart:
+
+| | App | SEP12 tab |
+|---|---|---|
+| Road Petrol amount | 62,236.22 | 62,236.23 |
+| Road subtotal | 124,595.64 | 124,595.65 |
+| Gas Total / Daily Sales Total | 126,655.39 / 127,071.39 | 126,655.40 / 127,071.40 |
+
+This is the client's two documents disagreeing with each other, not an app bug.
+Truncation is locked by the Daily Sales reconciliations (23,298.77 / 38,993.84 /
+1,601.20) and is not to be "fixed" without the client changing that decision.
+**Do not log it as an install failure.**
 
 ---
 
@@ -121,7 +151,7 @@ data in `C:\ProgramData\SVR-IOCL\svr.sqlite` is untouched.
 1. Right-click the `.exe` → **Run as administrator**. SmartScreen → *More info →
    Run anyway* (unsigned, expected).
 2. Accept defaults. On the last page `installer.nsh` runs `first-run.ps1`
-   elevated (idempotent — re-applies config, runs migrations `0015`–`0018`,
+   elevated (idempotent — re-applies config, runs migrations `0015`–`0020`,
    restarts both services). A message box means it hit a problem — note the
    exit code.
 3. Skip user creation — your existing accounts are already in the DB.
@@ -167,8 +197,8 @@ table below.
 - **Commit/push only when asked.** Branch first if on `main`; pattern is feature
   branch → `git merge --ff-only` → push → delete branch.
 - This PC has no Python/Node, so you can't run the test suites here — that's
-  fine, they're green on the build PC (backend `ruff` + **198 pytest**, frontend
-  `eslint` + **59 Playwright**, `selfcheck` 20 routes, 18 migrations).
+  fine, they're green on the build PC (backend `ruff` + **211 pytest**, frontend
+  `eslint` + **64 Playwright**, `selfcheck` 20 routes, 20 migrations).
 - Don't commit `installer/vendor/` or the `.exe` (both git-ignored), or the stray
   `Claude outputs/` · `files.zip` · `releases/` · `Last_update_SVR_Sep7.txt`.
 
