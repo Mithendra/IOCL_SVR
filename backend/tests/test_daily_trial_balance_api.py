@@ -57,8 +57,10 @@ def test_section1_formulas_and_section3_pull(client, auth_headers):
     # AUG11/AUG12/SEP05/SEP06 real workbooks, SEP06 client-validated - was
     # `diff - consumption`, which produced negative litres against real data).
     assert hs["stock_ltrs"] == 60           # = s1_hs_current
-    # Section 6 stock amount = stock_ltrs x Buy Rate HS (seeded 101.50)
-    assert hs["stock_amount"] == 6090.0
+    # Section 6 stock amount = stock_ltrs x Buy Rate HS. 102.75 since migration
+    # 0016 - the seeded 101.50 was wrong, confirmed against SEP06's own figures
+    # (9,119 L x 102.75 = 936,977.25, the client-validated number).
+    assert hs["stock_amount"] == 6165.0
 
 
 def test_section7_total_uses_cash_book_value_plus_stock_value(client, auth_headers):

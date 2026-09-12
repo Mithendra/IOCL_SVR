@@ -57,10 +57,8 @@ class FuelLine:
 def _fuel(yesterday: Number, current: Number, consumption: Number,
           buy_rate: Number, testing: float) -> FuelLine:
     line = FuelLine()
-    if is_blank(yesterday) or is_blank(current):
+    if is_blank(current):
         return line
-    diff = parse_amt(yesterday) - parse_amt(current)          # SDD 9 r1: Yesterday - Current
-    line.diff = round4(diff)
 
     # Section 6 Stock Value litres = today's current IOCL reading, taken verbatim -
     # NOT a diff/consumption calculation. Confirmed against every real filled
@@ -69,9 +67,19 @@ def _fuel(yesterday: Number, current: Number, consumption: Number,
     # the current reading at the top of Section 1. The previous formula here
     # (`diff - cons`, guessed from an ambiguous BRD session-log note) produced
     # negative litres against real numbers and has been replaced.
+    #
+    # It needs ONLY the current reading - not yesterday's, and not Section 3.
+    # Both were previously required before this would compute at all: the
+    # consumption gate was removed 2026-09-06, the yesterday gate 2026-09-11.
+    # Either one silently reported no stock value on a part-filled day.
     line.stock_ltrs = round4(parse_amt(current))
     if not is_blank(buy_rate):
         line.stock_amount = round4(line.stock_ltrs * parse_amt(buy_rate))
+
+    if is_blank(yesterday):
+        return line
+    diff = parse_amt(yesterday) - parse_amt(current)          # SDD 9 r1: Yesterday - Current
+    line.diff = round4(diff)
 
     if is_blank(consumption):
         return line
