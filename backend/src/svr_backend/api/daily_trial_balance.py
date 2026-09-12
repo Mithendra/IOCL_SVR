@@ -30,7 +30,7 @@ import json
 import sqlite3
 from datetime import UTC, date, datetime, timedelta
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from pydantic import BaseModel
 
 from svr_backend.calc.daily_trial_balance import (
@@ -43,6 +43,10 @@ from svr_backend.core.audit import record_write
 from svr_backend.core.db import transaction
 from svr_backend.core.rbac import get_db, require
 from svr_backend.core.session import Principal
+from svr_backend.excel.trial_balance_section8 import (
+    build_section8_workbook,
+    section8_message,
+)
 from svr_backend.params import get_param
 from svr_backend.rates import latest_effective_rates
 from svr_backend.summary import build_summary
@@ -268,6 +272,50 @@ def add_option(
             actor=principal.login_name, new={"list_key": key, "value": value},
         )
     return get_options(principal, conn)
+
+
+_XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+
+@router.get("/{shift_date}/export-section8")
+def export_section8(
+    shift_date: str,
+    _: Principal = Depends(require("Sales", "Manager", "Owner")),
+    conn: sqlite3.Connection = Depends(get_db),
+) -> Response:
+    """Section 8 alone as .xlsx - the part that goes to management daily.
+
+    Separate from any whole-form export on purpose: a manager wants the five
+    reporting lines and the net-worth summary, not eleven sections (BRD; the
+    client's own mockup carries this button, reconfirmed 2026-09-12).
+    """
+    data = build_section8_workbook(_view(conn, shift_date))
+    return Response(
+        content=data,
+        media_type=_XLSX,
+        headers={
+            "Content-Disposition":
+                f'attachment; filename="SVR-Section8-{shift_date}.xlsx"'
+        },
+    )
+
+
+@router.get("/{shift_date}/section8-message")
+def section8_whatsapp_message(
+    shift_date: str,
+    _: Principal = Depends(require("Sales", "Manager", "Owner")),
+    conn: sqlite3.Connection = Depends(get_db),
+) -> dict:
+    """The same figures as plain text, for the WhatsApp send.
+
+    The station has always sent these to management as a message, and a phone on
+    the road is not going to open a spreadsheet. The renderer opens wa.me with
+    this as the prefilled body; the .xlsx is attached by hand if wanted. No
+    WhatsApp Business API is wired up - that needs an account and credentials the
+    project does not have, and a button that silently did nothing would be worse
+    than one that opens the real chat.
+    """
+    return {"shift_date": shift_date, "text": section8_message(_view(conn, shift_date))}
 
 
 @router.get("/{shift_date}")

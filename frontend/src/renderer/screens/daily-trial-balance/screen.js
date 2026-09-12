@@ -28,7 +28,12 @@ import { SECTIONS } from "./sections.js";
 const $ = (id) => document.getElementById(id);
 const txt = (id, v) => {
   const el = $(id);
-  if (el) el.textContent = v === null || v === undefined ? "—" : v;
+  if (!el) return;
+  // Two decimals, never more (client, 2026-09-12). The engine keeps 4 dp
+  // internally; what reaches the screen is money, so it reads as money.
+  const out = v === null || v === undefined ? "" : fmt2(v);
+  if (el.tagName === "INPUT") el.value = out;
+  else el.textContent = out || "—";
 };
 
 const PUMP_LABELS = { "11CC2012V-OFF": "Office", "12BC4523V-RD": "Road" };
@@ -47,6 +52,14 @@ function canFinalize() {
 
 const esc = (s) => String(s).replace(/"/g, "&quot;");
 const listValues = (key) => OPTIONS[key] || [];
+
+// Two decimals for a figure; anything that is not a number (a name, a date)
+// passes through untouched. Blank stays blank.
+function money(v) {
+  if (v === null || v === undefined || v === "") return "";
+  const n = Number(String(v).trim());
+  return Number.isFinite(n) ? n.toFixed(2) : String(v);
+}
 
 function optionMarkup(key, selected) {
   return ["", ...listValues(key)]
@@ -132,8 +145,9 @@ function rowsBlock(sectionKey, block) {
     ? `<tr class="total-row"><td colspan="${block.columns.length - 1}">${block.totalLabel}</td>` +
       `<td><input data-derived="${esc(block.total)}" disabled placeholder="auto"></td><td></td></tr>`
     : "";
+  const width = block.wide ? "" : ` tb-rows-${block.columns.length}`;
   const table =
-    `<table${block.wide ? ' style="min-width:2600px"' : ""}>` +
+    `<table class="tb-rows${width}"${block.wide ? ' style="min-width:2600px"' : ""}>` +
     `<tr>${head}<th style="width:1%"></th></tr>` +
     `<tbody data-rows="${esc(path)}"></tbody>${totalRow}</table>`;
   return (
@@ -236,7 +250,8 @@ function addRow(path, values = {}) {
             `${optionMarkup(col.optionList, v)}</select></td>`
           );
         }
-        return `<td><input data-col="${esc(col.key)}" value="${v == null ? "" : esc(v)}"></td>`;
+        const shown = col.key === "given_on" || col.key === "date" ? v : money(v);
+        return `<td><input data-col="${esc(col.key)}" value="${shown == null ? "" : esc(shown)}"></td>`;
       })
       .join("") +
     `<td><button type="button" class="add-row-btn" data-del-row style="padding:2px 6px">×</button></td>`;
@@ -250,7 +265,7 @@ function fillManual(manual) {
   document.querySelectorAll("[data-manual]").forEach((el) => {
     const [sectionKey, fieldKey] = el.dataset.manual.split(".");
     const v = (data[sectionKey] || {})[fieldKey];
-    el.value = v === null || v === undefined ? "" : v;
+    el.value = el.tagName === "SELECT" ? (v == null ? "" : v) : money(v);
   });
   document.querySelectorAll("[data-rows]").forEach((body) => {
     const [sectionKey, blockKey] = body.dataset.rows.split(".");
@@ -415,6 +430,53 @@ function headerRow(label) {
   tr.className = "total-row";
   tr.innerHTML = `<td colspan="6">${label}</td>`;
   return tr;
+}
+
+// ------------------------------------------------- Section 8: send to management
+
+// Section 8 is the part that leaves the station daily. Two ways out, both real:
+// the .xlsx for the record, and a WhatsApp message for the phone.
+async function exportSection8() {
+  const st = $("s8-send-status");
+  st.className = "status-line";
+  st.textContent = "Building the file…";
+  try {
+    const name = await api.download(
+      `/daily-trial-balance/${$("tb-date").value}/export-section8`,
+      `SVR-Section8-${$("tb-date").value}.xlsx`
+    );
+    st.className = "status-line ok";
+    st.textContent = `Exported ${name}.`;
+  } catch (err) {
+    st.className = "status-line err";
+    st.textContent = `Export failed — ${err.message || err}`;
+  }
+}
+
+// Opens WhatsApp with the Section 8 figures already typed into the message. It
+// does NOT send by itself: there is no WhatsApp Business API account wired up,
+// and a button that silently posted nothing would be worse than one that opens
+// the real chat for you to press send. The .xlsx is attached by hand if wanted.
+async function sendSection8Whatsapp() {
+  const st = $("s8-send-status");
+  const raw = $("s8-whatsapp").value.trim();
+  const number = raw.replace(/[^\d]/g, "");
+  if (!number) {
+    st.className = "status-line err";
+    st.textContent = "Enter the WhatsApp number to send to.";
+    return;
+  }
+  try {
+    const res = await api.get(`/daily-trial-balance/${$("tb-date").value}/section8-message`);
+    window.open(`https://wa.me/${number}?text=${encodeURIComponent(res.text)}`, "_blank");
+    st.className = "status-line ok";
+    st.textContent =
+      "WhatsApp opened with the Section 8 figures — press send there. " +
+      "Attach the Excel export too if management wants the detail.";
+  } catch (err) {
+    st.className = "status-line err";
+    st.textContent = `Could not prepare the message — ${err.message || err}`;
+  }
 }
 
 // ------------------------------------------------------------------ main render
@@ -584,6 +646,8 @@ async function init() {
   $("load-btn").addEventListener("click", load);
   $("tb-date").addEventListener("change", load);
   $("save-btn").addEventListener("click", save);
+  $("s8-export-btn").addEventListener("click", exportSection8);
+  $("s8-whatsapp-btn").addEventListener("click", sendSection8Whatsapp);
   await load();
 }
 

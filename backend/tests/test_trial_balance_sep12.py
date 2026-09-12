@@ -112,6 +112,10 @@ MANUAL = {
     "section8": {
         "f1": 1861869.74, "f2": 125594.5722, "f4": CASH_BOOK_VALUE,
         "mgmt_yesterday_tb": 3289672.2800000003, "mgmt_profit": 4185.213499999761,
+        # SEP12 rows 102-104, the sign-off block.
+        "prepared_by": "Gopi",
+        "verified_by": "Girish/Sriharsha",
+        "sent_by": "Gopi & Girish",
     },
     "section10": {
         "hs_afterunload": 12207, "hs_old": 2207, "hs_new": 12079, "hs_load": 10000,
@@ -243,3 +247,62 @@ def test_the_testing_deduction_is_effective_dated_not_replaced(conn):
     # The seed itself is effective 2026-08-28, so pick a date after that and
     # before the change - AUG11/AUG12 predate the parameter entirely.
     assert get_param(conn, "testing_density_deduction", 0.0, as_of="2026-09-01") == 10.0
+
+
+# --- Section 8 leaves the station on its own (BRD; client 2026-09-12) ----------
+
+
+def test_section8_exports_to_excel_with_its_own_figures(client, auth_headers):
+    """Section 8 goes to management daily, so it exports alone - not as part of a
+    whole-form dump. The file must carry the SEP12 figures, not empty cells."""
+    import io
+
+    from openpyxl import load_workbook
+
+    h = auth_headers("Manager")
+    client.put("/daily-trial-balance/2026-09-03", json={
+        "s1_hs_yesterday": HS_IOCL_LAST, "s1_hs_current": HS_IOCL_CURRENT,
+        "s1_ms_yesterday": MS_IOCL_LAST, "s1_ms_current": MS_IOCL_CURRENT,
+        "s54_cash_book_value": CASH_BOOK_VALUE, "manual": MANUAL,
+    }, headers=h)
+
+    r = client.get("/daily-trial-balance/2026-09-03/export-section8", headers=h)
+    assert r.status_code == 200
+    assert "SVR-Section8-2026-09-03.xlsx" in r.headers["content-disposition"]
+
+    ws = load_workbook(io.BytesIO(r.content)).active
+    cells = {row[0]: row[1] for row in ws.iter_rows(min_row=5, max_col=2, values_only=True)}
+    assert cells["8.1 Yesterday's SVR Cash/Book Value"] == 1861869.74
+    assert round(cells["8.3 Projected SVR Cash/Book Value"], 4) == round(1987464.3122, 4)
+    assert round(cells["8.5 Difference - Actual Reported Minus Projected"], 4) == round(
+        8516.147799999919, 4
+    )
+    assert cells["Prepared by"] == "Gopi"          # 8.9 sign-off rides along
+    assert cells["8.4 Actual Reported SVR Cash/Book Value"] == CASH_BOOK_VALUE
+
+
+def test_section8_whatsapp_message_carries_the_same_numbers(client, auth_headers):
+    """A phone on the road will not open a spreadsheet, and the station has always
+    sent these as a message - so the same figures go out as plain text."""
+    h = auth_headers("Manager")
+    client.put("/daily-trial-balance/2026-09-04", json={
+        "s1_hs_current": HS_IOCL_CURRENT, "s1_ms_current": MS_IOCL_CURRENT,
+        "s54_cash_book_value": CASH_BOOK_VALUE, "manual": MANUAL,
+    }, headers=h)
+
+    text = client.get(
+        "/daily-trial-balance/2026-09-04/section8-message", headers=h
+    ).json()["text"]
+    assert "Daily Management Reporting - 2026-09-04" in text
+    assert "1,861,869.74" in text     # 8.1
+    assert "1,987,464.31" in text     # 8.3, derived
+    assert "8,516.15" in text         # 8.5, derived
+    assert "Prepared by: Gopi" in text
+
+
+def test_sales_can_export_section8_too(client, auth_headers):
+    """The maker prepares it; blocking the export behind Manager would just push
+    the figures back onto paper."""
+    assert client.get(
+        "/daily-trial-balance/2026-09-05/export-section8", headers=auth_headers("Sales")
+    ).status_code == 200

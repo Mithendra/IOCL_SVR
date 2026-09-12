@@ -310,9 +310,9 @@ test("manual sections save into the record's manual block and survive a reload",
   await page.click("#load-btn");
   await expect(page.locator('[data-manual="section3.onhand"]')).toHaveValue("12345.67");
   await expect(page.locator('[data-manual="section4.reported"]')).toHaveValue("98765.43");
-  await expect(page.locator('[data-manual="section11.new_airtel"]')).toHaveValue("500");
+  await expect(page.locator('[data-manual="section11.new_airtel"]')).toHaveValue("500.00");
   await expect(creditRows.first().locator("select")).toHaveValue("AirTel Hari New Credit");
-  await expect(creditRows.first().locator('[data-col="amount"]')).toHaveValue("2500");
+  await expect(creditRows.first().locator('[data-col="amount"]')).toHaveValue("2500.00");
 });
 
 test("Section 2 shows the day's real per-pump figures, pulled not typed", async ({ page }) => {
@@ -331,7 +331,7 @@ test("Section 2 shows the day's real per-pump figures, pulled not typed", async 
   await expect(page.locator("#s2-gas-rows")).toContainText(`${PUMP_A} Total`);
   // The combined block below it carries both fuels, side by side.
   await expect(page.locator("#s2-combined-rows tr")).toHaveCount(2);
-  await expect(page.locator("#s2-total-ltrs")).toHaveText(/^\d+\.\d{2}$/);
+  await expect(page.locator("#s2-total-ltrs")).toHaveValue(/^\d+\.\d{2}$/);
   // Nothing in the pulled rows is typeable.
   await expect(page.locator("#s2-gas-rows input")).toHaveCount(0);
   await expect(page.locator("#s2-combined-rows input")).toHaveCount(0);
@@ -357,14 +357,16 @@ test("Manager enters Section 1, sees computed columns + pulled Section 3, then f
   await page.click("#save-btn");
   await expect(page.locator("#save-status")).toContainText("recalculated");
 
-  await expect(page.locator("#hs-diff")).toHaveText("40"); // 100 - 60
-  await expect(page.locator("#hs-cons")).toHaveText("50"); // pulled from Section 3
+  await expect(page.locator("#hs-diff")).toHaveValue("40.00"); // 100 - 60
+  await expect(page.locator("#hs-cons")).toHaveValue("50.00"); // pulled from Section 3
   // 50 - 5.5: the testing/density deduction is 5.5 from 2026-09-12 (SEP12 tab),
   // effective-dated, so earlier Trial Balances still compute with the old 10.0.
-  await expect(page.locator("#hs-dt")).toHaveText("44.5");
-  // 7.3 = 500000 + stock value total
-  const s72 = Number(await page.locator("#s7-2").textContent());
-  await expect(page.locator("#s7-3")).toHaveText(String(Math.round((500000 + s72) * 10000) / 10000));
+  await expect(page.locator("#hs-dt")).toHaveValue("44.50");
+  // 6.3 = 6.1 + 6.2. Compared numerically: both cells are formatted to two
+  // decimals for display, so a string comparison would be comparing rounding.
+  const s72 = Number(await page.locator("#s7-2").inputValue());
+  const s73 = Number(await page.locator("#s7-3").inputValue());
+  expect(s73).toBeCloseTo(500000 + s72, 2);
 
   page.once("dialog", (d) => d.accept());
   await page.click("#finalize-btn");
@@ -379,4 +381,57 @@ test("Manager enters Section 1, sees computed columns + pulled Section 3, then f
   await page.fill("#tb-date", tomorrow.toISOString().slice(0, 10));
   await page.click("#load-btn");
   await expect(page.locator("#carry-info")).toContainText(`Carried forward from ${DATE}`);
+});
+
+test("Section 8 can be exported on its own and sent to management", async ({ page }) => {
+  // It is the part that leaves the station daily (BRD; client 2026-09-12).
+  await login(page, "mmanager");
+  await page.goto(SCREEN);
+  await expect(page.locator("#body")).toBeVisible();
+
+  const download = page.waitForEvent("download");
+  await page.click("#s8-export-btn");
+  expect((await download).suggestedFilename()).toMatch(/^SVR-Section8-\d{4}-\d{2}-\d{2}\.xlsx$/);
+  await expect(page.locator("#s8-send-status")).toContainText("Exported");
+
+  // WhatsApp needs a number, and says so rather than doing nothing.
+  await page.click("#s8-whatsapp-btn");
+  await expect(page.locator("#s8-send-status")).toHaveClass(/err/);
+
+  // With one, it opens the real chat with the figures prefilled. It does not
+  // claim to have sent anything - there is no WhatsApp API account wired up.
+  await page.fill("#s8-whatsapp", "+91 90000 00000");
+  const popup = page.waitForEvent("popup");
+  await page.click("#s8-whatsapp-btn");
+  const url = (await popup).url();
+  expect(url).toContain("919000000000"); // wa.me redirects to api.whatsapp.com
+  // WhatsApp form-encodes the body, so spaces arrive as "+" - decodeURIComponent
+  // alone does not undo those.
+  expect(decodeURIComponent(url.replace(/\+/g, " "))).toContain(
+    "Daily Management Reporting"
+  );
+  await expect(page.locator("#s8-send-status")).toContainText("press send there");
+});
+
+test("every figure on the form reads to two decimals, never more", async ({ page }) => {
+  // 1530.425699999684 was reaching the screen raw (client, 2026-09-12).
+  await login(page, "mmanager");
+  await page.goto(SCREEN);
+  await expect(page.locator("#body")).toBeVisible();
+  await page.fill("#tb-date", DATE);
+  await page.click("#load-btn");
+  await expect(page.locator("#s3-src")).toContainText("Daily Sales Summary");
+
+  // Section 1's computed columns are boxed inputs like everything else, not bare
+  // text - that inconsistency is what made them look like a different kind of cell.
+  for (const id of ["hs-diff", "hs-cons", "hs-cpd", "hs-dt", "hs-sl2", "hs-br", "hs-sa"]) {
+    const el = page.locator(`#${id}`);
+    await expect(el).toHaveJSProperty("tagName", "INPUT");
+    await expect(el).toBeDisabled();
+  }
+
+  const twoDp = /^-?[\d,]*\.\d{2}$/;
+  for (const id of ["hs-diff", "hs-cons", "hs-dt", "hs-sl2", "s6-total", "s7-3"]) {
+    await expect(page.locator(`#${id}`)).toHaveValue(twoDp);
+  }
 });

@@ -432,11 +432,41 @@ td input:disabled {
    2026-09-12): the label column takes only the width it needs, the amount
    column is one input wide, and the table stops rather than running to the edge. */
 .tb-fields {
-  max-width: 760px;
+  max-width: 720px;
 }
 .tb-fields td:last-child,
 .tb-fields th:last-child {
   width: 170px;
+}
+/* Repeating blocks sized to their column count, not to the sheet. A Type|Amount
+   list spanning 1100px is the "waste space" the client called out. The trailing
+   narrow column is the row-delete button. */
+.tb-rows-2 {
+  max-width: 520px;
+}
+.tb-rows-3 {
+  max-width: 700px;
+}
+.tb-rows-4 {
+  max-width: 620px;
+}
+.tb-rows td:last-child,
+.tb-rows th:last-child {
+  width: 28px;
+}
+.tb-rows td:nth-last-child(2),
+.tb-rows th:nth-last-child(2) {
+  width: 150px;
+}
+/* Section 2's pulled tables: six columns of real data, so wider than a field
+   list but still not the full sheet. */
+.tb-wide {
+  max-width: 980px;
+}
+.tb-wide td:not(:first-child),
+.tb-wide th:not(:first-child) {
+  width: 130px;
+  text-align: right;
 }
 /* Values the engine calculates render as a read-only box, not bare text, so a
    computed cell still reads as a cell - matching the mockup's disabled inputs. */
