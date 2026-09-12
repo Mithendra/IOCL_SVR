@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+from functools import lru_cache
 
 from svr_backend.core.config import get_settings
 
@@ -30,11 +31,23 @@ def _child_env() -> dict[str, str]:
     return env
 
 
+@lru_cache(maxsize=1)
 def tesseract_version() -> str | None:
     """First line of ``tesseract --version`` (e.g. ``tesseract 5.3.3``), or None.
 
     None means the binary is missing, not executable, or timed out - callers
     treat all three the same: OCR is unavailable.
+
+    **Cached for the life of the process.** Whether Tesseract is installed does
+    not change while the service runs, but this used to spawn a subprocess on
+    every ``/ocr`` and ``/ocr/status`` call - so on a loaded machine the 10s probe
+    could time out and the engine would appear to vanish and come back at random.
+    That showed up as OCR tests failing intermittently, a different one each run,
+    which is exactly how a real request would have failed on a busy station PC.
+
+    Consequence, and it is the right trade: installing Tesseract while the backend
+    is already running needs a service restart to be picked up. Call
+    ``tesseract_version.cache_clear()`` if a test needs to re-probe.
     """
     cmd = get_settings().resolved_tesseract_cmd()
     try:

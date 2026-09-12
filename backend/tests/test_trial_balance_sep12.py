@@ -130,7 +130,15 @@ def _derived():
     # while the API wired `section6["total"]` (Stock Value) into it, which put 7.4
     # out by the entire cash/book value. `test_the_whole_sheet_through_the_api`
     # below is what actually pins the wiring.
-    return derive_manual(MANUAL, NET_WORTH, OIL_TOTAL)
+    return derive_manual(MANUAL, NET_WORTH, OIL_TOTAL, {
+        "hs_deduct_testing": 586.3699999998789,
+        "ms_deduct_testing": 540.7700000000186,
+        "hs_computer_pump_diff": 14.869999999878928,
+        "ms_computer_pump_diff": 5.2700000000186265,
+        "margin_rate_hs": 2.61, "margin_rate_ms": 4.14,
+        "buy_rate_hs": BUY_RATE_HS, "buy_rate_ms": BUY_RATE_MS,
+        "daily_expenses": 3299.98,
+    })
 
 
 def test_the_whole_sheet_through_the_api(client, auth_headers, conn):
@@ -142,11 +150,41 @@ def test_the_whole_sheet_through_the_api(client, auth_headers, conn):
     endpoint with the actual sheet exposed it.
     """
     h = auth_headers("Manager")
-    conn.execute(
-        "INSERT INTO system_parameter (name, value, effective_date, updated_by) "
-        "VALUES ('testing_density_deduction', 5.5, '2026-09-01', 'test')"
-    )
+    date = "2026-09-02"
+    # These are effective 2026-09-12 in migrations 0019/0022; this test runs on an
+    # earlier date to stay clear of the ADR-2 gate, so put them in force for it.
+    # Dating them earlier here rather than moving the test is deliberate: the
+    # effective-dating itself is asserted separately, below.
+    for name, value in (
+        ("testing_density_deduction", 5.5),
+        ("margin_rate_hs", 2.61),
+        ("margin_rate_ms", 4.14),
+        ("daily_expenses_deduction", 3299.98),
+    ):
+        conn.execute(
+            "INSERT INTO system_parameter (name, value, effective_date, updated_by) "
+            "VALUES (?, ?, '2026-09-01', 'test')",
+            (name, value),
+        )
     conn.commit()
+
+    # Section 1's Margin / IOCL Adv / Total Sale Amt are formulas off the day's own
+    # consumption, so the chain has to be real: both pumps' Daily Sales Entries ->
+    # Daily Sales Summary -> Trial Balance. These are SEP12 section 2's readings.
+    blank = {"qty": "", "rate": "", "opening": ""}
+    for pump, hs, ms, oils in (
+        ("12BC4523V-RD", ("1489049.47", "1488457.6"), ("662274.9", "661746.13"),
+         [{"qty": "8", "rate": "17", "opening": "29"}, blank, blank, blank, blank,
+          {"qty": "2", "rate": "140", "opening": "41"}, blank]),
+        ("11CC2012V-OFF", ("267859.1", "267859.1"), ("288904.47", "288886.97"),
+         [blank] * 7),
+    ):
+        client.post("/daily-sales-entry", json={
+            "pump_serial": pump, "shift_date": date,
+            "hs": {"current": hs[0], "last": hs[1]},
+            "ms": {"current": ms[0], "last": ms[1]},
+            "oils": oils,
+        }, headers=h)
 
     body = {
         "s1_hs_yesterday": HS_IOCL_LAST, "s1_hs_current": HS_IOCL_CURRENT,
@@ -154,11 +192,13 @@ def test_the_whole_sheet_through_the_api(client, auth_headers, conn):
         "s54_cash_book_value": CASH_BOOK_VALUE,
         "manual": MANUAL,
     }
-    r = client.put("/daily-trial-balance/2026-09-02", json=body, headers=h)
+    r = client.put(f"/daily-trial-balance/{date}", json=body, headers=h)
     assert r.status_code == 200, r.text
     c = r.json()["computed"]
     d = c["derived"]
 
+    assert round(d["section1"]["total_sale_amt"], 2) == 4185.21   # K4, off real consumption
+    assert round(d["section1"]["iocl_profit"], 2) == 2126.35      # M4
     assert c["section6"]["total"] == STOCK_VALUE_TOTAL      # 5.3 Stock Value
     assert c["section7"]["7_3_total"] == NET_WORTH          # 6.3 Net Worth
     assert d["section3"]["total15"] == CASH_BOOK_VALUE      # 3.15
@@ -172,6 +212,26 @@ def test_the_whole_sheet_through_the_api(client, auth_headers, conn):
     assert d["section7"]["total5"] == NET_WORTH                          # 7.5
     assert round(d["section8"]["mgmt_networth_diff"], 4) == round(9202.796500000171, 4)
     assert d["section10"]["hs"]["total"] == 9872 and d["section10"]["hs"]["lost"] == 128
+
+
+def test_section1_columns_are_computed_from_the_sheets_own_formulas():
+    """H3=G3*2.61, H4=G4*4.14, L3=F3*C67, L4=F4*C68 - extracted from the workbook
+    rather than re-derived by hand. These four were manual entry, carrying a note
+    that their formulas had "never been confirmed against a filled workbook";
+    running the extractor over SEP12 confirmed all four in one pass."""
+    d = derive_manual(MANUAL, NET_WORTH, OIL_TOTAL, {
+        "hs_deduct_testing": 586.3699999998789,
+        "ms_deduct_testing": 540.7700000000186,
+        "hs_computer_pump_diff": 14.869999999878928,
+        "ms_computer_pump_diff": 5.2700000000186265,
+        "margin_rate_hs": 2.61, "margin_rate_ms": 4.14,
+        "buy_rate_hs": BUY_RATE_HS, "buy_rate_ms": BUY_RATE_MS,
+        "daily_expenses": 3299.98,
+    })["section1"]
+    assert round(d["hs_margin"], 4) == round(HS_MARGIN, 4)         # H3
+    assert round(d["ms_margin"], 4) == round(MS_MARGIN, 4)         # H4
+    assert round(d["hs_iocl_adv"], 4) == round(HS_IOCL_ADV, 4)     # L3
+    assert round(d["ms_iocl_adv"], 4) == round(MS_IOCL_ADV, 4)     # L4
 
 
 def test_section1_cross_fuel_columns():

@@ -56,7 +56,7 @@ export const MGR_CALC_COLUMNS = [
 export const SECTIONS = [
   {
     n: "3",
-    width: "std",
+    width: "wide",
     key: "section3",
     title: "Daily Cash &amp; Bank Balances",
     hint: "[IOCL Spana · Indian Bank · Yes Bank · Other Ongoing · New Credits]",
@@ -96,14 +96,14 @@ export const SECTIONS = [
         type: "fields",
         fields: [["3.15", "Total Cash/Book Amount as of Today",
           { derived: "section3.total15" }]],
+        note: { key: "special_note" },
       },
-      { type: "note", key: "special_note" },
     ],
   },
 
   {
     n: "4",
-    width: "std",
+    width: "wide",
     key: "section4",
     title: "Cash/Book Value Reconciliation",
     blocks: [
@@ -119,6 +119,7 @@ export const SECTIONS = [
           ["4.5", "Diff Reported - Projected", { derived: "section4.diff" },
             "OK within ₹100 — above that, call/inform management immediately"],
         ],
+        note: { key: "special_note" },
       },
       {
         type: "rows",
@@ -157,7 +158,7 @@ export const SECTIONS = [
 
   {
     n: "7",
-    width: "std",
+    width: "wide",
     key: "section7",
     title: "Trial Balance — Projected — Today",
     hint: "[more value depends on Consump Difference]",
@@ -173,8 +174,8 @@ export const SECTIONS = [
             "Report to management — a high figure points at a sensor issue"],
           ["7.5", "Today's Actual Reported Trial Balance", { derived: "section7.total5" }],
         ],
+        note: { key: "special_note" },
       },
-      { type: "note", key: "special_note" },
     ],
   },
 
@@ -195,6 +196,7 @@ export const SECTIONS = [
           ["8.5", "Difference — Actual Reported Minus Projected", { derived: "section8.f5" },
             "OK within ₹100 — above that, call/inform management immediately"],
         ],
+        note: { key: "special_note" },
       },
       {
         type: "rows",
@@ -225,6 +227,7 @@ export const SECTIONS = [
       {
         type: "fields",
         title: "8.8 Management Summary",
+        note: { key: "mgmt_note" },
         fields: [
           ["", "Cash Value Difference — escalate if above ₹100",
             { derived: "section8.f5" }],
@@ -240,7 +243,6 @@ export const SECTIONS = [
           ["", "Actual Profit after all Daily Expenses", "mgmt_actual_profit"],
         ],
       },
-      { type: "note", key: "special_note" },
       {
         type: "signoff",
         title: "8.9 Sign-off",
@@ -296,7 +298,7 @@ export const SECTIONS = [
 
   {
     n: "11",
-    width: "std",
+    width: "wide",
     key: "section11",
     title: "Old/New Credit Sales Details",
     hint: "[Credit Master Entry]",

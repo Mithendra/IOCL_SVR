@@ -155,7 +155,12 @@ def _rows_total(rows: object, field: str = "amount") -> float:
     return round4(sum(_n((r or {}).get(field)) for r in rows if isinstance(r, dict)))
 
 
-def derive_manual(manual: dict | None, net_worth: float, oil_total: Number) -> dict:
+def derive_manual(
+    manual: dict | None,
+    net_worth: float,
+    oil_total: Number,
+    s1: dict | None = None,
+) -> dict:
     """Derived figures for the operator-entered sections. Inputs in, totals out.
 
     ``net_worth`` is Section 6.3, *Today's Total Working Capital / Net Worth* -
@@ -170,15 +175,25 @@ def derive_manual(manual: dict | None, net_worth: float, oil_total: Number) -> d
         v = m.get(key)
         return v if isinstance(v, dict) else {}
 
-    s1, s3, s4, s7, s8, s10 = (sec(k) for k in
-                               ("section1", "section3", "section4", "section7",
-                                "section8", "section10"))
+    s3, s4, s7, s8, s10 = (sec(k) for k in
+                           ("section3", "section4", "section7", "section8", "section10"))
+    ctx = s1 or {}
 
-    # --- Section 1: the cross-fuel columns the sheet prints once, on the MS row.
-    margin_total = round4(_n(s1.get("hs_margin")) + _n(s1.get("ms_margin")))
-    two_t_sales = _n(oil_total)                       # J = Oil Sale(s) total (2.1)
+    # --- Section 1. Every column here is a formula in the client's own sheet;
+    # they were manual entry until the register was extracted from it
+    # (skills/trial-balance-reconciliation/references/sep12-formula-register.md).
+    #
+    #   H3 = G3*2.61   Margin HS   = Daily Testing x margin rate
+    #   L3 = F3*C67    IOCL Adv HS = Consump Diff  x BUY rate
+    #   I4 = H3+H4 · J4 = F26 · K4 = I4+J4 · M4 = L3+L4
+    hs_margin = round4(_n(ctx.get("hs_deduct_testing")) * _n(ctx.get("margin_rate_hs")))
+    ms_margin = round4(_n(ctx.get("ms_deduct_testing")) * _n(ctx.get("margin_rate_ms")))
+    hs_iocl_adv = round4(_n(ctx.get("hs_computer_pump_diff")) * _n(ctx.get("buy_rate_hs")))
+    ms_iocl_adv = round4(_n(ctx.get("ms_computer_pump_diff")) * _n(ctx.get("buy_rate_ms")))
+    margin_total = round4(hs_margin + ms_margin)
+    two_t_sales = _n(oil_total)                       # J4 = Oil Sale(s) total (2.1)
     total_sale_amt = round4(margin_total + two_t_sales)
-    iocl_profit = round4(_n(s1.get("hs_iocl_adv")) + _n(s1.get("ms_iocl_adv")))
+    iocl_profit = round4(hs_iocl_adv + ms_iocl_adv)
 
     # --- Section 3: 3.6 -> 3.7 -> 3.13 -> 3.15.
     s3_total6 = round4(
@@ -198,7 +213,7 @@ def derive_manual(manual: dict | None, net_worth: float, oil_total: Number) -> d
 
     # --- Section 7: Projected = Yesterday's TB + Today's profit; the Actual
     #     Reported figure is Section 6's own total, never retyped.
-    s7_total3 = round4(_n(s7.get("yesterday")) + _n(s7.get("profit")))
+    s7_total3 = round4(_n(s7.get("yesterday")) + total_sale_amt)
     s7_diff = round4(net_worth - s7_total3)
 
     # --- Section 8: the same five lines as Section 4 (the sheet says so outright:
@@ -206,7 +221,7 @@ def derive_manual(manual: dict | None, net_worth: float, oil_total: Number) -> d
     #     management summary block below it.
     s8_f3 = round4(_n(s8.get("f1")) + _n(s8.get("f2")))
     s8_f5 = round4(_n(s8.get("f4")) - s8_f3)
-    s8_projected_networth = round4(_n(s8.get("mgmt_yesterday_tb")) + _n(s8.get("mgmt_profit")))
+    s8_projected_networth = round4(_n(s8.get("mgmt_yesterday_tb")) + total_sale_amt)
     s8_networth_diff = round4(net_worth - s8_projected_networth)
 
     # --- Section 10: Total = New Computer - Old Reading; Lost = IOCL Load - Total.
@@ -216,6 +231,10 @@ def derive_manual(manual: dict | None, net_worth: float, oil_total: Number) -> d
 
     return {
         "section1": {
+            "hs_margin": hs_margin,
+            "ms_margin": ms_margin,
+            "hs_iocl_adv": hs_iocl_adv,
+            "ms_iocl_adv": ms_iocl_adv,
             "margin_total": margin_total,
             "two_t_sales": two_t_sales,
             "total_sale_amt": total_sale_amt,
@@ -238,11 +257,17 @@ def derive_manual(manual: dict | None, net_worth: float, oil_total: Number) -> d
             "total_difference": round4(s4_diff - _n(s4.get("yesbank_return"))),
         },
         "section7": {
+            # D77 = K4 - Today's Profit Including 2T Sales is section 1's own
+            # Total Sale Amt, not a separately typed number.
+            "profit": total_sale_amt,
             "total3": s7_total3,
             "diff": s7_diff,
             "total5": round4(net_worth),
         },
         "section8": {
+            # D102 = D98 - 300 - 1666.66 - 666.66 - 666.66, the "Rs3300" in the
+            # label. Today's Profit here is K4, the same figure section 7.2 uses.
+            "mgmt_actual_profit": round4(total_sale_amt - _n(ctx.get("daily_expenses"))),
             "f3": s8_f3,
             "f5": s8_f5,
             "regular_expenses_total": _rows_total(s8.get("regular_expenses")),

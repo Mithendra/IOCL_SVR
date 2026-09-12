@@ -94,6 +94,11 @@ def _context(conn: sqlite3.Connection, shift_date: str, row: sqlite3.Row | None)
     buy_hs = rates["HS"]["buy_rate"] if "HS" in rates else None
     buy_ms = rates["MS"]["buy_rate"] if "MS" in rates else None
     testing = get_param(conn, "testing_density_deduction", 10.0, as_of=shift_date)
+    # Per-litre margin (commission) rates and the daily-expenses deduction, from
+    # the SEP12 formulas (migration 0022).
+    margin_hs = get_param(conn, "margin_rate_hs", 0.0, as_of=shift_date)
+    margin_ms = get_param(conn, "margin_rate_ms", 0.0, as_of=shift_date)
+    daily_expenses = get_param(conn, "daily_expenses_deduction", 0.0, as_of=shift_date)
 
     data = TrialBalanceInput(
         s1=Section1Input(
@@ -118,6 +123,9 @@ def _context(conn: sqlite3.Connection, shift_date: str, row: sqlite3.Row | None)
         "buy_rate_hs": buy_hs,
         "buy_rate_ms": buy_ms,
         "testing_deduction": testing,
+        "margin_rate_hs": margin_hs,
+        "margin_rate_ms": margin_ms,
+        "daily_expenses_deduction": daily_expenses,
         "summary_status": summary["status"],
     }
 
@@ -162,8 +170,22 @@ def _view(conn: sqlite3.Connection, shift_date: str) -> dict:
     # ("Rest should be calculated Automatically using Excel Formulas").
     # 6.3 Net Worth is the engine's section7 total under the older SDD numbering -
     # NOT section6, which is Section 5's Stock Value.
+    s1 = result["section1"]
     result["derived"] = derive_manual(
-        manual, result["section7"]["7_3_total"], ctx["oil_total"]
+        manual,
+        result["section7"]["7_3_total"],
+        ctx["oil_total"],
+        {
+            "hs_deduct_testing": s1["hs"]["deduct_testing"],
+            "ms_deduct_testing": s1["ms"]["deduct_testing"],
+            "hs_computer_pump_diff": s1["hs"]["computer_pump_diff"],
+            "ms_computer_pump_diff": s1["ms"]["computer_pump_diff"],
+            "margin_rate_hs": ctx["margin_rate_hs"],
+            "margin_rate_ms": ctx["margin_rate_ms"],
+            "buy_rate_hs": ctx["buy_rate_hs"],
+            "buy_rate_ms": ctx["buy_rate_ms"],
+            "daily_expenses": ctx["daily_expenses_deduction"],
+        },
     )
     return {
         "shift_date": shift_date,

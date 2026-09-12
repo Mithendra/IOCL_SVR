@@ -62,5 +62,14 @@ def test_runtime_version_none_when_binary_missing(monkeypatch):
     monkeypatch.setattr(
         runtime, "get_settings", lambda: Settings(tesseract_cmd=Path("nonexistent-xyz"))
     )
-    assert runtime.tesseract_version() is None
-    assert runtime.is_available() is False
+    # tesseract_version() is cached for the life of the process (whether Tesseract
+    # is installed does not change while the service runs, and re-probing it on
+    # every call made the engine appear to come and go under load). Changing the
+    # command underneath it therefore needs the cache cleared - both here and
+    # afterwards, so a stale "missing" answer does not leak into later tests.
+    runtime.tesseract_version.cache_clear()
+    try:
+        assert runtime.tesseract_version() is None
+        assert runtime.is_available() is False
+    finally:
+        runtime.tesseract_version.cache_clear()

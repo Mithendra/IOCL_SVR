@@ -501,6 +501,59 @@ td input:disabled {
   font-size: 12px;
   min-width: 220px;
 }
+/* Section 1 has 13 columns; letting them size themselves pushed the last three
+   off the edge. Sized to fit the section instead of scrolling. */
+.tb-s1 {
+  table-layout: fixed;
+  width: 100%;
+}
+.tb-s1 td,
+.tb-s1 th {
+  padding: 3px 4px;
+  font-size: 10.5px;
+  overflow: hidden;
+}
+.tb-s1 td:first-child,
+.tb-s1 th:first-child {
+  width: 86px;
+}
+.tb-s1 td input {
+  padding: 2px 3px;
+  font-size: 10.5px;
+  text-align: right;
+}
+/* Special Note in its own right-hand column, where the sheet keeps commentary. */
+.tb-hasnote td:nth-child(2),
+.tb-hasnote th:nth-child(2) {
+  width: 150px;
+}
+.tb-notecell {
+  width: 300px;
+  vertical-align: top;
+}
+.tb-notecell .tb-block-title {
+  margin: 0 0 3px;
+}
+/* Every figure right-aligned, two decimals - the money columns read as money. */
+.tb-sec td input,
+.tb-sec td select {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.tb-sec td:first-child,
+.tb-sec .tb-notecell,
+.tb-sec .tb-note,
+.tb-sec [data-col="type"],
+.tb-sec [data-col="category"],
+.tb-sec [data-col="given_on"],
+.tb-sec [data-col="date"] {
+  text-align: left;
+}
+.tb-stamp {
+  font-weight: 400;
+  font-size: 11px;
+  opacity: 0.92;
+}
 .tb-note {
   width: 100%;
   box-sizing: border-box;

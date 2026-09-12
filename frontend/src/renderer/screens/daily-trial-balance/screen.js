@@ -120,15 +120,30 @@ function cellFor(sectionKey, spec) {
 }
 
 function fieldsBlock(sectionKey, block) {
-  const title = block.title
-    ? `<div style="font-weight:700;font-size:12px;margin:10px 0 4px">${block.title}</div>`
-    : "";
+  const title = block.title ? `<div class="tb-block-title">${block.title}</div>` : "";
   const rows = block.fields
-    .map(([no, label, spec, hint]) =>
-      `<tr><td>${no ? `${no} ` : ""}${label}${hintHtml(hint)}</td>${cellFor(sectionKey, spec)}</tr>`
-    )
+    .map(([no, label, spec, hint], i) => {
+      // The Special Note sits in a right-hand column spanning the block, which is
+      // where the sheet keeps its own commentary (SEP12 column E) - not stranded
+      // underneath the table (client, 2026-09-12).
+      const noteCell =
+        block.note && i === 0
+          ? `<td class="tb-notecell" rowspan="${block.fields.length}">` +
+            `<div class="tb-block-title">Special Note</div>` +
+            `<textarea class="tb-note" rows="3" ` +
+            `data-manual="${esc(`${sectionKey}.${block.note.key}`)}" ` +
+            `placeholder="Anything worth recording today"></textarea></td>`
+          : "";
+      return (
+        `<tr><td>${no ? `${no} ` : ""}${label}${hintHtml(hint)}</td>` +
+        `${cellFor(sectionKey, spec)}${noteCell}</tr>`
+      );
+    })
     .join("");
-  return `${title}<table class="tb-fields"><tr><th>Line</th><th>Amount</th></tr>${rows}</table>`;
+  const head = block.note
+    ? `<tr><th>Line</th><th>Amount</th><th class="tb-notecell">Special Note</th></tr>`
+    : `<tr><th>Line</th><th>Amount</th></tr>`;
+  return `${title}<table class="tb-fields${block.note ? " tb-hasnote" : ""}">${head}${rows}</table>`;
 }
 
 function rowsBlock(sectionKey, block) {
@@ -194,18 +209,6 @@ function gridBlock(sectionKey, block) {
   return `<table class="tb-grid"><tr><th></th>${head}</tr>${body}</table>${note}`;
 }
 
-function noteBlock(sectionKey, block) {
-  // Free text. The sheet has no field for it, so operators have been typing
-  // commentary into the labels themselves (SEP10 A36: "Indian bank Statement
-  // Ending Balance @Fraud Pending -Rs 13367"). This gives them somewhere to put it.
-  return (
-    `<div class="tb-block-title">Special Note</div>` +
-    `<textarea class="tb-note" rows="2" ` +
-    `data-manual="${esc(`${sectionKey}.${block.key}`)}" ` +
-    `placeholder="Anything worth recording about this section today"></textarea>`
-  );
-}
-
 function signoffBlock(sectionKey, block) {
   const rows = block.rows
     .map(
@@ -237,16 +240,25 @@ function buildManualSections() {
       ? ` <span style="font-weight:400;font-size:11px">${section.hint}</span>`
       : "";
     host.className = `tb-sec tb-w-${section.width || "std"}`;
-    let html = `<div class="section-title">${section.n}. ${section.title}${hint}</div>`;
+    // Section 8 is stamped with the system date and time in IST, the way the
+    // sheet that goes to management is ("SEPT 12, 12:00 PM IST"). Generated, never
+    // typed: a report that says when it was produced is only useful if nobody can
+    // edit that (client, 2026-09-12). Asia/Kolkata explicitly, not the host tz.
+    const stamp =
+      section.n === "8"
+        ? ` <span class="tb-stamp" id="s8-stamp"></span>`
+        : "";
+    let html =
+      `<div class="section-title">${section.n}. ${section.title}${hint}${stamp}</div>`;
     for (const block of section.blocks) {
       if (block.type === "fields") html += fieldsBlock(section.key, block);
       else if (block.type === "rows") html += rowsBlock(section.key, block);
       else if (block.type === "grid") html += gridBlock(section.key, block);
       else if (block.type === "signoff") html += signoffBlock(section.key, block);
-      else if (block.type === "note") html += noteBlock(section.key, block);
     }
     host.innerHTML = html;
   }
+  stampSection8();
   document.querySelectorAll("[data-add-row]").forEach((btn) => {
     btn.addEventListener("click", () => addRow(btn.dataset.addRow));
   });
@@ -279,6 +291,22 @@ function buildManualSections() {
       }
     });
   });
+}
+
+// System date + time in IST for the Section 8 heading. Read-only by construction:
+// there is no field for it, so a Manager or Owner cannot alter what it says.
+function stampSection8() {
+  const el = $("s8-stamp");
+  if (!el) return;
+  const now = new Date();
+  const opts = { timeZone: "Asia/Kolkata" };
+  const day = now
+    .toLocaleDateString("en-GB", { ...opts, day: "numeric", month: "short" })
+    .toUpperCase();
+  const time = now.toLocaleTimeString("en-US", {
+    ...opts, hour: "numeric", minute: "2-digit",
+  });
+  el.textContent = `— ${day}, ${time} IST`;
 }
 
 function blockFor(path) {

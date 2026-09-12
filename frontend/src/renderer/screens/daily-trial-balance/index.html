@@ -43,13 +43,13 @@
 
         <div id="body" style="display:none">
           <!-- ============================ 1 ============================ -->
-          <div class="tb-sec tb-w-full">
+          <div class="tb-sec tb-w-wide">
           <div class="section-title">
             1. IOCL Stock Readings
             <span style="font-weight:400;font-size:11px">[independent regulatory reading — manual entry, NOT pulled from Section 2]</span>
           </div>
-          <div style="overflow-x:auto">
-            <table style="min-width:1240px">
+          <div>
+            <table class="tb-s1">
               <tr>
                 <th>Fuel</th><th>IOCL Last</th><th>IOCL Current</th><th>[Last-Current]</th>
                 <th>Actual Consump</th><th>Consump Diff</th><th>Daily Testing</th>
@@ -61,11 +61,11 @@
                 <td><input id="hs-y" /></td><td><input id="hs-c" /></td>
                 <td><input id="hs-diff" disabled placeholder="auto"></td><td><input id="hs-cons" disabled placeholder="auto"></td><td><input id="hs-cpd" disabled placeholder="auto"></td>
                 <td><input id="hs-dt" disabled placeholder="auto"></td>
-                <td><input data-manual="section1.hs_margin" /></td>
+                <td><input data-derived="section1.hs_margin" disabled placeholder="auto" /></td>
                 <td><input disabled placeholder="n/a" title="Printed once, on the Petrol row — it combines both fuels" /></td>
                 <td><input disabled placeholder="n/a" title="Printed once, on the Petrol row — it combines both fuels" /></td>
                 <td><input disabled placeholder="n/a" title="Printed once, on the Petrol row — it combines both fuels" /></td>
-                <td><input data-manual="section1.hs_iocl_adv" /></td>
+                <td><input data-derived="section1.hs_iocl_adv" disabled placeholder="auto" /></td>
                 <td><input disabled placeholder="n/a" title="Printed once, on the Petrol row — it combines both fuels" /></td>
               </tr>
               <tr>
@@ -73,19 +73,22 @@
                 <td><input id="ms-y" /></td><td><input id="ms-c" /></td>
                 <td><input id="ms-diff" disabled placeholder="auto"></td><td><input id="ms-cons" disabled placeholder="auto"></td><td><input id="ms-cpd" disabled placeholder="auto"></td>
                 <td><input id="ms-dt" disabled placeholder="auto"></td>
-                <td><input data-manual="section1.ms_margin" /></td>
+                <td><input data-derived="section1.ms_margin" disabled placeholder="auto" /></td>
                 <td data-derived="section1.margin_total"></td>
                 <td data-derived="section1.two_t_sales"></td>
                 <td data-derived="section1.total_sale_amt"></td>
-                <td><input data-manual="section1.ms_iocl_adv" /></td>
+                <td><input data-derived="section1.ms_iocl_adv" disabled placeholder="auto" /></td>
                 <td data-derived="section1.iocl_profit"></td>
               </tr>
             </table>
           </div>
           <p style="font-size:11px;color:var(--io-blue-dark);margin:4px 0 0">
-            Margin Total, 2T Sales, Total Sale Amt and IOCL Profit are printed once, on the Petrol
-            row, combining both fuels — matching the sheet. Benefit/Loss <span id="hs-bl"></span> /
-            <span id="ms-bl"></span>; Stock Ltrs <span id="hs-sl"></span> / <span id="ms-sl"></span>.
+            Every column here is calculated. Margin = Daily Testing × the fuel's margin rate
+            (SEP12 <code>H3=G3*2.61</code>, <code>H4=G4*4.14</code>); IOCL Adv = Consump Diff ×
+            Buy Rate (<code>L3=F3*C67</code>). Margin Total, 2T Sales, Total Sale Amt and IOCL
+            Profit are printed once, on the Petrol row, combining both fuels — matching the sheet.
+            Benefit/Loss <span id="hs-bl"></span> / <span id="ms-bl"></span>;
+            Stock Ltrs <span id="hs-sl"></span> / <span id="ms-sl"></span>.
           </p>
 
           </div>
@@ -128,7 +131,7 @@
           <div id="sec-4"></div>
 
           <!-- ============================ 5 ============================ -->
-          <div class="tb-sec tb-w-half">
+          <div class="tb-sec tb-w-wide">
           <div class="section-title">
             5. Stock Value
             <span style="font-weight:400;font-size:11px">[Computer On-hand Stock Readings × Buy Rate]</span>
@@ -143,7 +146,7 @@
           </div>
 
           <!-- ============================ 6 ============================ -->
-          <div class="tb-sec tb-w-half">
+          <div class="tb-sec tb-w-wide">
           <div class="summary-box">
             <h3>6. Trial Balance — Actual Reported — Today</h3>
             <div class="summary-row"><span>Today's Actual Reported SVR Cash/Book Value</span>

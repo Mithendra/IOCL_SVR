@@ -470,9 +470,18 @@ test("Special Note is available where the sheet has commentary", async ({ page }
   await page.fill("#tb-date", NOTE_DATE);
   await page.click("#load-btn");
 
-  for (const sec of ["section3", "section7", "section8"]) {
+  // 3, 4, 7 get one each; 8 gets two (8.5's and the management summary's), as the
+  // sheet has them - and they sit in a right-hand column, not stranded underneath.
+  for (const sec of ["section3", "section4", "section7", "section8"]) {
     await expect(page.locator(`textarea[data-manual="${sec}.special_note"]`)).toBeVisible();
   }
+  await expect(page.locator('textarea[data-manual="section8.mgmt_note"]')).toBeVisible();
+  await expect(page.locator("#sec-8 textarea.tb-note")).toHaveCount(2);
+  // Right-hand column: the note sits to the right of the Amount cell in its OWN
+  // table (3.15's block), not of some other block's wider Amount column.
+  const note = await page.locator('textarea[data-manual="section3.special_note"]').boundingBox();
+  const amount = await page.locator('[data-derived="section3.total15"]').boundingBox();
+  expect(note.x).toBeGreaterThan(amount.x + amount.width - 2);
 
   await page.fill('textarea[data-manual="section3.special_note"]', "Yes Bank returned 8,525.95");
   await page.click("#save-btn");
@@ -520,4 +529,42 @@ test("Section 1's cross-fuel columns are marked n/a on the Diesel row", async ({
   const diesel = page.locator("#hs-y").locator("xpath=ancestor::tr[1]");
   await expect(diesel.locator('input[placeholder="n/a"]')).toHaveCount(4);
   await expect(diesel.locator("td")).toHaveCount(13); // Fuel + 12 columns
+});
+
+test("Section 8 is stamped with the system date and time in IST, uneditable", async ({ page }) => {
+  // A report that says when it was produced is only useful if nobody can edit it,
+  // so it is generated into the heading - there is no field for it at all.
+  await login(page, "mmanager");
+  await page.goto(SCREEN);
+  await expect(page.locator("#body")).toBeVisible();
+
+  const stamp = page.locator("#s8-stamp");
+  await expect(stamp).toHaveText(/^— \d{1,2} [A-Z]{3,4}, \d{1,2}:\d{2} (AM|PM) IST$/);
+  await expect(stamp.locator("input, textarea, select")).toHaveCount(0);
+  await expect(page.locator("#sec-8 .section-title")).toContainText("IST");
+});
+
+test("Section 1 shows all thirteen columns without scrolling", async ({ page }) => {
+  // Total Sale Amt, IOCL Adv and IOCL Profit were being clipped off the right.
+  await login(page, "mmanager");
+  await page.goto(SCREEN);
+  await expect(page.locator("#body")).toBeVisible();
+
+  const table = page.locator("table.tb-s1");
+  await expect(table.locator("tr").first().locator("th")).toHaveCount(13);
+  for (const heading of ["Margin Total", "2T Sales", "Total Sale Amt", "IOCL Adv", "IOCL Profit"]) {
+    await expect(table.locator("th").filter({ hasText: heading }).first()).toBeVisible();
+  }
+  // Fits its section rather than overflowing it.
+  const t = await table.boundingBox();
+  const sec = await page.locator("#body .tb-sec").first().boundingBox();
+  expect(t.width).toBeLessThanOrEqual(sec.width + 2);
+
+  // Margin and IOCL Adv are formulas now (SEP12 H3=G3*2.61, L3=F3*C67), so they
+  // are calculated cells - not something anyone types over.
+  for (const p of ["section1.hs_margin", "section1.ms_margin",
+                   "section1.hs_iocl_adv", "section1.ms_iocl_adv"]) {
+    await expect(page.locator(`[data-derived="${p}"]`)).toBeDisabled();
+    await expect(page.locator(`[data-manual="${p}"]`)).toHaveCount(0);
+  }
 });
