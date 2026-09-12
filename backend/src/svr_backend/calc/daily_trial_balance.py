@@ -130,6 +130,131 @@ class TrialBalanceResult:
         }
 
 
+# --------------------------------------------------------------- manual rollups
+#
+# Sections 3, 4, 7, 8, 10 and Section 1's cross-fuel columns stay operator-entered
+# (SDD ADR-1) - but the client's own sheet computes the TOTALS between those
+# entries, and says so on its face: "Columns that are marked as an example for
+# Data Entry, Rest should be calculated Automatically using Excel Formulas"
+# (SEP12 tab, note at H9). Typing a total that the form can add up is how a
+# reconciliation goes wrong quietly.
+#
+# So the manual block stores INPUTS only; every figure below is derived here, on
+# the server, and returned read-only. Each formula is transcribed from the SEP12
+# tab and verified against that tab's own numbers - see
+# tests/test_trial_balance_sep12.py, which asserts the whole sheet end to end.
+
+
+def _n(value: Number) -> float:
+    return 0.0 if is_blank(value) else parse_amt(value)
+
+
+def _rows_total(rows: object, field: str = "amount") -> float:
+    if not isinstance(rows, list):
+        return 0.0
+    return round4(sum(_n((r or {}).get(field)) for r in rows if isinstance(r, dict)))
+
+
+def derive_manual(manual: dict | None, net_worth: float, oil_total: Number) -> dict:
+    """Derived figures for the operator-entered sections. Inputs in, totals out.
+
+    ``net_worth`` is Section 6.3, *Today's Total Working Capital / Net Worth* -
+    the engine's ``section7["7_3_total"]`` under the older SDD numbering, NOT
+    ``section6["total"]`` (which is Section 5's Stock Value). The two numbering
+    schemes collide on the word "section6", and passing the wrong one put 7.4
+    out by the whole cash/book value - caught against the real SEP12 tab.
+    """
+    m = manual or {}
+
+    def sec(key: str) -> dict:
+        v = m.get(key)
+        return v if isinstance(v, dict) else {}
+
+    s1, s3, s4, s7, s8, s10 = (sec(k) for k in
+                               ("section1", "section3", "section4", "section7",
+                                "section8", "section10"))
+
+    # --- Section 1: the cross-fuel columns the sheet prints once, on the MS row.
+    margin_total = round4(_n(s1.get("hs_margin")) + _n(s1.get("ms_margin")))
+    two_t_sales = _n(oil_total)                       # J = Oil Sale(s) total (2.1)
+    total_sale_amt = round4(margin_total + two_t_sales)
+    iocl_profit = round4(_n(s1.get("hs_iocl_adv")) + _n(s1.get("ms_iocl_adv")))
+
+    # --- Section 3: 3.6 -> 3.7 -> 3.13 -> 3.15.
+    s3_total6 = round4(
+        _n(s3.get("onhand")) + _n(s3.get("night")) + _n(s3.get("morning"))
+        + _n(s3.get("daytotal")) + _n(s3.get("oldcredit"))
+    )
+    s3_total13 = round4(
+        s3_total6 + _n(s3.get("iocl")) + _n(s3.get("indianbank"))
+        + _n(s3.get("yesbank")) + _n(s3.get("ppunsettled")) + _n(s3.get("ppsettled"))
+    )
+    s3_new_credits = _rows_total(s3.get("new_credits"))
+    s3_total15 = round4(s3_total13 + s3_new_credits)
+
+    # --- Section 4: Projected = Yesterday + Today's sale; Diff = Reported - Projected.
+    s4_total3 = round4(_n(s4.get("yesterday")) + _n(s4.get("todaysale")))
+    s4_diff = round4(_n(s4.get("reported")) - s4_total3)
+
+    # --- Section 7: Projected = Yesterday's TB + Today's profit; the Actual
+    #     Reported figure is Section 6's own total, never retyped.
+    s7_total3 = round4(_n(s7.get("yesterday")) + _n(s7.get("profit")))
+    s7_diff = round4(net_worth - s7_total3)
+
+    # --- Section 8: the same five lines as Section 4 (the sheet says so outright:
+    #     "Duplicate Section for mgmt Reporting 4.Cash Reconciliation"), plus the
+    #     management summary block below it.
+    s8_f3 = round4(_n(s8.get("f1")) + _n(s8.get("f2")))
+    s8_f5 = round4(_n(s8.get("f4")) - s8_f3)
+    s8_projected_networth = round4(_n(s8.get("mgmt_yesterday_tb")) + _n(s8.get("mgmt_profit")))
+    s8_networth_diff = round4(net_worth - s8_projected_networth)
+
+    # --- Section 10: Total = New Computer - Old Reading; Lost = IOCL Load - Total.
+    def load_line(prefix: str) -> dict:
+        total = round4(_n(s10.get(f"{prefix}_new")) - _n(s10.get(f"{prefix}_old")))
+        return {"total": total, "lost": round4(_n(s10.get(f"{prefix}_load")) - total)}
+
+    return {
+        "section1": {
+            "margin_total": margin_total,
+            "two_t_sales": two_t_sales,
+            "total_sale_amt": total_sale_amt,
+            "iocl_profit": iocl_profit,
+        },
+        "section3": {
+            "total6": s3_total6,
+            "total7": s3_total6,          # the sheet repeats 3.6 as 3.7
+            "total13": s3_total13,
+            "new_credits_total": s3_new_credits,
+            "total15": s3_total15,
+        },
+        "section4": {
+            "total3": s4_total3,
+            "diff": s4_diff,
+            "expenses_total": _rows_total(s4.get("expenses")),
+            "remittance_total": _rows_total(s4.get("remittance")),
+            # The sheet's side panel: Difference Amount less the Yes Bank return.
+            # SEP12: 8516.1478 - 8525.95 = -9.8022.
+            "total_difference": round4(s4_diff - _n(s4.get("yesbank_return"))),
+        },
+        "section7": {
+            "total3": s7_total3,
+            "diff": s7_diff,
+            "total5": round4(net_worth),
+        },
+        "section8": {
+            "f3": s8_f3,
+            "f5": s8_f5,
+            "regular_expenses_total": _rows_total(s8.get("regular_expenses")),
+            "old_credit_total": _rows_total(s8.get("old_credit_collections")),
+            "mgmt_actual_networth": round4(net_worth),
+            "mgmt_projected_networth": s8_projected_networth,
+            "mgmt_networth_diff": s8_networth_diff,
+        },
+        "section10": {"hs": load_line("hs"), "ms": load_line("ms")},
+    }
+
+
 def compute(data: TrialBalanceInput) -> TrialBalanceResult:
     r = TrialBalanceResult()
     r.hs = _fuel(data.s1.hs_yesterday, data.s1.hs_current, data.s3_hs_consumption,

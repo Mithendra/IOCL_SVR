@@ -52,7 +52,11 @@ def test_section1_formulas_and_section3_pull(client, auth_headers):
     # benefit_loss = consumption + computer_pump_diff (2026-09-06: corrected against
     # AUG11/AUG12 real workbooks - was `cons + diff`, which matched neither tab).
     assert hs["benefit_loss"] == 60          # 50 + 10
-    assert hs["deduct_testing"] == 40       # 50 - 10 (system_parameter)
+    # 50 - 5.5. The testing/density deduction is a versioned system_parameter: 10.0
+    # from the seed (matches AUG11/AUG12), 5.5 from 2026-09-12, read straight off
+    # the client's SEP12 tab where "Daily Testing" = "Actual Consump" - 5.5 on both
+    # fuels exactly. DATE here is 2026-10-05, so the newer figure applies.
+    assert hs["deduct_testing"] == 44.5
     # stock_ltrs = today's current reading, verbatim (2026-09-06: corrected against
     # AUG11/AUG12/SEP05/SEP06 real workbooks, SEP06 client-validated - was
     # `diff - consumption`, which produced negative litres against real data).

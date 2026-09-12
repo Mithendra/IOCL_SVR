@@ -1,27 +1,25 @@
-// Daily Trial Balance — the sections the backend does NOT compute.
+// Daily Trial Balance — the form definition, transcribed from the client's own
+// SEP12 tab (docs/01-BRD-Requirement-Gathering/ocr-samples/Trail_balance_12-SEP-2026.xlsx).
 //
-// SDD ADR-1 (confirmed 2026-09-06) holds these as the record's free-form `manual`
-// block rather than modelling them server-side. That decision stands; what changed
-// on 2026-09-12 is how they are ENTERED. They used to be a single raw JSON
-// textarea, which is not something anyone at a fuel station can fill in, so all
-// seven sections were effectively missing from the form.
+// Two kinds of cell, and the difference matters:
 //
-// This module is the form definition for them. Every field still lands in exactly
-// the same `manual` dict, addressed by a dotted path ("section3.onhand"), so the
-// storage contract is unchanged and an already-saved record round-trips untouched.
+//   input   — the operator types it. Stored in the record's `manual` block
+//             (SDD ADR-1), addressed by a dotted path like "section3.onhand".
+//   derived — the BACKEND computes it and returns it under `computed.derived`;
+//             rendered read-only. The sheet says so on its own face: "Columns
+//             that are marked as an example for Data Entry, Rest should be
+//             calculated Automatically using Excel Formulas" (SEP12, note at H9).
+//             Every one of these is asserted against the SEP12 figures in
+//             backend/tests/test_trial_balance_sep12.py.
 //
-// Section numbering here is the STATION'S OWN workbook numbering (1-11), which is
-// what the operator has in front of them — not the older SDD §9 numbering the
-// backend's field names still use. See the note in index.html.
-//
-// Layout of the structures below:
-//   { n, title, note?, blocks: [...] }
-//   block "fields" — label/value rows, one input each
-//   block "rows"   — a repeating table the user adds rows to (stored as an array)
-//   block "grid"   — a fixed set of named rows x named columns
+// Section numbering is the station's workbook numbering (1–11).
 
+// --- the six dropdowns, read out of the SEP12 sheet's own Data Validation ------
+// (A42:A45, A54:A57 + A87:A89, A59:A61, A92:A93). Kept verbatim, including the
+// two separate spellings of the Anil creditor, which the sheet itself carries.
 export const DROPDOWN_CREDITORS = [
   "Anil/Nani New Credit",
+  "Anil New Credit",
   "AirTel Hari New Credit",
   "Salary Advance Viaj",
   "Salary Advance Ashok",
@@ -44,8 +42,17 @@ export const DROPDOWN_REMITTANCE = [
   "AirTel New Credit Remitted Amt",
 ];
 
-// The 26 columns of the Daily Mgr Calculation running ledger, in the workbook's
-// own order (confirmed 2026-08-25 against the AUG25 tab).
+export const DROPDOWN_OLD_CREDIT_COLLECTION = [
+  "Sajja Old Credit Remitted Amt",
+  "Anil Old Credit Remitted",
+  "AirTel Hari Old Credit Remitted",
+  "AirTel New Credit Remitted",
+];
+
+// SEP12 rows 102–104: the sign-off block's own list of names.
+export const DROPDOWN_STAFF = ["Gopi", "Girish", "Sriharsha", "Gopi & Girish", "Girish/Sriharsha"];
+
+// Section 9, the 26-column running ledger (SEP12 row 107, columns A–Z).
 export const MGR_CALC_COLUMNS = [
   ["date", "Date"],
   ["total_ms_sale", "Total MS Sale"],
@@ -80,7 +87,7 @@ export const SECTIONS = [
     n: "3",
     key: "section3",
     title: "Daily Cash &amp; Bank Balances",
-    hint: "[IOCL Spana / Indian Bank / Yes Bank / Other Ongoing / New Credits]",
+    hint: "[IOCL Spana · Indian Bank · Yes Bank · Other Ongoing · New Credits]",
     blocks: [
       {
         type: "fields",
@@ -91,15 +98,15 @@ export const SECTIONS = [
           ["3.4", "Day Total", "daytotal"],
           ["3.5", "Old Credit Cash hand off", "oldcredit",
             "Included in the Total below (confirmed 2026-08-25, BRD 5.8.5)"],
-          ["3.6", "Total", "total6"],
-          ["3.7", "Old Cash + Current Day Total", "total7"],
+          ["3.6", "Total", { derived: "section3.total6" }],
+          ["3.7", "Old Cash + Current Day Total", { derived: "section3.total7" }],
           ["3.8", "IOCL Card End Balance (-)", "iocl"],
-          ["3.9", "Indian Bank Statement Ending Balance", "indianbank"],
+          ["3.9", "Indian Bank Statement Ending Balance", "indianbank", "@Fraud pending"],
           ["3.10", "Yes Bank Statement Ending Balance", "yesbank"],
-          ["3.11", "Phone Pay Unsettled Amt", "ppunsettled"],
+          ["3.11", "Phone Pay UnSettled Amt", "ppunsettled"],
           ["3.12", "Phone Pay Settled Amt", "ppsettled",
             "Already reflects in the Indian Bank statement"],
-          ["3.13", "Total Amt", "total13"],
+          ["3.13", "Total Amt", { derived: "section3.total13" }],
         ],
       },
       {
@@ -110,29 +117,13 @@ export const SECTIONS = [
           { key: "type", label: "Type", options: DROPDOWN_CREDITORS },
           { key: "amount", label: "Amount" },
         ],
-      },
-      {
-        type: "rows",
-        key: "expenses",
-        title: "3.14b Expenses",
-        columns: [
-          { key: "category", label: "Category", options: DROPDOWN_EXPENSES },
-          { key: "amount", label: "Amount" },
-        ],
-      },
-      {
-        type: "rows",
-        key: "remittance",
-        title: "3.14c Credit Remittance",
-        columns: [
-          { key: "type", label: "Type", options: DROPDOWN_REMITTANCE },
-          { key: "given_on", label: "Credit Given on Date" },
-          { key: "amount", label: "Amt" },
-        ],
+        total: "section3.new_credits_total",
+        totalLabel: "Total New Credit / Salary Advance",
       },
       {
         type: "fields",
-        fields: [["3.15", "Total Cash/Book Amount as of Today", "total15"]],
+        fields: [["3.15", "Total Cash/Book Amount as of Today",
+          { derived: "section3.total15" }]],
       },
     ],
   },
@@ -146,11 +137,45 @@ export const SECTIONS = [
         type: "fields",
         fields: [
           ["4.1", "Yesterday SVR Cash/Book Value", "yesterday"],
-          ["4.2", "Total Today Sale Amount After Expenses (Beta, Testing and Density)", "todaysale"],
-          ["4.3", "Total - Projected", "total3"],
-          ["4.4", "Today SVR Cash/Book Value Reported", "reported"],
-          ["4.5", "Diff Reported - Projected", "diff",
-            "OK if within ₹100 — otherwise call/inform management immediately"],
+          ["4.2", "Total Today Sale Amount After Expenses (Beta, Testing and Density)",
+            "todaysale"],
+          ["4.3", "Total - Projected", { derived: "section4.total3" }],
+          ["4.4", "Today SVR Cash/Book Value Reported", "reported",
+            "Carry this forward as tomorrow's 4.1"],
+          ["4.5", "Diff Reported - Projected", { derived: "section4.diff" },
+            "OK within ₹100 — above that, call/inform management immediately"],
+        ],
+      },
+      {
+        type: "rows",
+        key: "expenses",
+        title: "4.6 Expenses",
+        columns: [
+          { key: "category", label: "Category", options: DROPDOWN_EXPENSES },
+          { key: "amount", label: "Amount" },
+        ],
+        total: "section4.expenses_total",
+        totalLabel: "Total Expenses",
+      },
+      {
+        type: "rows",
+        key: "remittance",
+        title: "4.7 Credit Remittance",
+        columns: [
+          { key: "type", label: "Type", options: DROPDOWN_REMITTANCE },
+          { key: "given_on", label: "Credit Given on Date" },
+          { key: "amount", label: "Amt" },
+        ],
+        total: "section4.remittance_total",
+        totalLabel: "Total Credit Remittance",
+      },
+      {
+        type: "fields",
+        title: "4.8 Difference reconciliation",
+        fields: [
+          ["", "Difference Amount", { derived: "section4.diff" }],
+          ["", "Yes Bank Return Amount", "yesbank_return"],
+          ["", "Total Difference", { derived: "section4.total_difference" }],
         ],
       },
     ],
@@ -159,7 +184,7 @@ export const SECTIONS = [
   {
     n: "7",
     key: "section7",
-    title: "Trial Balance - Projected - Today",
+    title: "Trial Balance — Projected — Today",
     hint: "[more value depends on Consump Difference]",
     blocks: [
       {
@@ -167,9 +192,11 @@ export const SECTIONS = [
         fields: [
           ["7.1", "Yesterday's Actual Reported Trial Balance", "yesterday"],
           ["7.2", "Today's Profit Including 2T Sales", "profit"],
-          ["7.3", "Today's Projected Trial Balance", "total3"],
-          ["7.4", "Difference — Actual Reported Minus Projected", "diff"],
-          ["7.5", "Today's Actual Reported Trial Balance", "total5"],
+          ["7.3", "Today's Projected Trial Balance", { derived: "section7.total3" }],
+          ["7.4", "Difference — Actual Reported Minus Projected",
+            { derived: "section7.diff" },
+            "Report to management — a high figure points at a sensor issue"],
+          ["7.5", "Today's Actual Reported Trial Balance", { derived: "section7.total5" }],
         ],
       },
     ],
@@ -185,9 +212,11 @@ export const SECTIONS = [
         fields: [
           ["8.1", "Yesterday's SVR Cash/Book Value", "f1"],
           ["8.2", "Today's Sales After Expenses, Testing and Density Adjustments", "f2"],
-          ["8.3", "Projected SVR Cash/Book Value", "f3", "Duplicate of Section 4, for mgmt reporting"],
+          ["8.3", "Projected SVR Cash/Book Value", { derived: "section8.f3" },
+            "Duplicate of Section 4, for management reporting"],
           ["8.4", "Actual Reported SVR Cash/Book Value", "f4"],
-          ["8.5", "Difference — Actual Reported Minus Projected", "f5"],
+          ["8.5", "Difference — Actual Reported Minus Projected", { derived: "section8.f5" },
+            "OK within ₹100 — above that, call/inform management immediately"],
         ],
       },
       {
@@ -202,6 +231,47 @@ export const SECTIONS = [
           { key: "category", label: "Category", options: DROPDOWN_EXPENSES },
           { key: "amount", label: "Amount" },
         ],
+        total: "section8.regular_expenses_total",
+        totalLabel: "Total Regular Expenses",
+      },
+      {
+        type: "rows",
+        key: "old_credit_collections",
+        title: "8.7 Old Credit Collections",
+        columns: [
+          { key: "type", label: "Type", options: DROPDOWN_OLD_CREDIT_COLLECTION },
+          { key: "amount", label: "Amount" },
+        ],
+        total: "section8.old_credit_total",
+        totalLabel: "Total Old Credit Collections",
+      },
+      {
+        type: "fields",
+        title: "8.8 Management Summary",
+        fields: [
+          ["", "Cash Value Difference — escalate if above ₹100",
+            { derived: "section8.f5" }],
+          ["", "Today's Actual Reported Trial Balance / SVR Net Worth",
+            { derived: "section8.mgmt_actual_networth" }],
+          ["", "Yesterday's Actual Reported Trial Balance", "mgmt_yesterday_tb"],
+          ["", "Daily Profit Including 2T Sales", "mgmt_profit"],
+          ["", "Projected SVR Net Worth", { derived: "section8.mgmt_projected_networth" }],
+          ["", "Actual Reported SVR Net Worth", { derived: "section8.mgmt_actual_networth" }],
+          ["", "Difference — Actual Reported Minus Projected",
+            { derived: "section8.mgmt_networth_diff" },
+            "A positive number is good"],
+          ["", "Actual Profit after all Daily Expenses", "mgmt_actual_profit"],
+        ],
+      },
+      {
+        type: "signoff",
+        title: "8.9 Sign-off",
+        rows: [
+          ["prepared_by", "Prepared by"],
+          ["verified_by", "Verified by"],
+          ["sent_by", "Sent to SVR and Bank Statement to Group Email"],
+        ],
+        options: DROPDOWN_STAFF,
       },
     ],
   },
@@ -235,10 +305,11 @@ export const SECTIONS = [
           ["old", "Old Reading"],
           ["new", "New Computer"],
           ["load", "IOCL Load"],
-          ["lost", "Lost"],
-          ["total", "Total"],
+          ["lost", "Lost", "derived"],
+          ["total", "Total", "derived"],
         ],
-        note: "Total = New Computer − Old Reading (Lost is tracked separately).",
+        derivedFrom: "section10",
+        note: "Total = New Computer − Old Reading. Lost = IOCL Load − Total.",
       },
     ],
   },
@@ -252,7 +323,7 @@ export const SECTIONS = [
       {
         type: "fields",
         fields: [
-          ["11.1", "New Airtel Balance", "new_airtel"],
+          ["11.1", "NEW Airtel Balance", "new_airtel"],
           ["11.2", "Old Airtel Balance", "old_airtel"],
         ],
       },

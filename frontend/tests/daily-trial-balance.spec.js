@@ -86,7 +86,7 @@ test("all eleven workbook sections are on the form, not just the computed ones",
     "4. Cash/Book Value Reconciliation",
     "5. Stock Value",
     "6. Trial Balance — Actual Reported — Today",
-    "7. Trial Balance - Projected - Today",
+    "7. Trial Balance — Projected — Today",
     "8. Daily Management Reporting",
     "9. Daily Mgr Calculation",
     "10. Load/Unload Details",
@@ -98,15 +98,110 @@ test("all eleven workbook sections are on the form, not just the computed ones",
 
   // The raw JSON box is gone.
   await expect(page.locator("#manual-json")).toHaveCount(0);
-  // Representative fields from the sections that used to be JSON-only.
+  // Representative INPUTS from the sections that used to be JSON-only.
   await expect(page.locator('[data-manual="section3.onhand"]')).toBeVisible();
-  await expect(page.locator('[data-manual="section4.diff"]')).toBeVisible();
-  await expect(page.locator('[data-manual="section7.total5"]')).toBeVisible();
-  await expect(page.locator('[data-manual="section8.f5"]')).toBeVisible();
-  await expect(page.locator('[data-manual="section10.hs_total"]')).toBeVisible();
+  await expect(page.locator('[data-manual="section4.reported"]')).toBeVisible();
+  await expect(page.locator('[data-manual="section7.profit"]')).toBeVisible();
+  await expect(page.locator('[data-manual="section8.f4"]')).toBeVisible();
+  await expect(page.locator('[data-manual="section10.hs_new"]')).toBeVisible();
   await expect(page.locator('[data-manual="section11.new_airtel"]')).toBeVisible();
+  // ...and the totals between them are CALCULATED, not typed - so there is no
+  // input for them at all, only a read-only cell. A total you can type over is a
+  // total that can silently disagree with its own inputs.
+  for (const path of [
+    "section3.total6", "section3.total13", "section3.total15",
+    "section4.total3", "section4.diff",
+    "section7.total3", "section7.diff", "section7.total5",
+    "section8.f3", "section8.f5",
+    "section10.hs.total", "section10.hs.lost",
+    "section1.margin_total", "section1.total_sale_amt", "section1.iocl_profit",
+  ]) {
+    // Some figures appear more than once - the sheet itself repeats 4.5 as the
+    // Difference Amount and again as 8.5 - so assert "present", not "exactly one".
+    await expect(page.locator(`[data-derived="${path}"]`).first()).toBeVisible();
+    await expect(page.locator(`[data-manual="${path}"]`)).toHaveCount(0);
+  }
   // Section 9's running ledger keeps all 26 workbook columns.
   await expect(page.locator('[data-rows="section9.ledger"]')).toHaveCount(1);
+  await expect(page.locator('[data-rows="section9.ledger"] tr').first().locator("[data-col]"))
+    .toHaveCount(26);
+});
+
+test("the six SEP12 dropdown lists are on the form, with the sheet's own values", async ({
+  page,
+}) => {
+  await login(page, "mmanager");
+  await page.goto(SCREEN);
+  await expect(page.locator("#body")).toBeVisible();
+
+  const creditor = page.locator('[data-rows="section3.new_credits"] tr').first().locator("select");
+  await expect(creditor.locator("option")).toContainText([
+    "— select —", "Anil/Nani New Credit", "Anil New Credit", "AirTel Hari New Credit",
+    "Salary Advance Viaj", "Salary Advance Ashok", "Salary Advance Sriharsha",
+    "Salary Advance Ravindra", "Sajja Function Hall - New Credit",
+  ]);
+
+  const expense = page.locator('[data-rows="section4.expenses"] tr').first().locator("select");
+  await expect(expense.locator("option")).toContainText([
+    "— select —", "Salaries Mid/End of Month - Total", "Power Bill", "Unload Beta",
+    "Salary Advances Total",
+  ]);
+
+  await expect(
+    page.locator('[data-rows="section4.remittance"] tr').first().locator("select option")
+  ).toContainText(["— select —", "Sajja Old Credit Remitted Amt"]);
+  await expect(
+    page.locator('[data-rows="section8.regular_expenses"] tr').first().locator("select option")
+  ).toContainText(["Power Bill"]);
+  await expect(
+    page.locator('[data-rows="section8.old_credit_collections"] tr').first().locator("select option")
+  ).toContainText(["Anil Old Credit Remitted"]);
+
+  // 8.9 sign-off: Prepared by / Verified by / Sent to, each a staff dropdown.
+  for (const key of ["prepared_by", "verified_by", "sent_by"]) {
+    await expect(page.locator(`select[data-manual="section8.${key}"]`)).toHaveCount(1);
+  }
+  await expect(page.locator('select[data-manual="section8.prepared_by"] option'))
+    .toContainText(["Gopi", "Girish", "Sriharsha"]);
+});
+
+test("cross-section totals are calculated from what you type, to the SEP12 formulas", async ({
+  page,
+}) => {
+  const CALC_DATE = "2026-10-26";
+  await login(page, "mmanager");
+  await page.goto(SCREEN);
+  await expect(page.locator("#body")).toBeVisible();
+  await page.fill("#tb-date", CALC_DATE);
+  await page.click("#load-btn");
+
+  // The SEP12 Section 3 chain, with that sheet's own figures.
+  await page.fill('[data-manual="section3.onhand"]', "76096.51");
+  await page.fill('[data-manual="section3.night"]', "40000");
+  await page.fill('[data-manual="section3.morning"]', "15680.5");
+  await page.fill('[data-manual="section3.oldcredit"]', "14750.4");
+  await page.fill('[data-manual="section3.iocl"]', "499485.08");
+  await page.fill('[data-manual="section3.indianbank"]', "1311580.42");
+  await page.fill('[data-manual="section3.yesbank"]', "11634.55");
+  await page.fill('[data-manual="section3.ppunsettled"]', "3579");
+  const credit = page.locator('[data-rows="section3.new_credits"] tr').first();
+  await credit.locator("select").selectOption("AirTel Hari New Credit");
+  await credit.locator('[data-col="amount"]').fill("11674");
+
+  // Section 10: Total = New - Old, Lost = IOCL Load - Total.
+  await page.fill('[data-manual="section10.hs_old"]', "2207");
+  await page.fill('[data-manual="section10.hs_new"]', "12079");
+  await page.fill('[data-manual="section10.hs_load"]', "10000");
+
+  await page.click("#save-btn");
+  await expect(page.locator("#save-status")).toContainText("recalculated");
+
+  await expect(page.locator('[data-derived="section3.total6"]')).toHaveText("146527.41");
+  await expect(page.locator('[data-derived="section3.total7"]')).toHaveText("146527.41");
+  await expect(page.locator('[data-derived="section3.total13"]')).toHaveText("1972806.46");
+  await expect(page.locator('[data-derived="section3.total15"]')).toHaveText("1984480.46");
+  await expect(page.locator('[data-derived="section10.hs.total"]')).toHaveText("9872.00");
+  await expect(page.locator('[data-derived="section10.hs.lost"]')).toHaveText("128.00");
 });
 
 test("manual sections save into the record's manual block and survive a reload", async ({
@@ -152,13 +247,18 @@ test("Section 2 shows the day's real per-pump figures, pulled not typed", async 
   await page.click("#load-btn");
   await expect(page.locator("#s3-src")).toContainText("Daily Sales Summary");
 
-  // Four gas rows - two fuels x two pumps - each naming its own serial and side.
-  await expect(page.locator("#s2-gas-rows tr")).toHaveCount(4);
+  // Per-pump blocks in the sheet's own shape: a serial header, its two fuel rows
+  // and its subtotal, for each of the two pumps.
+  await expect(page.locator("#s2-gas-rows tr")).toHaveCount(8);
   await expect(page.locator("#s2-gas-rows")).toContainText(`${PUMP_B} (Office)`);
   await expect(page.locator("#s2-gas-rows")).toContainText(`${PUMP_A} (Road)`);
-  // Combined HS consumption is the seeded 50 L (30 + 20), and it is read-only.
+  await expect(page.locator("#s2-gas-rows")).toContainText(`${PUMP_A} Total`);
+  // The combined block below it carries both fuels, side by side.
+  await expect(page.locator("#s2-combined-rows tr")).toHaveCount(2);
   await expect(page.locator("#s2-total-ltrs")).toHaveText(/^\d+\.\d{2}$/);
+  // Nothing in the pulled rows is typeable.
   await expect(page.locator("#s2-gas-rows input")).toHaveCount(0);
+  await expect(page.locator("#s2-combined-rows input")).toHaveCount(0);
 });
 
 test("Manager enters Section 1, sees computed columns + pulled Section 3, then finalizes", async ({
@@ -183,7 +283,9 @@ test("Manager enters Section 1, sees computed columns + pulled Section 3, then f
 
   await expect(page.locator("#hs-diff")).toHaveText("40"); // 100 - 60
   await expect(page.locator("#hs-cons")).toHaveText("50"); // pulled from Section 3
-  await expect(page.locator("#hs-dt")).toHaveText("40"); // 50 - 10
+  // 50 - 5.5: the testing/density deduction is 5.5 from 2026-09-12 (SEP12 tab),
+  // effective-dated, so earlier Trial Balances still compute with the old 10.0.
+  await expect(page.locator("#hs-dt")).toHaveText("44.5");
   // 7.3 = 500000 + stock value total
   const s72 = Number(await page.locator("#s7-2").textContent());
   await expect(page.locator("#s7-3")).toHaveText(String(Math.round((500000 + s72) * 10000) / 10000));

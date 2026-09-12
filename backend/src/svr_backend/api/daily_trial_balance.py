@@ -37,6 +37,7 @@ from svr_backend.calc.daily_trial_balance import (
     Section1Input,
     TrialBalanceInput,
     compute,
+    derive_manual,
 )
 from svr_backend.core.audit import record_write
 from svr_backend.core.db import transaction
@@ -81,6 +82,9 @@ def _context(conn: sqlite3.Connection, shift_date: str, row: sqlite3.Row | None)
     summary = build_summary(conn, shift_date)
     s3_hs = summary["combined"]["hs_liters"]["combined"] if summary["both_present"] else None
     s3_ms = summary["combined"]["ms_liters"]["combined"] if summary["both_present"] else None
+    # Section 1's "2T Sales" column is the day's Oil Sale(s) total, both pumps
+    # (SEP12: J4 = 416 = Section 2.1's own total). Pulled, never retyped.
+    oil_total = summary["combined"]["oil_total"]["combined"] if summary["both_present"] else 0.0
 
     rates = latest_effective_rates(conn, shift_date)
     buy_hs = rates["HS"]["buy_rate"] if "HS" in rates else None
@@ -106,6 +110,7 @@ def _context(conn: sqlite3.Connection, shift_date: str, row: sqlite3.Row | None)
         "s3_source": "daily_sales_summary" if summary["both_present"] else "unavailable",
         "s3_hs_consumption": s3_hs,
         "s3_ms_consumption": s3_ms,
+        "oil_total": oil_total,
         "buy_rate_hs": buy_hs,
         "buy_rate_ms": buy_ms,
         "testing_deduction": testing,
@@ -147,6 +152,15 @@ def _view(conn: sqlite3.Connection, shift_date: str) -> dict:
     row = conn.execute(f"SELECT * FROM {TABLE} WHERE shift_date = ?", (shift_date,)).fetchone()
     ctx = _context(conn, shift_date, row)
     result = compute(ctx["data"]).to_dict()
+    manual = json.loads(row["manual_json"]) if row else {}
+    # The operator-entered sections store INPUTS only; every total between them is
+    # derived here, server-side, exactly as the client's own SEP12 tab computes it
+    # ("Rest should be calculated Automatically using Excel Formulas").
+    # 6.3 Net Worth is the engine's section7 total under the older SDD numbering -
+    # NOT section6, which is Section 5's Stock Value.
+    result["derived"] = derive_manual(
+        manual, result["section7"]["7_3_total"], ctx["oil_total"]
+    )
     return {
         "shift_date": shift_date,
         "status": row["status"] if row else "draft",
@@ -157,7 +171,7 @@ def _view(conn: sqlite3.Connection, shift_date: str) -> dict:
             "s1_ms_current": row["s1_ms_current"] if row else None,
             "s54_cash_book_value": row["s54_cash_book_value"] if row else None,
         },
-        "manual": json.loads(row["manual_json"]) if row else {},
+        "manual": manual,
         "pulled": {
             "s3_source": ctx["s3_source"],
             "s3_hs_consumption": ctx["s3_hs_consumption"],

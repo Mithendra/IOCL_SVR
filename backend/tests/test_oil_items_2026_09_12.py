@@ -119,23 +119,34 @@ def test_rate_master_and_inventory_agree_with_the_form(conn):
         assert inv.get(key) == label, f"inventory_item {key}"
 
 
-def test_every_relabelled_row_keeps_its_rate(conn):
-    """A relabelled row carries the rate it already had (migration 0018) - all
-    five figures come from the client's own filled September sheets.
+def test_the_inferred_rates_were_superseded_by_the_clients_own_sheet(conn):
+    """Migration 0018 carried each relabelled row's OLD rate forward, inferring
+    that a rename meant the same product at the same price. The client's SEP12
+    Trial Balance tab then priced all six rows directly (migration 0019) and three
+    of those inferences were wrong:
 
-    The two genuinely NEW rows stay at 0.00 because there is no prior rate to
-    carry, not because anything is pending: the Owner sets them in Rate Master,
-    and the Oil Sale(s) Rate cell is editable meanwhile."""
+        oil1  30 -> 17     oil3  20 -> 30     oil5  130 -> 270
+
+    Kept as its own test because it is the second time on this module that an
+    inference stood in for evidence and was wrong - the first cost 1,020.01 on the
+    2026-09-09 oil total. Rates come off a filled client sheet, never a guess.
+    """
     from svr_backend.rates import latest_effective_rates
 
     rates = latest_effective_rates(conn, "2026-09-12")
-    assert rates["oil1"]["sell_rate"] == 30.00    # was 2T/1.20 ML
+    assert rates["oil1"]["sell_rate"] == 17.00    # 2T/1.50 ML
+    assert rates["oil3"]["sell_rate"] == 30.00    # Acid Water Total 1 Lts
+    assert rates["oil4"]["sell_rate"] == 120.00   # Battery Water Total 5 Lts
+    assert rates["oil5"]["sell_rate"] == 270.00   # 20/40 Engine Total in 1 Lts
+    assert rates["oil6"]["sell_rate"] == 20.00    # Battery Water Total 1 Lts
+    assert rates["oil7"]["sell_rate"] == 140.00   # 20/40 Engine Total in 05. Lts
+    # oil2 (2T/2.40 ML) is not on SEP12 at all - it keeps the 17.00 the
+    # 2026-09-09/10 Daily Sales Reports price it at, the only evidence on file.
     assert rates["oil2"]["sell_rate"] == 17.00
-    assert rates["oil3"]["sell_rate"] == 20.00
-    assert rates["oil4"]["sell_rate"] == 120.00   # was Acid Water Total 5 Lts
-    assert rates["oil5"]["sell_rate"] == 130.00   # was 20/40 Engine Total in Lts
-    for key in ("oil6", "oil7"):
-        assert rates[key]["sell_rate"] == 0.00, f"{key}: new row, no prior rate to carry"
+
+    # An entry saved BEFORE the change keeps the rate that was in force then.
+    older = latest_effective_rates(conn, "2026-09-10")
+    assert older["oil1"]["sell_rate"] == 30.00
 
 
 def test_inventory_credits_a_legacy_entry_to_the_right_item(client, auth_headers, conn):

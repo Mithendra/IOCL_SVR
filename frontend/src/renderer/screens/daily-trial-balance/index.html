@@ -22,19 +22,21 @@
       </div>
 
       <div class="body-pad">
-        <!-- Section numbering follows the station's own workbook (1-11), which is
-             what the operator has in front of them. The backend's field names keep
-             the older SDD §9 numbering (s54_cash_book_value, section6, section7) -
-             those are internal keys and are deliberately not renamed here. -->
+        <!-- Layout and numbering follow the client's own SEP12 tab
+             (docs/01-BRD-Requirement-Gathering/ocr-samples/Trail_balance_12-SEP-2026.xlsx).
+             The backend's field names keep the older SDD §9 numbering
+             (s54_cash_book_value, computed.section6/section7) - internal keys,
+             deliberately not renamed, mapped at the render/payload boundary. -->
         <p style="font-size:11px;color:var(--io-blue-dark);margin:0 0 8px" id="adr1">
-          Sections 1, 2, 5 and 6 are computed — Section 1 from the SDD §9 formulas, Section 2 pulled
-          live from the day's Daily Sales Entries. The remaining sections are entered here and stored
-          with the record (SDD ADR-1: held as the record's manual block, not server-computed).
+          Grey cells are calculated — Sections 1, 5 and 6 by the SDD §9 engine, Section 2 pulled live
+          from the day's Daily Sales Entries, and every cross-section total from the figures you
+          enter. White cells are yours to fill in.
         </p>
         <p style="font-size:11px;color:var(--io-blue-dark);margin:0 0 8px" id="carry-info"></p>
 
         <div class="meta-grid">
           <div class="field"><label for="tb-date">Date</label><input type="date" id="tb-date" /></div>
+          <div class="field"><label for="tb-shift">Shift</label><input id="tb-shift" data-manual="header.shift" placeholder="e.g. 10.30 AM to next day — K. Ashok" /></div>
           <div class="field"><label>&nbsp;</label><button type="button" class="export-btn" id="load-btn">Load</button></div>
         </div>
         <p id="tb-status" class="status-line"></p>
@@ -46,44 +48,41 @@
             <span style="font-weight:400;font-size:11px">[independent regulatory reading — manual entry, NOT pulled from Section 2]</span>
           </div>
           <div style="overflow-x:auto">
-            <table style="min-width:1180px">
+            <table style="min-width:1240px">
               <tr>
                 <th>Fuel</th><th>IOCL Last</th><th>IOCL Current</th><th>[Last-Current]</th>
-                <th>Actual Consump (Sec.2)</th><th>Consump Diff</th><th>Benefit / Loss</th>
-                <th>Deduct Testing</th><th>Stock Ltrs</th>
+                <th>Actual Consump</th><th>Consump Diff</th><th>Daily Testing</th>
                 <th>Margin</th><th>Margin Total</th><th>2T Sales</th>
                 <th>Total Sale Amt</th><th>IOCL Adv</th><th>IOCL Profit</th>
               </tr>
               <tr>
-                <td>1.1 Diesel (HS)</td>
+                <td>Diesel (HS)</td>
                 <td><input id="hs-y" /></td><td><input id="hs-c" /></td>
                 <td id="hs-diff"></td><td id="hs-cons"></td><td id="hs-cpd"></td>
-                <td id="hs-bl"></td><td id="hs-dt"></td><td id="hs-sl"></td>
+                <td id="hs-dt"></td>
                 <td><input data-manual="section1.hs_margin" /></td>
-                <td><input data-manual="section1.hs_margin_total" /></td>
-                <td><input data-manual="section1.hs_2t_sales" /></td>
-                <td><input data-manual="section1.hs_total_sale_amt" /></td>
+                <td></td><td></td><td></td>
                 <td><input data-manual="section1.hs_iocl_adv" /></td>
-                <td><input data-manual="section1.hs_iocl_profit" /></td>
+                <td></td>
               </tr>
               <tr>
-                <td>1.2 Petrol (MS)</td>
+                <td>Petrol (MS)</td>
                 <td><input id="ms-y" /></td><td><input id="ms-c" /></td>
                 <td id="ms-diff"></td><td id="ms-cons"></td><td id="ms-cpd"></td>
-                <td id="ms-bl"></td><td id="ms-dt"></td><td id="ms-sl"></td>
+                <td id="ms-dt"></td>
                 <td><input data-manual="section1.ms_margin" /></td>
-                <td><input data-manual="section1.ms_margin_total" /></td>
-                <td><input data-manual="section1.ms_2t_sales" /></td>
-                <td><input data-manual="section1.ms_total_sale_amt" /></td>
+                <td data-derived="section1.margin_total"></td>
+                <td data-derived="section1.two_t_sales"></td>
+                <td data-derived="section1.total_sale_amt"></td>
                 <td><input data-manual="section1.ms_iocl_adv" /></td>
-                <td><input data-manual="section1.ms_iocl_profit" /></td>
+                <td data-derived="section1.iocl_profit"></td>
               </tr>
             </table>
           </div>
           <p style="font-size:11px;color:var(--io-blue-dark);margin:4px 0 0">
-            Margin, Margin Total, 2T Sales, Total Sale Amt, IOCL Adv and IOCL Profit are entered by
-            hand — their formulas have never been confirmed against a filled workbook, so they are
-            not computed here rather than being guessed.
+            Margin Total, 2T Sales, Total Sale Amt and IOCL Profit are printed once, on the Petrol
+            row, combining both fuels — matching the sheet. Benefit/Loss <span id="hs-bl"></span> /
+            <span id="ms-bl"></span>; Stock Ltrs <span id="hs-sl"></span> / <span id="ms-sl"></span>.
           </p>
 
           <!-- ============================ 2 ============================ -->
@@ -97,41 +96,54 @@
               <th>[Last-Current]</th><th>Rate</th><th>Per Pump</th>
             </tr>
             <tbody id="s2-gas-rows"></tbody>
-            <tr class="total-row"><td colspan="5">2.5 Total Sale Ltrs.</td><td id="s2-total-ltrs">—</td></tr>
           </table>
           <table style="margin-top:8px">
-            <tr><th>2.6 Oil Sales</th><th>Sold</th><th>Rate</th><th>Amount</th></tr>
+            <tr><th>Combined</th><th>12BC4523V-RD (Road)</th><th>11CC2012V-OFF (Office)</th><th>Total Ltrs</th><th>Rate</th><th>Amount</th></tr>
+            <tbody id="s2-combined-rows"></tbody>
+            <tr class="total-row"><td colspan="5">Total Sale Ltrs.</td><td id="s2-total-ltrs">—</td></tr>
+          </table>
+          <table style="margin-top:8px">
+            <tr>
+              <th>2.1 Oil Sales</th><th>Sold</th><th>Rate</th>
+              <th>Opening Stock</th><th>Closing Stock</th><th>Amount</th><th>Indent (oil's)</th>
+            </tr>
             <tbody id="s2-oil-rows"></tbody>
-            <tr class="total-row"><td colspan="3">2.6.8 Oil Sale(s): Total Amount</td><td id="s2-oil-subtotal">—</td></tr>
+            <tr class="total-row"><td colspan="5">Oil Sale(s): Total Amount</td><td id="s2-oil-subtotal">—</td><td id="s2-indent-total">—</td></tr>
           </table>
           <table style="margin-top:8px">
-            <tr class="total-row"><td>2.7 Daily Sales Total Amt</td><td id="s2-daily-total">—</td></tr>
+            <tr class="total-row"><td>Daily Sales Total Amt <span style="font-weight:400;font-size:11px">[final Gas &amp; Oil sales]</span></td><td id="s2-daily-total">—</td></tr>
           </table>
           <p style="font-size:11px;color:var(--io-blue-dark);margin:4px 0 0" id="s3-src"></p>
 
-          <!-- 3, 4 rendered from the schema in screen.js -->
+          <!-- 3, 4 rendered from the schema in sections.js -->
           <div id="sec-3"></div>
           <div id="sec-4"></div>
 
           <!-- ============================ 5 ============================ -->
-          <div class="section-title">5. Stock Value</div>
+          <div class="section-title">
+            5. Stock Value
+            <span style="font-weight:400;font-size:11px">[Computer On-hand Stock Readings × Buy Rate]</span>
+          </div>
           <table>
-            <tr><th>Fuel</th><th>Ltrs</th><th>Buy Rate</th><th>Amount</th></tr>
-            <tr><td>5.1 Diesel (HS)</td><td id="hs-sl2">—</td><td id="hs-br"></td><td id="hs-sa"></td></tr>
-            <tr><td>5.2 Petrol (MS)</td><td id="ms-sl2">—</td><td id="ms-br"></td><td id="ms-sa"></td></tr>
-            <tr class="total-row"><td colspan="3">5.3 Total Stock Value</td><td id="s6-total"></td></tr>
+            <tr><th>Fuel</th><th>Ltrs</th><th>Rate</th><th>Amount</th></tr>
+            <tr><td>Diesel (HS)</td><td id="hs-sl2">—</td><td id="hs-br"></td><td id="hs-sa"></td></tr>
+            <tr><td>Petrol (MS)</td><td id="ms-sl2">—</td><td id="ms-br"></td><td id="ms-sa"></td></tr>
+            <tr class="total-row"><td colspan="3">Total Stock Value</td><td id="s6-total"></td></tr>
           </table>
 
           <!-- ============================ 6 ============================ -->
           <div class="summary-box">
             <h3>6. Trial Balance — Actual Reported — Today</h3>
-            <div class="summary-row"><span>6.1 Today's Actual Reported SVR Cash / Book Value</span>
+            <div class="summary-row"><span>Today's Actual Reported SVR Cash/Book Value</span>
               <span><input id="cash-bv" style="width:140px;text-align:right" /></span></div>
-            <div class="summary-row"><span>6.2 Today's Closing Stock Value (from Section 5)</span><span id="s7-2">—</span></div>
-            <div class="summary-row net"><span>6.3 Today's Total Working Capital / Net Worth</span><span id="s7-3">—</span></div>
+            <div class="summary-row"><span>Today's Closing Stock Value</span><span id="s7-2">—</span></div>
+            <div class="summary-row net"><span>Today's Total Working Capital / Net Worth</span><span id="s7-3">—</span></div>
+            <p style="font-size:11px;color:var(--io-blue-dark);margin:6px 0 0">
+              Carry this amount forward as tomorrow's 7.1 — Close &amp; Sign Off does it for you.
+            </p>
           </div>
 
-          <!-- 7 .. 11 rendered from the schema in screen.js -->
+          <!-- 7 .. 11 rendered from the schema in sections.js -->
           <div id="sec-7"></div>
           <div id="sec-8"></div>
           <div id="sec-9"></div>

@@ -1,24 +1,25 @@
-// Daily Trial Balance screen (SDD 5.8 / 9).
+// Daily Trial Balance screen (SDD 5.8 / 9), laid out to match the client's own
+// SEP12 tab (docs/01-BRD-Requirement-Gathering/ocr-samples/Trail_balance_12-SEP-2026.xlsx).
 //
-// Sections 1, 5 and 6 are computed by the backend engine; Section 2 is pulled live
-// from the day's Daily Sales Entries. Sections 3, 4, 7, 8, 9, 10 and 11 are entered
-// here and stored in the record's `manual` block (SDD ADR-1, confirmed 2026-09-06).
+// Three kinds of cell:
+//   * computed by the engine  - Sections 1, 5, 6 (SDD §9 formulas)
+//   * pulled                  - Section 2, live from the day's Daily Sales Entries
+//   * entered + derived       - Sections 3, 4, 7, 8, 10, 11: the operator types the
+//                               INPUTS, the backend adds up the totals between them
+//                               and returns them under `computed.derived`
 //
-// Until 2026-09-12 those seven sections were a single raw JSON textarea, which is
-// why the form looked like it only had three sections. ADR-1's storage decision is
-// unchanged - every field still lands in the same `manual` dict, addressed by a
-// dotted path - but they are now real labelled fields. The form definition lives in
-// sections.js.
+// The manual inputs are stored in the record's `manual` block (SDD ADR-1) by a
+// dotted path - "section3.onhand" - so the storage contract is unchanged and an
+// already-saved record round-trips. No total is ever stored: the client's own
+// sheet says "Rest should be calculated Automatically using Excel Formulas", and
+// a stored total is a total that can silently disagree with its own inputs.
 //
-// Section numbering on screen is the STATION'S workbook numbering (1-11). The
-// backend's field names keep the older SDD §9 numbering (s54_cash_book_value,
-// computed.section6, computed.section7); those are internal keys, deliberately not
-// renamed, and the two are mapped at the render/payload boundary below.
+// Section numbering is the STATION'S workbook numbering (1-11). The backend keeps
+// the older SDD §9 field names; the two are mapped at the boundary below.
 //
-// RBAC (maker-checker, ADR-2, confirmed 2026-09-06): Sales is the maker - can view
-// and save (GET/PUT), same as Manager/Owner. Close & Sign Off (finalize) is
-// checker-only (Manager/Owner) - the fields and button for it are hidden entirely
-// for Sales; the backend enforces this independently either way.
+// RBAC (maker-checker, ADR-2): Sales is the maker (GET/PUT). Close & Sign Off is
+// checker-only (Manager/Owner); its controls are hidden for Sales and the backend
+// enforces it independently either way.
 
 import { api, getToken } from "../../lib/api.js";
 import { fmt2 } from "../../lib/format.js";
@@ -31,6 +32,7 @@ const txt = (id, v) => {
 };
 
 const PUMP_LABELS = { "11CC2012V-OFF": "Office", "12BC4523V-RD": "Road" };
+const SIDE_SERIAL = { road: "12BC4523V-RD", office: "11CC2012V-OFF" };
 
 let me = null;
 let currentStatus = "draft";
@@ -39,24 +41,31 @@ function canFinalize() {
   return me && (me.role === "Manager" || me.role === "Owner");
 }
 
+const esc = (s) => String(s).replace(/"/g, "&quot;");
+const hintHtml = (h) =>
+  h ? ` <span style="font-weight:400;font-size:10px;color:var(--io-blue-dark)">${h}</span>` : "";
+
 // ------------------------------------------------------- manual-section rendering
 
-const esc = (s) => String(s).replace(/"/g, "&quot;");
+function cellFor(sectionKey, spec) {
+  // A string is an input the operator fills in; { derived } is calculated and
+  // rendered read-only, so a total can never be typed over.
+  if (typeof spec === "string") {
+    return `<td><input data-manual="${esc(`${sectionKey}.${spec}`)}" style="text-align:right"></td>`;
+  }
+  return `<td data-derived="${esc(spec.derived)}" style="text-align:right;background:#eef1fa;font-weight:600">—</td>`;
+}
 
 function fieldsBlock(sectionKey, block) {
+  const title = block.title
+    ? `<div style="font-weight:700;font-size:12px;margin:10px 0 4px">${block.title}</div>`
+    : "";
   const rows = block.fields
-    .map(([no, label, key, hint]) => {
-      const path = `${sectionKey}.${key}`;
-      const hintHtml = hint
-        ? ` <span style="font-weight:400;font-size:10px;color:var(--io-blue-dark)">${hint}</span>`
-        : "";
-      return (
-        `<tr><td>${no} ${label}${hintHtml}</td>` +
-        `<td><input data-manual="${esc(path)}" style="text-align:right"></td></tr>`
-      );
-    })
+    .map(([no, label, spec, hint]) =>
+      `<tr><td>${no ? `${no} ` : ""}${label}${hintHtml(hint)}</td>${cellFor(sectionKey, spec)}</tr>`
+    )
     .join("");
-  return `<table><tr><th>Line</th><th>Amount</th></tr>${rows}</table>`;
+  return `${title}<table><tr><th>Line</th><th>Amount</th></tr>${rows}</table>`;
 }
 
 function rowsBlock(sectionKey, block) {
@@ -68,10 +77,14 @@ function rowsBlock(sectionKey, block) {
   const note = block.note
     ? `<p style="font-size:11px;color:var(--io-blue-dark);margin:4px 0 0">${block.note}</p>`
     : "";
+  const totalRow = block.total
+    ? `<tr class="total-row"><td colspan="${block.columns.length - 1}">${block.totalLabel}</td>` +
+      `<td data-derived="${esc(block.total)}" style="text-align:right">—</td><td></td></tr>`
+    : "";
   const table =
     `<table${block.wide ? ' style="min-width:2600px"' : ""}>` +
     `<tr>${head}<th style="width:1%"></th></tr>` +
-    `<tbody data-rows="${esc(path)}"></tbody></table>`;
+    `<tbody data-rows="${esc(path)}"></tbody>${totalRow}</table>`;
   return (
     title +
     (block.wide ? `<div style="overflow-x:auto">${table}</div>` : table) +
@@ -87,10 +100,12 @@ function gridBlock(sectionKey, block) {
       ([rowKey, rowLabel]) =>
         `<tr><td>${rowLabel}</td>` +
         block.columns
-          .map(
-            ([colKey]) =>
-              `<td><input data-manual="${esc(`${sectionKey}.${rowKey}_${colKey}`)}" ` +
-              `style="text-align:right"></td>`
+          .map(([colKey, , kind]) =>
+            kind === "derived"
+              ? `<td data-derived="${esc(`${block.derivedFrom}.${rowKey}.${colKey}`)}" ` +
+                `style="text-align:right;background:#eef1fa;font-weight:600">—</td>`
+              : `<td><input data-manual="${esc(`${sectionKey}.${rowKey}_${colKey}`)}" ` +
+                `style="text-align:right"></td>`
           )
           .join("") +
         `</tr>`
@@ -100,6 +115,24 @@ function gridBlock(sectionKey, block) {
     ? `<p style="font-size:11px;color:var(--io-blue-dark);margin:4px 0 0">${block.note}</p>`
     : "";
   return `<table><tr><th></th>${head}</tr>${body}</table>${note}`;
+}
+
+function signoffBlock(sectionKey, block) {
+  const opts = (v) =>
+    ["", ...block.options]
+      .map((o) => `<option value="${esc(o)}"${o === v ? " selected" : ""}>${o || "— select —"}</option>`)
+      .join("");
+  const rows = block.rows
+    .map(
+      ([key, label]) =>
+        `<tr><td>${label}</td><td><select data-manual="${esc(`${sectionKey}.${key}`)}">` +
+        `${opts(null)}</select></td></tr>`
+    )
+    .join("");
+  return (
+    `<div style="font-weight:700;font-size:12px;margin:10px 0 4px">${block.title}</div>` +
+    `<table><tr><th>Role</th><th>Name</th></tr>${rows}</table>`
+  );
 }
 
 function buildManualSections() {
@@ -114,10 +147,10 @@ function buildManualSections() {
       if (block.type === "fields") html += fieldsBlock(section.key, block);
       else if (block.type === "rows") html += rowsBlock(section.key, block);
       else if (block.type === "grid") html += gridBlock(section.key, block);
+      else if (block.type === "signoff") html += signoffBlock(section.key, block);
     }
     host.innerHTML = html;
   }
-
   document.querySelectorAll("[data-add-row]").forEach((btn) => {
     btn.addEventListener("click", () => addRow(btn.dataset.addRow));
   });
@@ -143,9 +176,8 @@ function addRow(path, values = {}) {
         const v = values[col.key];
         if (col.options) {
           const opts = ["", ...col.options]
-            .map(
-              (o) =>
-                `<option value="${esc(o)}"${o === v ? " selected" : ""}>${o || "— select —"}</option>`
+            .map((o) =>
+              `<option value="${esc(o)}"${o === v ? " selected" : ""}>${o || "— select —"}</option>`
             )
             .join("");
           return `<td><select data-col="${esc(col.key)}">${opts}</select></td>`;
@@ -172,9 +204,17 @@ function fillManual(manual) {
     const saved = (data[sectionKey] || {})[blockKey];
     const list = Array.isArray(saved) ? saved : [];
     for (const values of list) addRow(body.dataset.rows, values || {});
-    // Always leave one empty row to type into, so an untouched section still
-    // looks like a form rather than an empty box.
+    // Always leave one empty row to type into, so an untouched block still looks
+    // like a form rather than an empty box.
     if (!list.length) addRow(body.dataset.rows);
+  });
+}
+
+function fillDerived(derived) {
+  const dig = (path) =>
+    path.split(".").reduce((acc, part) => (acc == null ? acc : acc[part]), derived || {});
+  document.querySelectorAll("[data-derived]").forEach((el) => {
+    el.textContent = fmt2(dig(el.dataset.derived)) || "—";
   });
 }
 
@@ -216,12 +256,12 @@ function lockManualInputs(locked) {
 
 async function loadDaySales(dateStr) {
   const gas = $("s2-gas-rows");
+  const combined = $("s2-combined-rows");
   const oils = $("s2-oil-rows");
-  gas.innerHTML = "";
-  oils.innerHTML = "";
-  txt("s2-total-ltrs", null);
-  txt("s2-oil-subtotal", null);
-  txt("s2-daily-total", null);
+  [gas, combined, oils].forEach((el) => (el.innerHTML = ""));
+  ["s2-total-ltrs", "s2-oil-subtotal", "s2-indent-total", "s2-daily-total"].forEach((id) =>
+    txt(id, null)
+  );
 
   let entries;
   try {
@@ -235,40 +275,69 @@ async function loadDaySales(dateStr) {
     return;
   }
 
-  let n = 0;
-  let totalLtrs = 0;
-  let grand = 0;
-  const oilTotals = new Map();
-  let oilGrand = 0;
+  // Per-pump blocks, in the sheet's order: Road first, then Office, each with its
+  // own subtotal - then the combined block. The sheet's own combined header has
+  // the two serials the wrong way round (it labels the Road column
+  // "11CC2012V-Road"); the pairing here is the confirmed one.
+  const bySide = {};
+  for (const e of entries) bySide[PUMP_LABELS[e.pump_serial]] = e;
 
-  for (const e of entries) {
-    const side = PUMP_LABELS[e.pump_serial] || e.pump_serial;
+  let grandAmount = 0;
+  const perSide = {};
+  for (const side of ["Road", "Office"]) {
+    const e = bySide[side];
+    if (!e) continue;
+    const serial = SIDE_SERIAL[side.toLowerCase()];
+    gas.appendChild(headerRow(`${serial} (${side})`));
+    let subtotal = 0;
+    perSide[side] = {};
     for (const fuel of ["hs", "ms"]) {
       const inp = (e.payload || {})[fuel] || {};
       const res = (e.result || {})[fuel] || {};
       const name = fuel === "hs" ? "Diesel (HS-Nz-1)" : "Petrol (MS-Nz-2)";
-      n += 1;
-      totalLtrs += res.cons || 0;
-      grand += res.amount || 0;
+      subtotal += res.amount || 0;
+      perSide[side][fuel] = { cons: res.cons || 0, rate: inp.rate, amount: res.amount || 0 };
       const tr = document.createElement("tr");
       tr.innerHTML =
-        `<td>2.${n} ${e.pump_serial} (${side}) — ${name}</td>` +
-        `<td>${fmt2(inp.current)}</td><td>${fmt2(inp.last)}</td>` +
+        `<td>${name}</td><td>${fmt2(inp.current)}</td><td>${fmt2(inp.last)}</td>` +
         `<td>${fmt2(res.cons)}</td><td>${fmt2(inp.rate)}</td><td>${fmt2(res.amount)}</td>`;
       gas.appendChild(tr);
     }
-    // Oil rows are summed across both pumps by item, matched on the row's own
-    // stored label (the row ORDER changed on 2026-09-12 - see oils_by_key).
+    const sub = document.createElement("tr");
+    sub.className = "total-row";
+    sub.innerHTML = `<td colspan="5">${serial} Total</td><td>${fmt2(subtotal)}</td>`;
+    gas.appendChild(sub);
+    grandAmount += subtotal;
+  }
+
+  for (const [fuel, label] of [["hs", "Diesel (HS)"], ["ms", "Petrol (MS)"]]) {
+    const road = (perSide.Road || {})[fuel] || {};
+    const office = (perSide.Office || {})[fuel] || {};
+    const total = (road.cons || 0) + (office.cons || 0);
+    const tr = document.createElement("tr");
+    tr.innerHTML =
+      `<td>${label}</td><td>${fmt2(road.cons)}</td><td>${fmt2(office.cons)}</td>` +
+      `<td>${fmt2(total)}</td><td>${fmt2(road.rate || office.rate)}</td>` +
+      `<td>${fmt2((road.amount || 0) + (office.amount || 0))}</td>`;
+    combined.appendChild(tr);
+  }
+
+  // Oil rows summed across both pumps, matched on the row's own stored label -
+  // the row ORDER changed on 2026-09-12, so position is not safe (oils_by_key).
+  const oilTotals = new Map();
+  let oilGrand = 0;
+  for (const e of entries) {
     const inOils = (e.payload || {}).oils || [];
-    const outOils = (e.result || {}).oils || [];
-    outOils.forEach((o, i) => {
+    ((e.result || {}).oils || []).forEach((o, i) => {
       const label = o.label || (inOils[i] || {}).label;
       if (!label) return;
-      const prev = oilTotals.get(label) || { qty: 0, rate: null, amount: 0 };
-      const qty = parseFloat((inOils[i] || {}).qty);
-      const rate = parseFloat((inOils[i] || {}).rate);
-      prev.qty += isNaN(qty) ? 0 : qty;
-      if (!isNaN(rate) && rate) prev.rate = rate;
+      const prev = oilTotals.get(label) || { qty: 0, rate: null, open: 0, close: 0, amount: 0 };
+      const num = (x) => (isNaN(parseFloat(x)) ? 0 : parseFloat(x));
+      prev.qty += num((inOils[i] || {}).qty);
+      const rate = num((inOils[i] || {}).rate);
+      if (rate) prev.rate = rate;
+      prev.open += num((inOils[i] || {}).opening);
+      prev.close += num(o.closing);
       prev.amount += o.amount || 0;
       oilTotals.set(label, prev);
     });
@@ -280,20 +349,34 @@ async function loadDaySales(dateStr) {
     k += 1;
     const tr = document.createElement("tr");
     tr.innerHTML =
-      `<td>2.6.${k} ${label}</td><td>${fmt2(o.qty)}</td>` +
-      `<td>${fmt2(o.rate)}</td><td>${fmt2(o.amount)}</td>`;
+      `<td>2.1.${k} ${label}</td><td>${fmt2(o.qty)}</td><td>${fmt2(o.rate)}</td>` +
+      `<td>${fmt2(o.open)}</td><td>${fmt2(o.close)}</td><td>${fmt2(o.amount)}</td>` +
+      `<td><input data-manual="section2.indent_${k}" style="text-align:right"></td>`;
     oils.appendChild(tr);
   }
+  // The Indent column is the one operator-entered cell in Section 2, so it has to
+  // be refilled after these rows are (re)built.
+  fillManual(lastManual);
 
-  txt("s2-total-ltrs", fmt2(totalLtrs));
+  txt("s2-total-ltrs", fmt2(grandAmount));
   txt("s2-oil-subtotal", fmt2(oilGrand));
-  txt("s2-daily-total", fmt2(grand + oilGrand));
+  txt("s2-daily-total", fmt2(grandAmount + oilGrand));
+}
+
+function headerRow(label) {
+  const tr = document.createElement("tr");
+  tr.className = "total-row";
+  tr.innerHTML = `<td colspan="6">${label}</td>`;
+  return tr;
 }
 
 // ------------------------------------------------------------------ main render
 
+let lastManual = {};
+
 function render(view) {
   currentStatus = view.status;
+  lastManual = view.manual || {};
   $("status-tag").textContent = view.status;
   const i = view.inputs;
   $("hs-y").value = i.s1_hs_yesterday ?? "";
@@ -301,7 +384,8 @@ function render(view) {
   $("ms-y").value = i.s1_ms_yesterday ?? "";
   $("ms-c").value = i.s1_ms_current ?? "";
   $("cash-bv").value = i.s54_cash_book_value ?? "";
-  fillManual(view.manual);
+  fillManual(lastManual);
+  fillDerived(view.computed.derived);
 
   for (const f of ["hs", "ms"]) {
     const s = view.computed.section1[f];
@@ -320,14 +404,14 @@ function render(view) {
   txt("s7-2", view.computed.section7["7_2_stock_value"]);
   txt("s7-3", view.computed.section7["7_3_total"]);
 
-  // Section 2's figure is both pumps combined, so the two serials are named here:
-  // the mockup's own Section 2 had them the wrong way round (Office labelled
-  // 12BC4523V-Off, Road labelled 11CC2012V-Road) and nothing on this screen said
-  // otherwise. Office is 11CC2012V-OFF, Road is 12BC4523V-RD (client, 2026-09-12).
+  // Section 1's Actual Consump is both pumps combined, so the two serials are
+  // named here: the mockup's Section 2 had them the wrong way round (Office
+  // labelled 12BC4523V-Off, Road labelled 11CC2012V-Road) and nothing on this
+  // screen said otherwise. Office is 11CC2012V-OFF, Road is 12BC4523V-RD.
   $("s3-src").textContent =
     view.pulled.s3_source === "daily_sales_summary"
-      ? `Section 1's Actual Consump is pulled from Daily Sales Summary — both pumps ` +
-        `combined, 11CC2012V-OFF (Office) + 12BC4523V-RD (Road): ` +
+      ? `Section 1's Actual Consump and 2T Sales are pulled from Daily Sales Summary — ` +
+        `both pumps combined, 11CC2012V-OFF (Office) + 12BC4523V-RD (Road): ` +
         `HS ${view.pulled.s3_hs_consumption ?? "—"} / MS ${view.pulled.s3_ms_consumption ?? "—"} L.`
       : "No Daily Sales Summary for this date yet — Section 1's Actual Consump is unavailable, so the derived columns stay blank.";
 
