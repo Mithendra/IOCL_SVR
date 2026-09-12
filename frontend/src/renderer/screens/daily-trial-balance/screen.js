@@ -264,8 +264,18 @@ async function loadDaySales(dateStr) {
   );
 
   let entries;
+  let oilKeyByLabel = {};
   try {
     entries = await api.get(`/daily-sales-entry?shift_date=${encodeURIComponent(dateStr)}`);
+    // Daily Sales Summary is the one place that hands out the oil rows' own KEYS
+    // alongside their labels. The Indent cell below is stored against that key,
+    // never against the row's position: the Oil Sale(s) list has already been
+    // re-ordered twice (2026-09-12), and a position-keyed value silently ends up
+    // on a different product when it moves. Same discipline as oils_by_key.
+    const summary = await api.get(`/daily-sales-summary/${encodeURIComponent(dateStr)}`);
+    for (const o of (summary.combined && summary.combined.oils) || []) {
+      oilKeyByLabel[o.label] = o.key;
+    }
   } catch {
     return;
   }
@@ -347,11 +357,12 @@ async function loadDaySales(dateStr) {
   let k = 0;
   for (const [label, o] of oilTotals) {
     k += 1;
+    const key = oilKeyByLabel[label] || label.replace(/[^A-Za-z0-9]+/g, "_");
     const tr = document.createElement("tr");
     tr.innerHTML =
       `<td>2.1.${k} ${label}</td><td>${fmt2(o.qty)}</td><td>${fmt2(o.rate)}</td>` +
       `<td>${fmt2(o.open)}</td><td>${fmt2(o.close)}</td><td>${fmt2(o.amount)}</td>` +
-      `<td><input data-manual="section2.indent_${k}" style="text-align:right"></td>`;
+      `<td><input data-manual="${esc(`section2.indent_${key}`)}" style="text-align:right"></td>`;
     oils.appendChild(tr);
   }
   // The Indent column is the one operator-entered cell in Section 2, so it has to

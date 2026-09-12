@@ -140,13 +140,49 @@ def test_the_inferred_rates_were_superseded_by_the_clients_own_sheet(conn):
     assert rates["oil5"]["sell_rate"] == 270.00   # 20/40 Engine Total in 1 Lts
     assert rates["oil6"]["sell_rate"] == 20.00    # Battery Water Total 1 Lts
     assert rates["oil7"]["sell_rate"] == 140.00   # 20/40 Engine Total in 05. Lts
-    # oil2 (2T/2.40 ML) is not on SEP12 at all - it keeps the 17.00 the
-    # 2026-09-09/10 Daily Sales Reports price it at, the only evidence on file.
+    # oil2 (2T/2.40 ML) is not on SEP12 at all - the client confirmed on
+    # 2026-09-12 that it stays on the forms, at the 17.00 the 2026-09-09/10 Daily
+    # Sales Reports price it at, which is the only evidence on file for that row
+    # (migration 0020).
     assert rates["oil2"]["sell_rate"] == 17.00
 
     # An entry saved BEFORE the change keeps the rate that was in force then.
     older = latest_effective_rates(conn, "2026-09-10")
     assert older["oil1"]["sell_rate"] == 30.00
+
+
+def test_2t_240_is_on_every_form(client, auth_headers, conn):
+    """2T/2.40 ML (oil2) is the one row the client's SEP12 Trial Balance tab does
+    not carry - its Oil Sales block lists six rows to this form's seven. Flagged
+    and confirmed to keep on 2026-09-12, so it is pinned onto every surface here
+    rather than left to be quietly dropped the next time the list is revised."""
+    assert OIL_LABELS["oil2"] == "2T/2.40 ML Total#"
+    assert "oil2" in OIL_KEYS
+
+    # Daily Sales Entry - offered on the form with a rate and an opening stock.
+    prefill = client.get(
+        "/daily-sales-entry/prefill",
+        params={"pump_serial": "11CC2012V-OFF", "shift_date": "2026-09-12"},
+        headers=auth_headers("Sales"),
+    ).json()
+    assert prefill["oil_labels"]["oil2"] == "2T/2.40 ML Total#"
+    assert prefill["oil_rates"]["oil2"] == 17.00
+    assert prefill["oil_openings"]["oil2"] is not None
+
+    # Inventory Tracking.
+    inv = client.get("/inventory", headers=auth_headers("Manager")).json()
+    assert any(r["item_key"] == "oil2" for r in inv)
+
+    # Daily Sales Summary - which is also what feeds Daily Trial Balance §2.1,
+    # and the only place the oil rows' keys and labels are published together.
+    client.post(
+        "/daily-sales-entry",
+        json={"pump_serial": "12BC4523V-RD", "shift_date": DATE, "hs": {"current": "1"}},
+        headers=auth_headers("Sales"),
+    )
+    summary = client.get(f"/daily-sales-summary/{DATE}", headers=auth_headers("Manager")).json()
+    oil2 = next(o for o in summary["combined"]["oils"] if o["key"] == "oil2")
+    assert oil2["label"] == "2T/2.40 ML Total#"
 
 
 def test_inventory_credits_a_legacy_entry_to_the_right_item(client, auth_headers, conn):
