@@ -119,20 +119,23 @@ def test_rate_master_and_inventory_agree_with_the_form(conn):
         assert inv.get(key) == label, f"inventory_item {key}"
 
 
-def test_only_evidenced_oil_rates_were_carried_forward(conn):
-    """A rate is carried onto a renamed row only where the evidence reaches it.
-    The other four read 0.00 - "not set, Owner to fill in" - deliberately: a
-    plausible-looking placeholder is what put the 2026-09-09 Oil total out by
-    1,020.01 (migration 0015), and 0 is the client's own rule for a blank Rate
-    cell. Raise these here only when the client confirms the real figures."""
+def test_every_relabelled_row_keeps_its_rate(conn):
+    """A relabelled row carries the rate it already had (migration 0018) - all
+    five figures come from the client's own filled September sheets.
+
+    The two genuinely NEW rows stay at 0.00 because there is no prior rate to
+    carry, not because anything is pending: the Owner sets them in Rate Master,
+    and the Oil Sale(s) Rate cell is editable meanwhile."""
     from svr_backend.rates import latest_effective_rates
 
     rates = latest_effective_rates(conn, "2026-09-12")
-    assert rates["oil2"]["sell_rate"] == 17.00    # label unchanged, priced on the sheets
-    assert rates["oil3"]["sell_rate"] == 20.00    # label unchanged, priced on the sheets
-    assert rates["oil5"]["sell_rate"] == 130.00   # the old single 20/40 row is the 1 Lts one
-    for key in ("oil1", "oil4", "oil6", "oil7"):
-        assert rates[key]["sell_rate"] == 0.00, f"{key}: awaiting the Owner's rate"
+    assert rates["oil1"]["sell_rate"] == 30.00    # was 2T/1.20 ML
+    assert rates["oil2"]["sell_rate"] == 17.00
+    assert rates["oil3"]["sell_rate"] == 20.00
+    assert rates["oil4"]["sell_rate"] == 120.00   # was Acid Water Total 5 Lts
+    assert rates["oil5"]["sell_rate"] == 130.00   # was 20/40 Engine Total in Lts
+    for key in ("oil6", "oil7"):
+        assert rates[key]["sell_rate"] == 0.00, f"{key}: new row, no prior rate to carry"
 
 
 def test_inventory_credits_a_legacy_entry_to_the_right_item(client, auth_headers, conn):
