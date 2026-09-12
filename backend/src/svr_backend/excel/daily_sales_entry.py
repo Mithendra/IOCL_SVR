@@ -24,7 +24,7 @@ from svr_backend.calc.amounts import is_blank
 from svr_backend.calc.daily_sales_entry import OIL_KEYS, OIL_LABELS, compute_payload
 
 SHEET = "Daily Sales Entry"
-_MAX_OILS = 8  # 5 fixed + up to 3 operator-added
+_MAX_OILS = 10  # 7 fixed + up to 3 operator-added
 _MAX_ROWS = 10  # expenses / cards / new-credits / old-credits template rows
 _EPS = 0.01
 
@@ -76,6 +76,10 @@ def _oil_rows(payload: dict, result: dict) -> list[_Row]:
             _r(label, "Amount", computed=ro.get("amount"), key=f"_chk.oils.{i}.amount"),
         ]
     rows.append(_r("", "Total Amt Oil(s)", computed=result.get("oil_total"), key="_chk.oil_total"))
+    rows.append(
+        _r("", "Total Gas & Oil Sales Amt", computed=result.get("gas_oil_total"),
+           key="_chk.gas_oil_total")
+    )
     return rows
 
 
@@ -123,7 +127,7 @@ def _summary_rows(payload: dict, result: dict) -> list[_Row]:
            key="_chk.sum_new_credits"),
         _r(s, "Credit Cards Swiping Total Amt", computed=result.get("sum_credit_cards"),
            key="_chk.sum_credit_cards"),
-        _r(s, "Night Cash Hand Off Total Amt", payload.get("night_cash"), key="night_cash"),
+        # "Night Cash Hand Off Total Amt" was removed from the form 2026-09-12.
         _r(s, "Net Bal Hand Off", computed=result.get("net_bal_hand_off"),
            key="_chk.net_bal_hand_off"),
     ]
@@ -232,6 +236,8 @@ _KEY_PREFIXES = (
     "hs.", "ms.", "oils.", "expenses.", "credit_card_amounts.",
     "new_credits.", "old_credit_amounts.", "meta.", "_chk.", "_info.",
 )
+# "night_cash" stays in the recognised vocabulary so an older exported workbook
+# still parses cleanly; _assign() then drops it (the row left the form 2026-09-12).
 _KEY_EXACT = ("phone_pay_settled", "phone_pay_unsettled", "night_cash")
 
 
@@ -277,7 +283,7 @@ def _assign(payload: dict, key: str, value: Any) -> None:
         payload["new_credits"][int(parts[1])][parts[2]] = value
     elif head in ("expenses", "credit_card_amounts", "old_credit_amounts") and len(parts) == 2:
         payload[head][int(parts[1])] = value
-    elif head in ("phone_pay_settled", "phone_pay_unsettled", "night_cash"):
+    elif head in ("phone_pay_settled", "phone_pay_unsettled"):
         payload[head] = value
 
 
@@ -322,14 +328,30 @@ def _norm_hints(hints: tuple[str, ...]) -> tuple[str, ...]:
 _HS_LABEL_HINTS = _norm_hints(("diesel", "hs-nz", "(hs"))
 _MS_LABEL_HINTS = _norm_hints(("petrol", "ms-nz", "(ms"))
 
-# Distinctive substrings per fixed oil row - first token alone is ambiguous between
-# the two Acid Water rows, so each hint pins down the row uniquely.
+# Distinctive substrings per fixed oil row. Each hint must pin down exactly ONE
+# row: a first token alone is ambiguous between the two water rows and, since
+# 2026-09-12, between the two 20/40 Engine pack sizes.
+#
+# Both wordings are matched. The station's revised form (2026-09-12) is the first
+# set; the second is the wording its printed pads and its already-filled September
+# sheets still carry, which must keep importing. The legacy 20/40 hint is spelled
+# out in full ("... total in lts") rather than left as a bare "20 40 engine" -
+# that shorter form would also match the new "20/40 Engine Total in 05. Lts" row
+# and silently claim it.
 _OIL_MATCH_HINTS: dict[str, tuple[str, ...]] = {
-    "oil1": _norm_hints(("2t/1.20", "2t 1.20", "1.20 ml")),
+    "oil1": _norm_hints(("2t/1.50", "2t 1.50", "1.50 ml", "2t/1.20", "2t 1.20", "1.20 ml")),
     "oil2": _norm_hints(("2t/2.40", "2t 2.40", "2.40 ml")),
     "oil3": _norm_hints(("acid water total 1", "acid water 1 lt")),
-    "oil4": _norm_hints(("acid water total 5", "acid water 5 lt")),
-    "oil5": _norm_hints(("20/40", "20 40 engine")),
+    "oil6": _norm_hints(("battery water total 1", "battery water 1 lt")),
+    "oil4": _norm_hints((
+        "battery water total 5", "battery water 5 lt",
+        "acid water total 5", "acid water 5 lt",
+    )),
+    "oil7": _norm_hints(("20/40 engine total in 05", "20 40 engine total in 0.5")),
+    "oil5": _norm_hints((
+        "20/40 engine total in 1 lt", "20 40 engine total in 1 lt",
+        "20/40 engine total in lts", "20 40 engine total in lts",
+    )),
 }
 
 
@@ -433,7 +455,9 @@ def _parse_paper_layout(rows: list[tuple]) -> tuple[dict, dict, list[str]]:
         col_opening = _col_of(rows[oil_hdr], "opening stock")
         col_closing = _col_of(rows[oil_hdr], "closing stock")
         stop = _find_row(rows, "total amt", start=oil_hdr + 1)
-        stop = stop if stop is not None else min(oil_hdr + 8, len(rows))
+        # Fallback window when the sheet has no "Total Amt Oil(s)" line at all -
+        # 7 fixed rows since 2026-09-12, plus slack for blank spacer rows.
+        stop = stop if stop is not None else min(oil_hdr + 10, len(rows))
         oils = []
         for key in OIL_KEYS:
             hints = _OIL_MATCH_HINTS[key]
@@ -523,15 +547,19 @@ def _parse_paper_layout(rows: list[tuple]) -> tuple[dict, dict, list[str]]:
                 v for i in range(hdr + 1, e) if (v := _cell(rows[i], col_amt)) is not None
             ]
 
-    # ---- 7. Summary - only the 3 operator-entered lines. Everything else here is
+    # ---- 7. Summary - only the operator-entered lines. Everything else here is
     #         computed and gets recomputed downstream; the sheet's own totals (Cash,
     #         Net Bal, ...) are never read, per ADR-5.
+    #
+    # The sheet's "Night Cash Hand Off Total Amt" line is deliberately NOT read:
+    # the row left the form 2026-09-12 because the Expenses section's own "Last
+    # Night Cash Hand-off ..." row already carries that money. An older sheet that
+    # still prints the line is imported without it.
     summary_start = _find_row(rows, "summary - cash hand off")
     if summary_start is not None:
         for needle, key in (
             ("phone pay settled", "phone_pay_settled"),
             ("phone pay not settled", "phone_pay_unsettled"),
-            ("night cash", "night_cash"),
         ):
             ridx = _find_row(rows, needle, start=summary_start + 1)
             if ridx is not None:

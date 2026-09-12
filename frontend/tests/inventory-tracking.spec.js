@@ -19,13 +19,14 @@ test("Sales has no Inventory Tracking nav link", async ({ page }) => {
   await expect(page.locator('#nav-links a[data-module="inventory-tracking"]')).toHaveCount(0);
 });
 
-test("Manager sees the 5 SKUs and can record a restock", async ({ page }) => {
+test("Manager sees the 7 SKUs and can record a restock", async ({ page }) => {
   await login(page, "mmanager");
   await page.goto(SCREEN);
   await page.fill("#as-of", DATE);
   await page.locator("#as-of").dispatchEvent("change");
 
-  await expect(page.locator("#stock-rows tr")).toHaveCount(5);
+  // Seven oil SKUs since the 2026-09-12 form change (migration 0017).
+  await expect(page.locator("#stock-rows tr")).toHaveCount(7);
 
   // Reorder inputs are read-only for a Manager.
   await expect(page.locator("#stock-rows tr").first().locator(".reorder")).toBeDisabled();

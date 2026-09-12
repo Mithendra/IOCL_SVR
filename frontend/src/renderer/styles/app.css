@@ -424,6 +424,19 @@ td input:disabled {
   background: #f4f6fb;
   color: #55627d;
 }
+/* A two-column Description | Amount table whose Amount cell is written into by
+   hand on the printed form, using the paper's running-sum style
+   ("527+588+100=1215"). Sized to hold 9999999999999999 with slack rather than to
+   fit the figure exactly (client, 2026-09-12), so the Description column gives
+   up the width instead of the writing space. */
+.wide-amounts td:last-child,
+.wide-amounts th:last-child {
+  width: 30ch;
+}
+.wide-amounts td:last-child input {
+  min-width: 26ch;
+  font-variant-numeric: tabular-nums;
+}
 .total-row td {
   font-weight: 700;
   background: #eef1fa;

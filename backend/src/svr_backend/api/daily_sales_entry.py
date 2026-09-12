@@ -51,7 +51,10 @@ class CalcRequest(BaseModel):
     old_credit_amounts: list = Field(default_factory=list)
     phone_pay_settled: float | str | None = None
     phone_pay_unsettled: float | str | None = None
-    night_cash: float | str | None = None
+    # "Night Cash Hand Off Total Amt" was removed from the form 2026-09-12 (the
+    # client's own Expenses row already carries that money). Pydantic ignores an
+    # unknown field, so an older client still posting `night_cash` is accepted and
+    # the value is simply dropped rather than 422-ing the save.
 
 
 class EntryCreate(CalcRequest):

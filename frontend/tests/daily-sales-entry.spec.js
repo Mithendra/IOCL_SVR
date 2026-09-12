@@ -206,20 +206,79 @@ test("computed figures show exactly two decimals and Net Bal subtracts non-cash 
   await page.fill("#hs-current", "900000");
   await page.fill("#pp-settled", "1000");
   await page.fill("#pp-unsettled", "500");
-  await page.fill("#night-cash", "200");
-  await page.locator("#night-cash").blur();
+  await page.locator("#pp-unsettled").blur();
 
   // Every displayed figure carries exactly two decimals (client, 2026-09-11).
   const twoDp = /^-?\d+\.\d{2}$/;
   await expect(page.locator("#hs-amount")).toHaveValue(twoDp);
   await expect(page.locator("#sum-cash")).toHaveValue(twoDp);
+  await expect(page.locator("#gas-oil-total")).toHaveValue(twoDp);
   await expect(page.locator("#sum-netbal")).toHaveValue(twoDp);
 
   // Net Bal takes every non-cash line OFF the cash figure. Derived from what's
   // on screen so the carried Last Shift Reading can't make this brittle.
   const cash = Number(await page.locator("#sum-cash").inputValue());
   const netBal = Number(await page.locator("#sum-netbal").inputValue());
-  expect(netBal).toBeCloseTo(cash - 1000 - 500 - 200, 2);
+  expect(netBal).toBeCloseTo(cash - (1000 + 500), 2);
+
+  // Section 2's closing row is the same figure as section 7's Cash line.
+  expect(Number(await page.locator("#gas-oil-total").inputValue())).toBeCloseTo(cash, 2);
+});
+
+test("the revised Oil Sale(s) list, and Night Cash Hand Off gone from the Summary", async ({
+  page,
+}) => {
+  await login(page);
+  await page.goto(SCREEN);
+  await expect(page.locator("#oil-rows tr")).toHaveCount(7);
+
+  // The client's own row order (2026-09-12). The ids are keys, not positions:
+  // oil6/oil4/oil7/oil5 sit in that sequence because a key identifies a product.
+  await expect(page.locator("#oil-rows td[data-oil-label]")).toHaveText([
+    "2T/1.50 ML Total#",
+    "2T/2.40 ML Total#",
+    "Acid Water Total 1 Lts",
+    "Battery Water Total 1 Lts",
+    "Battery Water Total 5 Lts",
+    "20/40 Engine Total in 05. Lts",
+    "20/40 Engine Total in 1 Lts",
+  ]);
+
+  // Rate is editable for oils (unlike the backend-locked gas Sell Rate) - the
+  // sheet's rate is authoritative, and two rows have no Rate Master figure yet.
+  await expect(page.locator("#oil1-rate")).toBeEnabled();
+  await expect(page.locator("#hs-rate")).toBeDisabled();
+
+  await expect(page.locator("#night-cash")).toHaveCount(0);
+  await expect(page.locator(".summary-box")).not.toContainText("Night Cash Hand Off");
+  await expect(page.locator(".summary-row.net")).toContainText(
+    "Net Bal Hand off [Cash - (Expenses + Phone Pay Settled + Phone Pay Not Settled + " +
+      "Today New Credits + Card Swiping)]"
+  );
+});
+
+test("an oil sale keyed with the sheet's own Rate survives Save and reopen", async ({ page }) => {
+  const DATE = "2026-06-14";
+  await login(page);
+  await page.goto(SCREEN);
+  await page.fill("#shift-date", DATE);
+  await page.fill("#hs-current", "900100");
+  // oil7 (20/40 Engine 0.5 Lts) has no Rate Master figure yet - typing the paper
+  // sheet's own rate is the only way to record the sale, and it must stick.
+  await page.fill("#oil7-qty", "2");
+  await page.fill("#oil7-rate", "65");
+  await page.locator("#oil7-rate").blur();
+  await expect(page.locator("#oil7-amount")).toHaveValue("130.00");
+
+  await page.click("#save-btn");
+  await expect(page.locator("#save-status")).toHaveClass(/ok/);
+
+  await page.reload();
+  await page.fill("#shift-date", DATE);
+  await page.click("#query-btn");
+  await expect(page.locator("#save-status")).toHaveClass(/ok/);
+  await expect(page.locator("#oil7-rate")).toHaveValue("65");
+  await expect(page.locator("#oil7-amount")).toHaveValue("130.00");
 });
 
 test("Delete button is hidden for Sales, even on their own saved entry", async ({ page }) => {

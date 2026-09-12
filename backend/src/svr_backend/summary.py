@@ -12,7 +12,7 @@ import json
 import sqlite3
 from dataclasses import dataclass, field
 
-from svr_backend.calc.daily_sales_entry import OIL_KEYS, OIL_LABELS
+from svr_backend.calc.daily_sales_entry import OIL_KEYS, OIL_LABELS, oils_by_key
 
 # Explicit serial -> side map (client-confirmed 2026-09-11), not a substring guess.
 # A previous version inferred the side from "OFF"/"RDF" inside the serial itself,
@@ -76,11 +76,11 @@ def _side_from_entry(row: sqlite3.Row | None) -> PumpSide:
     ds = result.get("daily_summary") or {}
     side.hs_liters = ds.get("hs") or 0.0
     side.ms_liters = ds.get("ms") or 0.0
-    oils = result.get("oils") or []
-    side.oil_amounts = [
-        (oils[i].get("amount") if i < len(oils) and oils[i].get("amount") is not None else 0.0)
-        for i in range(len(OIL_KEYS))
-    ]
+    # Resolved by each saved row's own label, not by position: the Oil Sale(s)
+    # row order changed on 2026-09-12, so an entry saved before then lines up
+    # correctly here only when it is matched by item (see oils_by_key()).
+    by_key = oils_by_key(result.get("oils"))
+    side.oil_amounts = [(by_key.get(k) or {}).get("amount") or 0.0 for k in OIL_KEYS]
     side.gas_total = result.get("gas_total") or 0.0
     side.oil_total = result.get("oil_total") or 0.0
     return side
@@ -125,6 +125,10 @@ def build_summary(conn: sqlite3.Connection, shift_date: str) -> dict:
              **line(office.oil_amounts[i], road.oil_amounts[i])}
             for i in range(len(OIL_KEYS))
         ],
+        # Gas Total alongside Oil Total, so the combined table carries the same
+        # three closing lines the Daily Sales Entry form now does (2026-09-12):
+        # Gas Total Amt, Total Amt Oil(s), Total Gas & Oil Sales Amt.
+        "gas_total": line(office.gas_total, road.gas_total),
         "oil_total": line(office.oil_total, road.oil_total),
         "grand_total": round(
             office.gas_total + office.oil_total + road.gas_total + road.oil_total, 4

@@ -16,7 +16,7 @@ import json
 import sqlite3
 
 from svr_backend.calc.amounts import is_blank
-from svr_backend.calc.daily_sales_entry import OIL_KEYS
+from svr_backend.calc.daily_sales_entry import OIL_KEYS, oils_by_key
 from svr_backend.core.audit import record_write
 from svr_backend.core.db import transaction
 
@@ -27,12 +27,13 @@ def _sold_today(conn: sqlite3.Connection, shift_date: str) -> dict[str, float]:
         "SELECT payload FROM daily_sales_entry WHERE shift_date = ?", (shift_date,)
     ):
         payload = json.loads(row["payload"] or "{}")
-        for i, oil in enumerate(payload.get("oils") or []):
-            if i >= len(OIL_KEYS):
-                break
+        # By item, not by position - the Oil Sale(s) row order changed 2026-09-12.
+        for key, oil in oils_by_key(payload.get("oils")).items():
+            if key not in sold:
+                continue
             qty = oil.get("qty")
             try:
-                sold[OIL_KEYS[i]] += float(qty) if qty not in (None, "", " ") else 0.0
+                sold[key] += float(qty) if qty not in (None, "", " ") else 0.0
             except (TypeError, ValueError):
                 pass
     return sold
@@ -114,14 +115,15 @@ def sync_from_daily_sales(
             break
         payload = json.loads(row["payload"] or "{}")
         result = json.loads(row["result"] or "{}")
-        oils_in = payload.get("oils") or []
-        oils_out = result.get("oils") or []
+        # By item, not by position - the Oil Sale(s) row order changed 2026-09-12,
+        # so an entry saved before then has its rows in a different sequence.
+        oils_in = oils_by_key(payload.get("oils"))
+        oils_out = oils_by_key(result.get("oils"))
         for key in list(remaining):
-            idx = OIL_KEYS.index(key)
-            qty = oils_in[idx].get("qty") if idx < len(oils_in) else None
+            qty = (oils_in.get(key) or {}).get("qty")
             if is_blank(qty):
                 continue
-            closing = oils_out[idx].get("closing") if idx < len(oils_out) else None
+            closing = (oils_out.get(key) or {}).get("closing")
             if closing is None:
                 continue
             found[key] = {"closing": closing, "source_date": row["shift_date"]}

@@ -13,7 +13,10 @@ def test_sales_has_no_access(client, auth_headers):
 def test_stock_levels_seeded(client, auth_headers):
     rows = client.get("/inventory", headers=auth_headers("Manager")).json()
     keys = {r["item_key"] for r in rows}
-    assert keys == {"oil1", "oil2", "oil3", "oil4", "oil5"}
+    # Seven oil items since the 2026-09-12 form change (migration 0017). oil6/oil7
+    # are the two new rows; oil1/oil4/oil5 were relabelled in place, keeping their
+    # keys - and so their tracked stock - rather than being renumbered.
+    assert keys == {"oil1", "oil2", "oil3", "oil4", "oil5", "oil6", "oil7"}
     oil1 = next(r for r in rows if r["item_key"] == "oil1")
     assert oil1["opening_stock"] == 40
     assert oil1["closing_stock"] == 40  # no restock, no sales yet
@@ -43,13 +46,15 @@ def test_restock_shows_as_received_today_without_moving_opening(client, auth_hea
 def test_sold_today_and_low_stock_status(client, auth_headers):
     # A Daily Sales Entry with a big oil4 quantity should drop oil4 below its
     # reorder level (18 on hand, reorder 6) and flip status to "low".
+    # oil4 is the FIFTH row on the form since 2026-09-12, not the fourth - the
+    # key stayed put through the relabel while the row order changed around it.
     client.post(
         "/daily-sales-entry",
         json={
             "pump_serial": "12BC4523V-RD",
             "shift_date": DATE,
             "hs": {"current": "1"},
-            "oils": [{}, {}, {}, {"qty": "15"}, {}],
+            "oils": [{}, {}, {}, {}, {"qty": "15"}, {}, {}],
         },
         headers=auth_headers("Sales"),
     )

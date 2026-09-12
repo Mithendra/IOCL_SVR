@@ -7,7 +7,19 @@ import { api, getToken } from "../../lib/api.js";
 import * as mirror from "../../lib/calc-mirror.js";
 import { fmt2 } from "../../lib/format.js";
 
-const OIL_KEYS = ["oil1", "oil2", "oil3", "oil4", "oil5"];
+// Oil Sale(s) rows in form order. NOT in numeric key order: item_key identifies a
+// product, so when the client revised the list on 2026-09-12 the three renamed
+// products kept their keys (and their rate history / tracked stock) and only
+// moved position. Keep in step with OIL_ITEMS in calc/daily_sales_entry.py.
+const OIL_KEYS = ["oil1", "oil2", "oil3", "oil6", "oil4", "oil7", "oil5"];
+// Labels the 5-row form used until 2026-09-12, so reopening an entry saved then
+// puts each row back under the right item instead of under whatever now sits at
+// the same position. Mirrors LEGACY_OIL_LABELS in calc/daily_sales_entry.py.
+const LEGACY_OIL_LABELS = {
+  "2T/1.20 ML Total#": "oil1",
+  "Acid Water Total 5 Lts": "oil4",
+  "20/40 Engine Total in Lts": "oil5",
+};
 // Client's own reference blank forms (SVR_DSR_EMPTY_<serial>.pdf) print this
 // qualifier next to the serial - shown on screen too so it's clear which
 // physical pump is selected before Save or Print (2026-09-11).
@@ -47,7 +59,13 @@ function buildOilRows() {
       blankRow(
         `<td data-oil-label="${k}">${oilLabels[k]}</td>` +
           `<td><input id="${k}-qty" data-calc></td>` +
-          `<td><input id="${k}-rate" disabled placeholder="auto (Rate Master)"></td>` +
+          // Rate is prefilled from Rate Master but editable, unlike the gas Sell
+          // Rate which stays backend-locked: oil rates vary per delivery, the
+          // paper sheet records the one that actually applied, and the backend
+          // already honours a submitted oil rate over Rate Master. It is also
+          // the only way to key a sale for an item whose rate the Owner has not
+          // set yet (the two rows added 2026-09-12).
+          `<td><input id="${k}-rate" data-calc placeholder="auto (Rate Master) - editable"></td>` +
           // Opening Stock: prefilled from Inventory Tracking but editable - oil
           // sales are handled by only one person a day, so on the OTHER
           // submission there's nothing to correct a stale figure from but a
@@ -110,8 +128,20 @@ function readForm() {
     old_credit_amounts: [...document.querySelectorAll(".oc-amount")].map((i) => i.value),
     phone_pay_settled: val("pp-settled"),
     phone_pay_unsettled: val("pp-unsettled"),
-    night_cash: val("night-cash"),
   };
+}
+
+// Which oil item a stored/computed row is, by its own label when it has one,
+// else by position. Position alone is only safe for a payload the current form
+// built - an entry saved before the 2026-09-12 row-order change has its five
+// rows in a different sequence. Mirrors resolve_oil_key() in the engine.
+function oilKeyOf(row, i) {
+  const label = String((row && row.label) || "").trim();
+  return (
+    LEGACY_OIL_LABELS[label] ||
+    OIL_KEYS.find((k) => oilLabels[k] === label) ||
+    OIL_KEYS[i]
+  );
 }
 
 function applyResult(r) {
@@ -122,12 +152,17 @@ function applyResult(r) {
   setNum("gas-total", r.gas_total);
 
   r.oils.forEach((o, i) => {
-    const k = OIL_KEYS[i];
+    const k = oilKeyOf(o, i);
     if (!k) return;
     setNum(`${k}-closing`, o.closing);
     setNum(`${k}-amount`, o.amount);
+    // Section 8's per-oil quantity is positionally aligned with r.oils, so it
+    // rides the same resolution rather than its own index.
+    const qty = (r.daily_summary && r.daily_summary.oils) || [];
+    if (i < qty.length) setNum(`ds-${k}`, qty[i]);
   });
   setNum("oil-total", r.oil_total);
+  setNum("gas-oil-total", r.gas_oil_total);
 
   setNum("exp-total", r.expenses_total);
   setNum("cc-total", r.credit_cards_total);
@@ -145,7 +180,6 @@ function applyResult(r) {
 
   setNum("ds-hs", r.daily_summary.hs);
   setNum("ds-ms", r.daily_summary.ms);
-  (r.daily_summary.oils || []).forEach((q, i) => setNum(`ds-${OIL_KEYS[i]}`, q));
 }
 
 function refresh() {
@@ -372,7 +406,6 @@ function clearOperatorFields() {
   document.querySelectorAll(".oc-amount").forEach((el) => (el.value = ""));
   setVal("pp-settled", "");
   setVal("pp-unsettled", "");
-  setVal("night-cash", "");
 }
 
 async function deleteEntry() {
@@ -418,15 +451,23 @@ function populateInputs(payload) {
   if (!$("ms-last").disabled) setVal("ms-last", payload.ms && payload.ms.last);
 
   (payload.oils || []).forEach((o, i) => {
-    if (!OIL_KEYS[i]) return;
-    setVal(`${OIL_KEYS[i]}-qty`, o.qty);
+    const k = oilKeyOf(o, i);
+    if (!k) return;
+    setVal(`${k}-qty`, o.qty);
+    // Rate: the sheet's own rate is authoritative for oils (client-confirmed
+    // 2026-09-11), so an imported or saved rate overlays Rate Master's default
+    // rather than being discarded. A payload with no rate at all leaves
+    // loadPrefill()'s default in place.
+    if (o.rate !== undefined && o.rate !== null && o.rate !== "") {
+      setVal(`${k}-rate`, o.rate);
+    }
     // Opening Stock is manually editable (short-term fix, 2026-09-11). A saved
     // entry always has a resolved value here (default or override) and it's
     // restored on reopen; an imported payload that doesn't carry one (OCR, the
     // paper-layout Excel fallback) leaves loadPrefill()'s live default in place
     // instead of wiping it blank.
     if (o.opening !== undefined && o.opening !== null) {
-      setVal(`${OIL_KEYS[i]}-opening`, o.opening);
+      setVal(`${k}-opening`, o.opening);
     }
   });
 
@@ -454,7 +495,6 @@ function populateInputs(payload) {
 
   setVal("pp-settled", payload.phone_pay_settled);
   setVal("pp-unsettled", payload.phone_pay_unsettled);
-  setVal("night-cash", payload.night_cash);
 }
 
 async function exportExcel() {

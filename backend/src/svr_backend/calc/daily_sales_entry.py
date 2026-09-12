@@ -14,16 +14,68 @@ from dataclasses import dataclass, field
 
 from svr_backend.calc.amounts import Number, is_blank, parse_amt, trunc2
 
-# Fixed oil SKUs, in form order (SDD session log 34/35). Extra operator-added items
+# Fixed oil SKUs, in the order they appear on the form. Extra operator-added items
 # follow these with manually entered rate/opening stock.
-OIL_KEYS: tuple[str, ...] = ("oil1", "oil2", "oil3", "oil4", "oil5")
-OIL_LABELS: dict[str, str] = {
-    "oil1": "2T/1.20 ML Total#",
-    "oil2": "2T/2.40 ML Total#",
-    "oil3": "Acid Water Total 1 Lts",
-    "oil4": "Acid Water Total 5 Lts",
-    "oil5": "20/40 Engine Total in Lts",
+#
+# Revised by the client 2026-09-12: five rows became seven. The item_key numbering
+# is deliberately NOT sequential with the display order - a key identifies a
+# physical product, and keeping it stable is what preserves that product's Rate
+# Master history and its tracked Inventory stock across a relabel:
+#
+#   oil4  "Acid Water Total 5 Lts"    -> "Battery Water Total 5 Lts"   (same 5 L
+#                                        container, renamed; keeps rate + stock)
+#   oil5  "20/40 Engine Total in Lts" -> "20/40 Engine Total in 1 Lts" (the 1 L
+#                                        pack the old row was already pricing)
+#   oil1  "2T/1.20 ML Total#"         -> "2T/1.50 ML Total#"
+#   oil6, oil7                        -> the two genuinely new rows
+OIL_ITEMS: tuple[tuple[str, str], ...] = (
+    ("oil1", "2T/1.50 ML Total#"),
+    ("oil2", "2T/2.40 ML Total#"),
+    ("oil3", "Acid Water Total 1 Lts"),
+    ("oil6", "Battery Water Total 1 Lts"),
+    ("oil4", "Battery Water Total 5 Lts"),
+    ("oil7", "20/40 Engine Total in 05. Lts"),
+    ("oil5", "20/40 Engine Total in 1 Lts"),
+)
+OIL_KEYS: tuple[str, ...] = tuple(key for key, _ in OIL_ITEMS)
+OIL_LABELS: dict[str, str] = dict(OIL_ITEMS)
+
+# The labels the 5-row form used until 2026-09-12. Every saved row carries its own
+# label, so a record written under the old list still resolves to the right item
+# even though the row ORDER changed underneath it - see resolve_oil_key().
+LEGACY_OIL_LABELS: dict[str, str] = {
+    "2T/1.20 ML Total#": "oil1",
+    "Acid Water Total 5 Lts": "oil4",
+    "20/40 Engine Total in Lts": "oil5",
 }
+
+_LABEL_TO_KEY: dict[str, str] = {label: key for key, label in OIL_ITEMS} | LEGACY_OIL_LABELS
+
+
+def resolve_oil_key(row: dict, index: int) -> str | None:
+    """Which fixed oil item a stored/submitted row actually is.
+
+    By the row's own label when it has one (order-proof, and the only thing that
+    survives the 2026-09-12 row-order change), else by its position.
+    """
+    key = _LABEL_TO_KEY.get(str(row.get("label") or "").strip())
+    if key is not None:
+        return key
+    return OIL_KEYS[index] if index < len(OIL_KEYS) else None
+
+
+def oils_by_key(oils: list[dict] | None) -> dict[str, dict]:
+    """``payload["oils"]`` / ``result["oils"]`` keyed by item, not by position.
+
+    Use this anywhere a stored record is read back - reading position N as
+    ``OIL_KEYS[N]`` is only safe for a payload written by the current form.
+    """
+    out: dict[str, dict] = {}
+    for i, row in enumerate(oils or []):
+        key = resolve_oil_key(row or {}, i)
+        if key is not None and key not in out:
+            out[key] = row or {}
+    return out
 
 
 # --------------------------------------------------------------------------- input
@@ -70,7 +122,6 @@ class DailySalesEntryInput:
     # Section 7 manual inputs.
     phone_pay_settled: Number = None
     phone_pay_unsettled: Number = None
-    night_cash: Number = None
 
     @classmethod
     def from_payload(cls, payload: dict) -> DailySalesEntryInput:
@@ -78,7 +129,7 @@ class DailySalesEntryInput:
         oils_in = payload.get("oils") or []
         oils: list[OilRow] = []
         for i, row in enumerate(oils_in):
-            key = OIL_KEYS[i] if i < len(OIL_KEYS) else f"oil{i + 1}"
+            key = resolve_oil_key(row, i) or f"oil{i + 1}"
             oils.append(
                 OilRow(
                     label=row.get("label") or OIL_LABELS.get(key, key),
@@ -100,7 +151,6 @@ class DailySalesEntryInput:
             old_credit_amounts=list(payload.get("old_credit_amounts") or []),
             phone_pay_settled=payload.get("phone_pay_settled"),
             phone_pay_unsettled=payload.get("phone_pay_unsettled"),
-            night_cash=payload.get("night_cash"),
         )
 
 
@@ -128,6 +178,10 @@ class DailySalesEntryResult:
 
     oils: list[OilResult] = field(default_factory=list)
     oil_total: float = 0.0
+    # Closing line of section 2 (client-added 2026-09-12): Gas Total + Oil Total,
+    # the day's gross sale, shown where the oil rows end instead of only down in
+    # section 7. Same figure as ``sum_cash``, which section 7 keeps.
+    gas_oil_total: float = 0.0
 
     expenses_total: float = 0.0
     credit_cards_total: float = 0.0
@@ -157,6 +211,7 @@ class DailySalesEntryResult:
                 {"label": o.label, "closing": o.closing, "amount": o.amount} for o in self.oils
             ],
             "oil_total": self.oil_total,
+            "gas_oil_total": self.gas_oil_total,
             "expenses_total": self.expenses_total,
             "credit_cards_total": self.credit_cards_total,
             "new_credit_amounts": self.new_credit_amounts,
@@ -211,13 +266,14 @@ def compute(data: DailySalesEntryInput) -> DailySalesEntryResult:
     gas_total = (result.hs.amount or 0.0) + (result.ms.amount or 0.0)
     result.gas_total = trunc2(gas_total)
 
-    # 2. Oil Sale(s) - 5 fixed rows + any operator-added rows
+    # 2. Oil Sale(s) - 7 fixed rows + any operator-added rows
     oil_total = 0.0
     for row in data.oils:
         oil_res, amount = _oil(row)
         result.oils.append(oil_res)
         oil_total += amount
     result.oil_total = trunc2(oil_total)
+    result.gas_oil_total = trunc2(gas_total + oil_total)
 
     # 3. Expenses (each cell may be a "a+b+c=total" expression)
     expenses_total = sum(trunc2(parse_amt(x)) for x in data.expenses)
@@ -242,18 +298,17 @@ def compute(data: DailySalesEntryInput) -> DailySalesEntryResult:
     # 7. Summary - Cash Hand Off
     pp_settled = trunc2(parse_amt(data.phone_pay_settled))
     pp_unsettled = trunc2(parse_amt(data.phone_pay_unsettled))
-    night_cash = trunc2(parse_amt(data.night_cash))
     result.sum_cash = trunc2(gas_total + oil_total)
     result.sum_expenses = result.expenses_total
     result.sum_new_credits = result.new_credits_total
     result.sum_credit_cards = result.credit_cards_total
-    # Net Bal Hand off = Cash - Expenses - Phone Pay Settled - Phone Pay Not
-    #                    Settled - New Credits - Card Swiping - Night Cash.
+    # Net Bal Hand off = Cash - (Expenses + Phone Pay Settled + Phone Pay Not
+    #                    Settled + Today New Credits + Card Swiping).
     #
     # EVERY non-cash line is SUBTRACTED (client-confirmed 2026-09-11). Net Bal is
     # the *physical cash* handed over, so anything collected electronically
-    # (phone pay, card swipes), given on credit, or already handed off at night
-    # is money that is not in the drawer and comes off the total.
+    # (phone pay, card swipes) or given on credit is money that is not in the
+    # drawer and comes off the total.
     #
     # This reverses the mockup's original all-additions formula. The paper form's
     # own printed label still reads "+" and contradicts its own arithmetic -
@@ -261,17 +316,17 @@ def compute(data: DailySalesEntryInput) -> DailySalesEntryResult:
     # under subtraction: 23298.77 (Sep 9 OFF), 38993.84 (Sep 10 OFF, incl. card
     # swiping), 1601.20 (Sep 10 RD). See tests/test_client_reconciliation_*.py.
     #
-    # New Credits and Night Cash are blank on all three sample forms, so their
-    # sign follows the same "not received as cash" logic rather than direct
-    # evidence - revisit if a filled sample ever contradicts it.
-    net_bal = (
-        (gas_total + oil_total)
-        - expenses_total
-        - pp_settled
-        - pp_unsettled
-        - new_credits_total
-        - credit_cards_total
-        - night_cash
+    # Night Cash Hand Off was a seventh subtracted line until 2026-09-12, when the
+    # client removed the row outright: the money it recorded is already captured
+    # by the Expenses row "Last Night Cash Hand-off Person's Name-Signature-
+    # Amount", so the two together double-counted it. It is blank on every real
+    # sample form, so removing it leaves all three reconciliations unchanged.
+    #
+    # New Credits is blank on all three sample forms, so its sign follows the same
+    # "not received as cash" logic rather than direct evidence - revisit if a
+    # filled sample ever contradicts it.
+    net_bal = (gas_total + oil_total) - (
+        expenses_total + pp_settled + pp_unsettled + new_credits_total + credit_cards_total
     )
     result.net_bal_hand_off = trunc2(net_bal)
     result.sum_old_credit = result.old_credit_total

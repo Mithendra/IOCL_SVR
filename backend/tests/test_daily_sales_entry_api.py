@@ -161,7 +161,12 @@ def test_prefill_returns_carried_readings_and_rates(client, auth_headers):
     assert body["hs_last"] == 1280.0
     assert body["carried_from"] == "2026-08-11"
     assert body["sell_rate_hs"] == 105.36
-    assert set(body["oil_labels"]) == {"oil1", "oil2", "oil3", "oil4", "oil5"}
+    # Seven fixed oil rows since the 2026-09-12 form change.
+    assert set(body["oil_labels"]) == {"oil1", "oil2", "oil3", "oil4", "oil5", "oil6", "oil7"}
+    # The form's own order, which is NOT the keys' numeric order.
+    assert list(body["oil_labels"]) == ["oil1", "oil2", "oil3", "oil6", "oil4", "oil7", "oil5"]
+    assert body["oil_labels"]["oil1"] == "2T/1.50 ML Total#"
+    assert body["oil_labels"]["oil5"] == "20/40 Engine Total in 1 Lts"
 
 
 def test_ocr_endpoint_needs_a_file(client, auth_headers):

@@ -109,14 +109,13 @@ def test_full_chain_net_bal_hand_off():
     data = DailySalesEntryInput(
         hs=GasRow(current="1317.52", last="0", rate="105.36"),
         ms=GasRow(current="1000", last="0", rate="117.70"),
-        oils=[OilRow(label="2T/1.20 ML Total#", qty="4", rate="62", opening="20")],
+        oils=[OilRow(label="2T/1.50 ML Total#", qty="4", rate="62", opening="20")],
         expenses=["500+100=600", "250"],
         credit_card_amounts=["1000", "500"],
         new_credits=[NewCreditRow(ltrs="10", rate="105.36")],
         old_credit_amounts=["300"],
         phone_pay_settled="150",
         phone_pay_unsettled="200",
-        night_cash="5000",
     )
     result = compute(data)
 
@@ -128,11 +127,13 @@ def test_full_chain_net_bal_hand_off():
     new_credits = 1053.6
     cards = 1500.0
     # EVERY non-cash line is subtracted - Net Bal is the physical cash handed
-    # over (client-confirmed 2026-09-11 against three real filled forms).
-    net_bal = gas + oil - expenses - 150.0 - 200.0 - new_credits - cards - 5000.0
+    # over (client-confirmed 2026-09-11 against three real filled forms). The
+    # Night Cash Hand Off line was removed from the form on 2026-09-12.
+    net_bal = gas + oil - (expenses + 150.0 + 200.0 + new_credits + cards)
 
     assert result.gas_total == gas
     assert result.oil_total == oil
+    assert result.gas_oil_total == gas + oil  # section 2's "Total Gas & Oil Sales Amt"
     assert result.expenses_total == expenses
     assert result.new_credits_total == new_credits
     assert result.credit_cards_total == cards

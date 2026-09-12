@@ -49,13 +49,15 @@ def test_export_then_parse_preserves_inputs():
     assert payload["hs"] == {"current": 1317.52, "last": 1300, "rate": 105.36}
     assert payload["ms"]["rate"] == 117.7
     assert payload["oils"][0] == {"qty": 4, "rate": 60, "opening": 100}
-    assert len(payload["oils"]) == 5  # 5 fixed rows kept, no phantom extras
+    assert len(payload["oils"]) == 7  # 7 fixed rows kept, no phantom extras
     assert payload["expenses"] == ["500+100=600", 75]   # free-text expression survives
     assert payload["credit_card_amounts"] == [1000, 250]
     assert payload["new_credits"] == [{"ltrs": 10, "rate": 105.36}]
     assert payload["old_credit_amounts"] == [300]
     assert payload["phone_pay_unsettled"] == 20
-    assert payload["night_cash"] == 5000
+    # "night_cash" left the form 2026-09-12: an older workbook still parses,
+    # the value is simply not carried into the payload any more.
+    assert "night_cash" not in payload
 
 
 def test_recomputed_totals_match_after_round_trip():

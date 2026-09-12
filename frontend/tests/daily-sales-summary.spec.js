@@ -56,6 +56,36 @@ test("combine two submissions, verify both, then upload", async ({ page }) => {
   await expect(page.locator("#status-tag")).toHaveText("uploaded");
 });
 
+test("each side is tagged with its own pump serial, and the pairing is checked", async ({
+  page,
+}) => {
+  await seedEntries();
+  await loginManager(page);
+  await page.goto(SCREEN);
+  await page.fill("#shift-date", DATE);
+  await page.locator("#shift-date").dispatchEvent("change");
+
+  // The mockups had these two the wrong way round for months (Office labelled
+  // 12BC4523V-Off, Road labelled 11CC2012V-Road). Office is 11CC2012V-OFF.
+  await expect(page.locator(".section-title").nth(0)).toContainText(`Office Pump (${OFF})`);
+  await expect(page.locator(".section-title").nth(1)).toContainText(`Road Pump (${ROAD})`);
+  await expect(page.locator("#off-serial")).toHaveValue(OFF);
+  await expect(page.locator("#road-serial")).toHaveValue(ROAD);
+
+  await expect(page.locator("#serial-check")).toHaveClass(/ok/);
+  await expect(page.locator("#serial-check")).toContainText(`Office = ${OFF}`);
+  await expect(page.locator("#serial-check")).toContainText(`Road = ${ROAD}`);
+
+  // The combined table carries the seven oil rows and both closing totals, and
+  // every figure reads to two decimals.
+  const labels = await page.locator("#combined-rows tr td:first-child").allTextContents();
+  expect(labels).toContain("Gas Total Amt");
+  expect(labels).toContain("Battery Water Total 1 Lts");
+  expect(labels).toContain("20/40 Engine Total in 05. Lts");
+  expect(labels).toContain("Total Amt Oil(s)");
+  await expect(page.locator("#comb-grand")).toHaveValue(/^-?\d+\.\d{2}$/);
+});
+
 test("names which pump's Daily Sales Entry is missing", async ({ page }) => {
   const DATE2 = "2026-07-16"; // isolated - only the Office pump submits here
   const ctx = await request.newContext();

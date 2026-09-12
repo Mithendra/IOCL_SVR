@@ -141,13 +141,24 @@
             <td colspan="5">Total Amt Oil(s)</td>
             <td><input id="oil-total" disabled placeholder="auto" /></td>
           </tr>
+          <!-- Gas Total + Oil Total, the day's gross sale, closing out section 2
+               (client-added 2026-09-12). Section 7's "Cash (Gas + Oils)" is the
+               same figure; both are on the client's own form. -->
+          <tr class="total-row">
+            <td colspan="5">Total Gas &amp; Oil Sales Amt</td>
+            <td><input id="gas-oil-total" disabled placeholder="auto" /></td>
+          </tr>
         </table>
 
         <!-- 3. Expenses -->
         <div class="section-title">
           3. <span class="tt" data-en="Expenses" data-te="ఖర్చులు">Expenses</span>
         </div>
-        <table>
+        <!-- .wide-amounts: the Amount column is written into by hand on the
+             printed form, in the paper's own running-sum style ("527+588+100=
+             1215"), so it is sized to hold 9999999999999999 with room to spare
+             rather than to fit the figure exactly (client, 2026-09-12). -->
+        <table class="wide-amounts">
           <tr><th>Description</th><th>Amount</th></tr>
           <tr>
             <td>Daily Diesel(5L) &amp; Petrol(5L) + Density Testing + Beta</td>
@@ -203,9 +214,11 @@
           <div class="summary-row"><span>Phone Pay Not Settled Total Amt</span><span><input id="pp-unsettled" data-calc /></span></div>
           <div class="summary-row"><span>New Credits Total Amt</span><span><input id="sum-newcredits" disabled /></span></div>
           <div class="summary-row"><span>Credit Cards Swiping Total Amt</span><span><input id="sum-cc" disabled /></span></div>
-          <div class="summary-row"><span>Night Cash Hand Off Total Amt</span><span><input id="night-cash" data-calc /></span></div>
+          <!-- "Night Cash Hand Off Total Amt" was removed 2026-09-12: the money it
+               recorded is already captured by the Expenses row "Last Night Cash
+               Hand-off Person's Name-Signature-Amount" above. -->
           <div class="summary-row net">
-            <span>Net Bal Hand off (Cash - Expenses - Phone Pay Settled - Phone Pay Not Settled - New Credits - Card Swiping - Night Cash)</span>
+            <span>Net Bal Hand off [Cash - (Expenses + Phone Pay Settled + Phone Pay Not Settled + Today New Credits + Card Swiping)]</span>
             <span><input id="sum-netbal" disabled /></span>
           </div>
           <div class="summary-row"><span>Total Old Credit Amt (do NOT include in today's total)</span><span><input id="sum-oldcredit" disabled /></span></div>

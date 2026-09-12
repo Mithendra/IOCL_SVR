@@ -36,8 +36,11 @@
           <div class="field"><label>Grand Total — Both Pumps</label><input id="grand-total" disabled /></div>
         </div>
 
-        <!-- 1. Office -->
-        <div class="section-title">1. Office Pump Submission</div>
+        <!-- 1. Office. The serial is printed in the heading (client, 2026-09-12)
+             so the side/serial pairing is visible on the form itself and cannot
+             be mixed up: Office is 11CC2012V-OFF, Road is 12BC4523V-RD. The
+             mockups had these two the wrong way round; the app never did. -->
+        <div class="section-title">1. Office Pump (11CC2012V-OFF) Submission</div>
         <table>
           <tr><th>Field</th><th>Value</th></tr>
           <tr><td>Pump Serial</td><td><input id="off-serial" disabled /></td></tr>
@@ -59,7 +62,7 @@
         </table>
 
         <!-- 2. Road -->
-        <div class="section-title">2. Road Pump Submission</div>
+        <div class="section-title">2. Road Pump (12BC4523V-RD) Submission</div>
         <table>
           <tr><th>Field</th><th>Value</th></tr>
           <tr><td>Pump Serial</td><td><input id="road-serial" disabled /></td></tr>
@@ -80,10 +83,17 @@
           <tr><td>Verification Note</td><td><input id="road-note" placeholder="e.g. corrections made" /></td></tr>
         </table>
 
+        <p id="serial-check" class="status-line"></p>
+
         <!-- 3. Combined -->
         <div class="section-title">3. Combined Summary — Both Pumps</div>
         <table>
-          <tr><th>Line</th><th>Office</th><th>Road</th><th>Combined</th></tr>
+          <tr>
+            <th>Line</th>
+            <th>Office — 11CC2012V-OFF</th>
+            <th>Road — 12BC4523V-RD</th>
+            <th>Combined</th>
+          </tr>
           <tbody id="combined-rows"></tbody>
           <tr class="total-row"><td colspan="3">Grand Total — Both Pumps</td><td><input id="comb-grand" disabled /></td></tr>
         </table>

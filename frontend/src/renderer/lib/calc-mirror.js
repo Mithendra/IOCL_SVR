@@ -67,23 +67,19 @@ export function compute(p) {
   const oldCreditTotal = (p.old_credit_amounts || []).reduce((a, x) => a + trunc2(parseAmt(x)), 0);
   const ppSettled = trunc2(parseAmt(p.phone_pay_settled));
   const ppUnsettled = trunc2(parseAmt(p.phone_pay_unsettled));
-  const nightCash = trunc2(parseAmt(p.night_cash));
 
-  // Net Bal Hand off = Cash - Expenses - Phone Pay Settled - Phone Pay Not
-  // Settled - New Credits - Card Swiping - Night Cash Hand Off.
+  // Net Bal Hand off = Cash - (Expenses + Phone Pay Settled + Phone Pay Not
+  // Settled + Today New Credits + Card Swiping).
   // EVERY non-cash line is SUBTRACTED: Net Bal is the physical cash handed over,
-  // so anything collected electronically, given on credit, or already handed off
-  // is not in the drawer. Client-confirmed 2026-09-11 against three real filled
-  // sheets. Keep in step with calc/daily_sales_entry.py.
+  // so anything collected electronically or given on credit is not in the drawer.
+  // Client-confirmed 2026-09-11 against three real filled sheets. The Night Cash
+  // Hand Off line was removed from the form 2026-09-12 (the Expenses section's
+  // own night-cash row already carries that money). Keep in step with
+  // calc/daily_sales_entry.py.
   const netBal =
     gasTotal +
     oilTotal -
-    expensesTotal -
-    ppSettled -
-    ppUnsettled -
-    newCreditsTotal -
-    cardsTotal -
-    nightCash;
+    (expensesTotal + ppSettled + ppUnsettled + newCreditsTotal + cardsTotal);
 
   return {
     hs,
@@ -91,6 +87,7 @@ export function compute(p) {
     gas_total: trunc2(gasTotal),
     oils,
     oil_total: trunc2(oilTotal),
+    gas_oil_total: trunc2(gasTotal + oilTotal),
     expenses_total: trunc2(expensesTotal),
     credit_cards_total: trunc2(cardsTotal),
     new_credit_amounts: newCreditAmounts,

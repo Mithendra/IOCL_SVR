@@ -77,15 +77,26 @@ def test_oil_rate_comes_from_the_sheet_not_rate_master():
 
     payload, _, _ = parse_workbook(path.read_bytes(), pump_serial="11CC2012V-OFF")
     rates = [o.get("rate") for o in payload["oils"]]
-    assert rates == [30, 17, 0, 120, 130]
+    # Seven rows since the 2026-09-12 form change, in form order:
+    #   oil1 2T/1.50  oil2 2T/2.40  oil3 Acid Water 1L  oil6 Battery Water 1L
+    #   oil4 Battery Water 5L  oil7 20/40 Engine 0.5L  oil5 20/40 Engine 1L
+    # This sheet is one of the station's OLD 5-row forms, so the three rows it
+    # still labels the old way (2T/1.20, Acid Water 5 Lts, 20/40 Engine Total in
+    # Lts) must land on oil1 / oil4 / oil5, and the two rows it has never had
+    # (oil6, oil7) must come back empty rather than absorbing a neighbour's
+    # figures - which is exactly what a looser "20 40 engine" hint would do.
+    assert rates == [30, 17, 0, 0, 120, 0, 130]
 
-    # A blank Rate cell reads as a real 0, never as "unset" - otherwise it would
-    # silently fall back to Rate Master downstream.
+    # A blank or absent Rate cell reads as a real 0, never as "unset" - otherwise
+    # it would silently fall back to Rate Master downstream.
     assert payload["oils"][2]["rate"] == 0
+    assert payload["oils"][3] == {"qty": None, "rate": 0, "opening": None}
 
     result = compute_payload(payload)
     assert result["oil_total"] == 290.00
-    assert [o["amount"] for o in result["oils"]] == [None, 170.00, None, 120.00, None]
+    assert [o["amount"] for o in result["oils"]] == [
+        None, 170.00, None, None, 120.00, None, None
+    ]
 
 
 def test_truncation_not_rounding():

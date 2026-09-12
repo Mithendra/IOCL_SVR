@@ -3,15 +3,33 @@
 // verification, and gates the upload. All combined figures come from the backend.
 
 import { api, getToken } from "../../lib/api.js";
+import { fmt2 } from "../../lib/format.js";
 
 const $ = (id) => document.getElementById(id);
-const money = (n) => (n === null || n === undefined ? "" : String(n));
+// Every figure reads to exactly two decimals (client-required 2026-09-11).
+const money = (n) => fmt2(n);
+// Which physical pump each side is. The mockups had these two swapped
+// (Office shown as 12BC4523V-Off, Road as 11CC2012V-Road); the app's own
+// PUMP_SIDE map in backend/summary.py has always been right, and this is the
+// same pairing spelled out on screen (client, 2026-09-12).
+const SIDE_SERIAL = { off: "11CC2012V-OFF", road: "12BC4523V-RD" };
 
 let me = null;
 let current = null; // last summary payload
 
+// Returns a message if this side's submission carries a serial that isn't the one
+// belonging to it, else null. The backend only ever files an entry under the side
+// its serial maps to, so this should never fire - it is here because the two
+// serials were swapped in the mockups for months without anything catching it.
+function checkSerial(side, data) {
+  const expected = SIDE_SERIAL[side];
+  if (!data.present || data.pump_serial === expected) return null;
+  return `${side === "off" ? "Office" : "Road"} side shows ${data.pump_serial} — expected ${expected}.`;
+}
+
 function fillSide(side, data) {
-  $(`${side}-serial`).value = data.pump_serial || "(no submission)";
+  $(`${side}-serial`).value =
+    data.pump_serial || `(no submission — expected ${SIDE_SERIAL[side]})`;
   $(`${side}-meta`).value = data.present
     ? `${data.submitted_by} / ${data.entry_mode}`
     : "—";
@@ -36,8 +54,9 @@ function fillCombined(c) {
   const rows = [
     ["Diesel (HS)", c.hs],
     ["Petrol (MS)", c.ms],
+    ["Gas Total Amt", c.gas_total],
     ...c.oils.map((o) => [o.label, o]),
-    ["Oil Sale(s) Total", c.oil_total],
+    ["Total Amt Oil(s)", c.oil_total],
   ];
   for (const [label, line] of rows) {
     const tr = document.createElement("tr");
@@ -60,6 +79,13 @@ function render(s) {
   fillSide("off", s.office);
   fillSide("road", s.road);
   fillCombined(s.combined);
+
+  const serialIssues = [checkSerial("off", s.office), checkSerial("road", s.road)].filter(Boolean);
+  const serialCheck = $("serial-check");
+  serialCheck.className = serialIssues.length ? "status-line err" : "status-line ok";
+  serialCheck.textContent = serialIssues.length
+    ? `Pump Serial# mismatch — ${serialIssues.join(" ")}`
+    : "Pump Serial# check: Office = 11CC2012V-OFF, Road = 12BC4523V-RD.";
 
   const gate = $("gate-status");
   if (!s.both_present) {

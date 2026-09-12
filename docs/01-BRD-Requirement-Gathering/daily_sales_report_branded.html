@@ -1,4 +1,25 @@
 <!DOCTYPE html>
+<!--
+  SUPERSEDED IN PLACES - this is the original requirement mockup, kept as the
+  historical artifact it is. The built screen
+  (frontend/src/renderer/screens/daily-sales-entry/) is authoritative, and it
+  deliberately diverges here:
+
+    * Net Bal Hand off - calcAll() below ADDS every non-cash line. That is wrong:
+      each one is SUBTRACTED. Confirmed 2026-09-11 against three real filled
+      client forms, which reproduce exactly only under subtraction. The printed
+      paper form's own label reads "+" too and contradicts its own arithmetic.
+    * Night Cash Hand Off - the row was removed from the form 2026-09-12; the
+      Expenses section's own night-cash row already carries that money.
+    * Oil Sale(s) - five rows here, seven since 2026-09-12 (2T/1.50 ML,
+      2T/2.40 ML, Acid Water 1 Lts, Battery Water 1 Lts, Battery Water 5 Lts,
+      20/40 Engine 05. Lts, 20/40 Engine 1 Lts), plus a closing
+      "Total Gas & Oil Sales Amt" row.
+    * Rounding - the station's forms TRUNCATE each row at paise; this file rounds.
+
+  Every divergence is recorded with its evidence in
+  docs/02-System-Design-Architecture/IMPLEMENTATION-MAP.md (Module 1).
+-->
 <html lang="en">
 <head>
 <meta charset="UTF-8">

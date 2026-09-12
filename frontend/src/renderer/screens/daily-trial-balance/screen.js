@@ -49,9 +49,15 @@ function render(view) {
   txt("s7-2", view.computed.section7["7_2_stock_value"]);
   txt("s7-3", view.computed.section7["7_3_total"]);
 
+  // The pulled figure is both pumps combined, so the two serials are named here:
+  // the mockup's Section 2 had them the wrong way round (Office labelled
+  // 12BC4523V-Off, Road labelled 11CC2012V-Road) and nothing on this screen said
+  // otherwise. Office is 11CC2012V-OFF, Road is 12BC4523V-RD (client, 2026-09-12).
   $("s3-src").textContent =
     view.pulled.s3_source === "daily_sales_summary"
-      ? `Section 3 consumption pulled from Daily Sales Summary (HS ${view.pulled.s3_hs_consumption ?? "—"} / MS ${view.pulled.s3_ms_consumption ?? "—"} L).`
+      ? `Section 3 consumption pulled from Daily Sales Summary — both pumps combined, ` +
+        `11CC2012V-OFF (Office) + 12BC4523V-RD (Road): ` +
+        `HS ${view.pulled.s3_hs_consumption ?? "—"} / MS ${view.pulled.s3_ms_consumption ?? "—"} L.`
       : "No Daily Sales Summary for this date yet — Section 3 consumption is unavailable, so the derived columns stay blank.";
 
   // ADR-2: this day's system-generated carry-forward link, and the variance/

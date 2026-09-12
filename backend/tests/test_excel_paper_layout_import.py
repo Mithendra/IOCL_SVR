@@ -113,7 +113,7 @@ def test_natural_paper_layout_is_parsed_without_field_keys():
     assert payload["ms"]["current"] == 1000
     assert payload["ms"]["last"] == 900
 
-    assert [o.get("qty") for o in payload["oils"]] == [4, None, 2, None, 3]
+    assert [o.get("qty") for o in payload["oils"]] == [4, None, 2, None, None, None, 3]
 
     assert payload["expenses"] == [600, 75, 5000]
     assert payload["credit_card_amounts"] == [1000, 250]
@@ -121,7 +121,7 @@ def test_natural_paper_layout_is_parsed_without_field_keys():
     assert payload["old_credit_amounts"] == [300]
     assert payload["phone_pay_settled"] == 10
     assert payload["phone_pay_unsettled"] == 20
-    assert payload["night_cash"] == 5000
+    assert "night_cash" not in payload  # row removed from the form 2026-09-12
 
     # Never trusts the sheet's own computed totals - recompute is authoritative
     # (SDD ADR-5). This sheet's totals were left blank on purpose to prove that.
@@ -141,10 +141,10 @@ def test_multi_sheet_workbook_picks_the_sheet_for_the_selected_pump():
     # every one of them reads back as blank, not as a literal dash (2026-09-11).
     # Rate is the exception: a blank Rate cell is a real 0, so it can never fall
     # back to Rate Master downstream (2026-09-11 oil-rate fix).
-    assert road_payload["oils"] == [{"qty": None, "rate": 0, "opening": None}] * 5
+    assert road_payload["oils"] == [{"qty": None, "rate": 0, "opening": None}] * 7
     assert road_payload["credit_card_amounts"] == []
     assert road_payload["phone_pay_settled"] is None
-    assert road_payload["night_cash"] is None
+    assert "night_cash" not in road_payload  # row removed from the form 2026-09-12
 
     office_payload, _, office_warnings = parse_workbook(data, pump_serial="11CC2012V-OFF")
     assert not any("could not match" in w for w in office_warnings)
@@ -201,7 +201,7 @@ def test_real_client_workbook_reads_the_gas_and_expense_figures():
     assert payload["ms"] == {"current": 661164.69, "last": 660581.14}
     assert payload["expenses"] == [1363.3, 117, 35500]
     assert payload["phone_pay_settled"] == 8560
-    assert payload["night_cash"] == 36980.3
+    assert "night_cash" not in payload  # row removed from the form 2026-09-12
     # These sections are genuinely blank on this particular day's form.
     assert payload["credit_card_amounts"] == []
     assert payload["new_credits"] == []
@@ -264,12 +264,12 @@ def test_paper_layout_tolerates_real_world_label_variance():
 
     assert payload["hs"] == {"current": 100, "last": 90}
     assert payload["ms"] == {"current": 50, "last": 40}
-    assert [o.get("qty") for o in payload["oils"]] == [4, None, 2, None, 3]
-    assert [o.get("opening") for o in payload["oils"]] == [100, 50, 28, 19, 42]
+    assert [o.get("qty") for o in payload["oils"]] == [4, None, 2, None, None, None, 3]
+    assert [o.get("opening") for o in payload["oils"]] == [100, 50, 28, None, 19, None, 42]
     assert payload["expenses"] == [600, 75, 5000]
     assert payload["phone_pay_settled"] == 10
     assert payload["phone_pay_unsettled"] == 20
-    assert payload["night_cash"] == 5000
+    assert "night_cash" not in payload  # row removed from the form 2026-09-12
 
 
 _A4_TEMPLATE = (
@@ -328,15 +328,15 @@ def test_a4_template_reads_every_section_once_filled():
 
     assert payload["hs"] == {"current": 1500.5, "last": 1450.0}
     assert payload["ms"] == {"current": 900.25, "last": 850.0}
-    assert [o.get("qty") for o in payload["oils"]] == [4, 2, 1, None, 3]
-    assert [o.get("opening") for o in payload["oils"]] == [100, 50, 28, 19, 42]
+    assert [o.get("qty") for o in payload["oils"]] == [4, 2, 1, None, None, None, 3]
+    assert [o.get("opening") for o in payload["oils"]] == [100, 50, 28, None, 19, None, 42]
     assert payload["expenses"] == [600, 75, 5000]
     assert payload["credit_card_amounts"] == [1000, 500]
     assert payload["new_credits"] == [{"ltrs": 10, "rate": 105.36}]
     assert payload["old_credit_amounts"] == [300]
     assert payload["phone_pay_settled"] == 8560
     assert payload["phone_pay_unsettled"] == 200
-    assert payload["night_cash"] == 36980.3
+    assert "night_cash" not in payload  # row removed from the form 2026-09-12
 
     result = compute_payload(payload)
     assert result["hs"]["cons"] == 50.5

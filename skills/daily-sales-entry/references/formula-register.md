@@ -50,22 +50,34 @@ against the real AUG11/AUG12 workbooks in `docs/01-BRD-Requirement-Gathering/`.
 - `sum_expenses = expenses_total`
 - `sum_new_credits = new_credits_total`
 - `sum_credit_cards = credit_cards_total`
-- **`net_bal_hand_off = (gas_total + oil_total) − expenses_total
-   − phone_pay_settled − phone_pay_not_settled − new_credits_total
-   − credit_cards_total − night_cash`**
+- **`net_bal_hand_off = (gas_total + oil_total) − (expenses_total
+   + phone_pay_settled + phone_pay_not_settled + new_credits_total
+   + credit_cards_total)`**
 
   **Every non-cash line is subtracted.** Net Bal is the *physical cash* handed
-  over, so money collected electronically (phone pay, card swipes), given on
-  credit, or already handed off at night is not in the drawer.
+  over, so money collected electronically (phone pay, card swipes) or given on
+  credit is not in the drawer.
 
   Client-confirmed 2026-09-11 against three real filled forms, which reproduce
   exactly only under subtraction: **23,298.77** (Sep 9 Office), **38,993.84**
   (Sep 10 Office, incl. card swiping), **1,601.20** (Sep 10 Road). The mockup's
   `calcAll()` added every line, and the paper form's own printed label still
   reads "+" — both are wrong and contradict the form's own arithmetic.
-  `new_credits_total` and `night_cash` are blank on all three samples, so their
-  sign follows the same logic rather than direct evidence.
+  `new_credits_total` is blank on all three samples, so its sign follows the same
+  logic rather than direct evidence.
   Locked in by `backend/tests/test_client_reconciliation_2026_09_11.py`.
+
+  **`night_cash` was a seventh subtracted line until 2026-09-12**, when the client
+  removed the row from the form outright: the money it recorded is already
+  captured by the Expenses row *"Last Night Cash Hand-off Person's Name-Signature-
+  Amount"*, so the two together double-counted it. It is blank on every real
+  sample, so removing it left all three reconciliations unchanged. The field is
+  gone from the form, the engine, the mirror and the Excel template; the API
+  ignores it if an older client still posts it.
+
+- `gas_oil_total = gas_total + oil_total` — the **Total Gas & Oil Sales Amt** row
+  the client added at the foot of section 2 on 2026-09-12. Same figure as
+  `sum_cash`, which section 7 keeps; both appear on the client's own form.
 
 ## Rounding — truncate, don't round
 

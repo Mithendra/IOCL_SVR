@@ -39,27 +39,28 @@ full = compute(
     DailySalesEntryInput(
         hs=GasRow(current="1317.52", last="0", rate="105.36"),
         ms=GasRow(current="1000", last="0", rate="117.70"),
-        oils=[OilRow(label="2T/1.20 ML Total#", qty="4", rate="62", opening="20")],
+        oils=[OilRow(label="2T/1.50 ML Total#", qty="4", rate="62", opening="20")],
         expenses=["500+100=600", "250"],
         credit_card_amounts=["1000", "500"],
         new_credits=[NewCreditRow(ltrs="10", rate="105.36")],
         old_credit_amounts=["300"],
         phone_pay_settled="150",
         phone_pay_unsettled="200",
-        night_cash="5000",
     )
 )
 check("Oil total (4 x 62)", full.oil_total, 248.0)
+check("Total Gas & Oil Sales Amt", full.gas_oil_total, 138813.90 + 117700.0 + 248.0)
 check("Expenses total", full.expenses_total, 850.0)
 check("Credit cards total", full.credit_cards_total, 1500.0)
 check("New credits total (10 x 105.36)", full.new_credits_total, 1053.6)
 check("Old credit total (excluded from today)", full.sum_old_credit, 300.0)
 check(
     # Every non-cash line is SUBTRACTED - Net Bal is the physical cash handed
-    # over (client-confirmed 2026-09-11 against three real filled forms).
+    # over (client-confirmed 2026-09-11 against three real filled forms). The
+    # Night Cash Hand Off line was removed from the form 2026-09-12.
     "Net Bal Hand Off",
     full.net_bal_hand_off,
-    (138813.90 + 117700.0) + 248.0 - 850.0 - 150.0 - 200.0 - 1053.6 - 1500.0 - 5000.0,
+    (138813.90 + 117700.0) + 248.0 - (850.0 + 150.0 + 200.0 + 1053.6 + 1500.0),
 )
 
 failures = [(lbl, a, e) for lbl, a, e in CHECKS if abs((a or 0) - e) > 1e-6]
