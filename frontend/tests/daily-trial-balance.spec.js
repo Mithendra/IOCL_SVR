@@ -38,9 +38,18 @@ test.beforeAll(async () => {
   });
   // +30 / +20 over the known prior day -> combined HS consumption 50 regardless
   // of anything else ever recorded for these pumps before PRIOR_DATE.
+  // Only the Road pump records the oil sale, which is how the station works (one
+  // submitter a day handles Oil Sale(s)); the Office entry leaves it blank and so
+  // picks up Inventory's opening as a fallback. That pair is what proves Opening
+  // Stock is a level and not something to add up across the two.
   await ctx.post(`${apiBase}/daily-sales-entry`, {
     headers: h,
-    data: { pump_serial: PUMP_A, shift_date: DATE, hs: { current: "1030" } },
+    data: {
+      pump_serial: PUMP_A,
+      shift_date: DATE,
+      hs: { current: "1030" },
+      oils: [{ qty: "3", rate: "17", opening: "50" }],
+    },
   });
   await ctx.post(`${apiBase}/daily-sales-entry`, {
     headers: h,
@@ -55,6 +64,23 @@ test.beforeAll(async () => {
 async function saveOrUpdate(page) {
   const save = page.locator("#save-btn");
   await ((await save.isEnabled()) ? save : page.locator("#update-btn")).click();
+}
+
+// ...and the two report differently ("Saved" vs "Updated; formulas recalculated."),
+// so asserting on either one alone fails on whichever path that run took. The DB
+// is rebuilt per run (global-setup.js), so this is about retries WITHIN a run.
+const SAVED_OR_UPDATED = /Saved|Updated/;
+
+// Open a date and WAIT for it to have landed. Load gives no signal, so
+// `click("#load-btn")` followed by `fill(...)` is a race: when the GET resolves
+// after the first fill, render() repaints the form from the stored record and
+// silently discards what was just typed. It shows up as one field missing from
+// the totals - a flake that looks exactly like a formula bug. Query reports into
+// #tb-status either way, so that is the thing to wait on.
+async function openDate(page, date) {
+  await page.fill("#tb-date", date);
+  await page.click("#query-btn");
+  await expect(page.locator("#tb-status")).toHaveText(/Loaded|No Trial Balance saved/);
 }
 
 async function login(page, user) {
@@ -272,8 +298,7 @@ test("cross-section totals are calculated from what you type, to the SEP12 formu
   await login(page, "mmanager");
   await page.goto(SCREEN);
   await expect(page.locator("#body")).toBeVisible();
-  await page.fill("#tb-date", CALC_DATE);
-  await page.click("#load-btn");
+  await openDate(page, CALC_DATE);
 
   // The SEP12 Section 3 chain, with that sheet's own figures.
   await page.fill('[data-manual="section3.onhand"]', "76096.51");
@@ -314,8 +339,7 @@ test("manual sections save into the record's manual block and survive a reload",
   // itself, so filling too early is silently overwritten and the Save lands on
   // TODAY's Trial Balance - which then blocks every later date via the ADR-2 gate.
   await expect(page.locator("#body")).toBeVisible();
-  await page.fill("#tb-date", MANUAL_DATE);
-  await page.click("#load-btn");
+  await openDate(page, MANUAL_DATE);
 
   await page.fill('[data-manual="section3.onhand"]', "12345.67");
   await page.fill('[data-manual="section4.reported"]', "98765.43");
@@ -359,6 +383,25 @@ test("Section 2 shows the day's real per-pump figures, pulled not typed", async 
   // Nothing in the pulled rows is typeable.
   await expect(page.locator("#s2-gas-rows input")).toHaveCount(0);
   await expect(page.locator("#s2-combined-rows input")).toHaveCount(0);
+
+  // Opening/Closing Stock is one tin's level, reported on both pumps' entries, so
+  // it must NOT be added across them. Only the Road entry recorded this oil, with
+  // an opening of 50; summing added the Office entry's Inventory fallback on top
+  // and showed a stock the station never had - and disagreed with the Excel
+  // export, which reads the sheet's own figure.
+  const oil = page.locator("#s2-oil-rows tr", { hasText: "2T/1.50 ML" }).first();
+  await expect(oil.locator("td").nth(1)).toHaveText("3.00"); // Sold - summed
+  await expect(oil.locator("td").nth(3)).toHaveText("50.00"); // Opening - NOT summed
+  await expect(oil.locator("td").nth(4)).toHaveText("47.00"); // Closing = 50 - 3
+
+  // Two loads of the SAME date must not paint the pumps twice. Section 2 clears,
+  // awaits, then appends, so overlapping runs used to leave 16 rows where 8
+  // belong - every pump listed twice, with the totals below them unchanged. It
+  // surfaced as an intermittent failure of the count above.
+  await page.click("#query-btn");
+  await page.click("#load-btn");
+  await expect(page.locator("#s2-gas-rows tr")).toHaveCount(8);
+  await expect(page.locator("#s2-combined-rows tr")).toHaveCount(2);
 });
 
 test("Manager enters Section 1, sees computed columns + pulled Section 3, then finalizes", async ({
@@ -551,6 +594,13 @@ test("Section 8 is stamped with the system date and time in IST, uneditable", as
   await expect(stamp).toHaveText(/^— \d{1,2} [A-Z]{3,4}, \d{1,2}:\d{2} (AM|PM) IST$/);
   await expect(stamp.locator("input, textarea, select")).toHaveCount(0);
   await expect(page.locator("#sec-8 .section-title")).toContainText("IST");
+
+  // The DATE names the report, so it follows the day on screen - not today. This
+  // was taken off the clock, which only looked right while every day was worked
+  // on the day it happened; querying an old day showed it under today's date.
+  await page.fill("#tb-date", "2026-03-07");
+  await page.click("#query-btn");
+  await expect(stamp).toHaveText(/^— 7 MAR, \d{1,2}:\d{2} (AM|PM) IST$/);
 });
 
 test("Section 1 shows all thirteen columns without scrolling", async ({ page }) => {
@@ -702,7 +752,7 @@ test("Query pulls up a given day and says what it found", async ({ page }) => {
   await page.click("#query-btn");
   await page.fill("#hs-c", "60");
   await saveOrUpdate(page);
-  await expect(page.locator("#save-status")).toContainText("Saved");
+  await expect(page.locator("#save-status")).toContainText(SAVED_OR_UPDATED);
 
   // And once saved, Query finds it and reports its state.
   await page.reload();

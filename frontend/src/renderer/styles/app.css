@@ -467,12 +467,17 @@ td input:disabled {
   align-items: stretch;
   gap: 12px;
 }
+/* The table gives ground so the note gets a usable width; the note takes a fixed
+   share and no more. The other way round - table fixed, note flexible with a
+   240px floor - pushed the note 103px past the section's own right edge, where it
+   was clipped and the placeholder read "Anything worth recording ab". min-width:0
+   is what actually lets a flex table shrink below its content width. */
 .tb-blockrow > table {
-  flex: 0 0 auto;
+  flex: 1 1 auto;
+  min-width: 0;
 }
 .tb-notepanel {
-  flex: 1 1 auto;
-  min-width: 240px;
+  flex: 0 0 280px;
   display: flex;
   flex-direction: column;
 }

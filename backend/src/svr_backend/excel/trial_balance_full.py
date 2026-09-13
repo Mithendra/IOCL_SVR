@@ -23,7 +23,7 @@ the record actually carries - otherwise Excel opens showing #REF!.
 from __future__ import annotations
 
 import io
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -69,18 +69,16 @@ def build_full_workbook(view: dict) -> bytes:
     w = _Writer(ws)
 
     manual = view.get("manual") or {}
-    computed = view.get("computed") or {}
-    derived = computed.get("derived") or {}
     inputs = view.get("inputs") or {}
     pulled = view.get("pulled") or {}
     day = view.get("shift_date")
+    # Nothing reads view["computed"] on purpose: every figure the engine derives is
+    # a formula in the template, and the sheet recalculates it from the inputs we
+    # write. Pasting our own totals over those formulas would silently fork the
+    # two - a hand-edit in Excel afterwards would then disagree with its own sheet.
 
     def sec(key: str) -> dict:
         v = manual.get(key)
-        return v if isinstance(v, dict) else {}
-
-    def der(key: str) -> dict:
-        v = derived.get(key)
         return v if isinstance(v, dict) else {}
 
     s3, s4, s7, s8, s10, s11 = (sec(k) for k in (
@@ -153,13 +151,21 @@ def build_full_workbook(view: dict) -> bytes:
 
     # ---- 8. Daily Management Reporting ---------------------------------------
     # The template hard-codes "8. Daily Management Reporting - SEPT 12, 12:00 PM
-    # IST" from the day it was captured. Re-stamp it with THIS record's date and
-    # the time the export ran, in IST - otherwise every export claims to be Sep 12.
-    stamp = datetime.now(ZoneInfo("Asia/Kolkata"))
-    ws["A81"] = (
-        f"8. Daily Management Reporting - "
-        f"{stamp.strftime('%b %d').upper()}, {stamp.strftime('%I:%M %p').lstrip('0')} IST"
-    )
+    # IST" from the day it was captured, so every export would otherwise claim to
+    # be Sep 12. Re-stamp it.
+    #
+    # The DATE is the record's own day, not today's: that heading names the report,
+    # and a SEP 12 Trial Balance queried and exported on the 14th is still the
+    # SEP 12 report. (Taking the date off the clock looked right only while a day
+    # was always worked on the day it happened - exporting SEP 12 at 7 a.m. the
+    # next morning labelled it SEP 13.) The TIME is the live IST clock: when this
+    # copy was produced.
+    when = datetime.now(ZoneInfo("Asia/Kolkata")).strftime("%I:%M %p").lstrip("0")
+    try:
+        on = date.fromisoformat(str(day)).strftime("%b %d").upper()
+    except (TypeError, ValueError):  # no/!ISO shift_date - fall back to the clock
+        on = datetime.now(ZoneInfo("Asia/Kolkata")).strftime("%b %d").upper()
+    ws["A81"] = f"8. Daily Management Reporting - {on}, {when} IST"
     for i, row in enumerate(s8.get("regular_expenses") or []):
         if i > 2 or not isinstance(row, dict):
             break

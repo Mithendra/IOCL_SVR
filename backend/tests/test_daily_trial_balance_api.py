@@ -371,6 +371,73 @@ def test_whole_trial_balance_exports_as_the_stations_own_sheet(client, auth_head
     assert ws["D49"].value == 1861869.74
 
 
+def test_oil_opening_stock_comes_from_the_entry_that_sold_it(client, auth_headers):
+    """Opening Stock is one tin's level, not something to merge across pumps.
+
+    Oil Sale(s) is handled by one submitter a day. The other pump's entry carries
+    the same rows filled in from Inventory, and once stored the two are
+    indistinguishable - so merging them per row let this and the screen prefer
+    opposite entries, and Acid Water's opening read 60 in the export against 64
+    on screen. The sheet's D21 says 64.
+    """
+    import io
+
+    from openpyxl import load_workbook
+
+    h = auth_headers("Manager")
+    # The Road pump records the oils; the Office pump leaves them blank.
+    client.post("/daily-sales-entry", json={
+        "pump_serial": "12BC4523V-RD", "shift_date": DATE,
+        "hs": {"current": "1030"},
+        "oils": [
+            {"qty": "8", "rate": "17", "opening": "29"},   # sold
+            {"qty": "0", "rate": "17", "opening": "0"},
+            {"qty": "0", "rate": "30", "opening": "64"},   # NOT sold, still its stock
+        ],
+    }, headers=h)
+    client.post("/daily-sales-entry", json={
+        "pump_serial": "11CC2012V-OFF", "shift_date": DATE, "hs": {"current": "2020"},
+    }, headers=h)
+    client.put(f"/daily-trial-balance/{DATE}", json={"s1_hs_current": 4937}, headers=h)
+
+    r = client.get(f"/daily-trial-balance/{DATE}/export-excel", headers=h)
+    ws = load_workbook(io.BytesIO(r.content))["SEP12"]
+
+    assert ws["B19"].value == 8      # sold, from the owning entry
+    assert ws["D19"].value == 29     # its opening - not 29 + the other pump's
+    assert ws["D21"].value == 64     # a zero-quantity row still takes the owner's
+
+
+def test_section8_heading_carries_the_records_date_not_todays(client, auth_headers):
+    """The Section 8 heading names the report, so it must read the record's own
+    day - not the day the export happened to run.
+
+    This shipped wrong and twenty green tests said nothing: the stamp came off
+    the clock, so exporting the SEP 12 Trial Balance at 7 a.m. on the 13th
+    produced a sheet headed "SEP 13". Invisible while every day was worked on the
+    day it happened; wrong the moment a past day is queried and exported, which is
+    the whole point of the Query button.
+    """
+    import io
+    from datetime import date
+
+    from openpyxl import load_workbook
+
+    h = auth_headers("Manager")
+    client.put(f"/daily-trial-balance/{DATE}", json={"s1_hs_current": 4937}, headers=h)
+    r = client.get(f"/daily-trial-balance/{DATE}/export-excel", headers=h)
+    heading = load_workbook(io.BytesIO(r.content))["SEP12"]["A81"].value
+
+    on = date.fromisoformat(DATE).strftime("%b %d").upper()
+    assert heading.startswith("8. Daily Management Reporting - ")
+    assert on in heading, f"expected the record's day {on} in {heading!r}"
+    assert heading.rstrip().endswith("IST")
+    # DATE is in October, so a stamp taken off the clock would read SEP here and
+    # the assertion above would catch it. The template's own frozen Sep 12
+    # heading must be gone too.
+    assert "SEPT 12" not in heading
+
+
 def test_saved_dates_can_be_listed_without_knowing_them(client, auth_headers):
     """Query capability: the Date + Load pair retrieves one day, this finds a day
     when nobody remembers its date."""

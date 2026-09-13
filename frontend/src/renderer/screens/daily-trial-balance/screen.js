@@ -304,17 +304,26 @@ function buildManualSections() {
   });
 }
 
-// System date + time in IST for the Section 8 heading. Read-only by construction:
-// there is no field for it, so a Manager or Owner cannot alter what it says.
+// The Section 8 heading, IST. Read-only by construction: there is no field for
+// it, so a Manager or Owner cannot alter what it says.
+//
+// The DATE is the day being reported on, not today. The sheet's own heading reads
+// "8. Daily Management Reporting - SEPT 12, 12:00 PM IST" - that is the SEP 12
+// report. Stamping today's date instead was only ever invisible because the day
+// was always being worked on the day it happened; now that any past day can be
+// queried and exported, it would have labelled a queried SEP 12 as SEP 14. The
+// TIME is the live system clock - when this view of the report was produced.
 function stampSection8() {
   const el = $("s8-stamp");
   if (!el) return;
-  const now = new Date();
   const opts = { timeZone: "Asia/Kolkata" };
-  const day = now
-    .toLocaleDateString("en-GB", { ...opts, day: "numeric", month: "short" })
+  const picked = $("tb-date").value;
+  // Parse as midday UTC so no timezone shift can roll the date back a day.
+  const on = picked ? new Date(`${picked}T12:00:00Z`) : new Date();
+  const day = on
+    .toLocaleDateString("en-GB", { day: "numeric", month: "short" })
     .toUpperCase();
-  const time = now.toLocaleTimeString("en-US", {
+  const time = new Date().toLocaleTimeString("en-US", {
     ...opts, hour: "numeric", minute: "2-digit",
   });
   el.textContent = `— ${day}, ${time} IST`;
@@ -433,7 +442,15 @@ function lockManualInputs(locked) {
 
 // ------------------------------------------------------------ Section 2 (pulled)
 
+// Only the newest run may paint. This function clears the rows, awaits a fetch,
+// then APPENDS - so two overlapping runs (Load then Query, or Query clicked
+// twice) both clear, both wait, and both append, leaving Section 2 showing every
+// pump twice. load()'s existing guard only catches a run whose DATE has since
+// changed; two loads of the SAME date sail past it.
+let daySalesRun = 0;
+
 async function loadDaySales(dateStr) {
+  const run = ++daySalesRun;
   const gas = $("s2-gas-rows");
   const combined = $("s2-combined-rows");
   const oils = $("s2-oil-rows");
@@ -446,6 +463,7 @@ async function loadDaySales(dateStr) {
   } catch {
     return;
   }
+  if (run !== daySalesRun) return; // a newer load started while this one waited
   if (!entries.length) {
     gas.innerHTML =
       '<tr><td colspan="6">No Daily Sales Entry recorded for this date yet.</td></tr>';
@@ -499,8 +517,25 @@ async function loadDaySales(dateStr) {
     combined.appendChild(tr);
   }
 
-  // Oil rows summed across both pumps, matched on the row's own stored label -
-  // the row ORDER changed on 2026-09-12, so position is not safe (oils_by_key).
+  // Oil rows across both pumps, matched on the row's own stored label - the row
+  // ORDER changed on 2026-09-12, so position is not safe (oils_by_key).
+  //
+  // Sold and Amount are summed: they are per-pump flows. Opening and Closing
+  // Stock are NOT - they are levels for one physical tin, reported on both pumps'
+  // entries, so adding them counts the same stock twice. It showed as an Opening
+  // Stock of 69 for 2T/1.50 where the SEP12 sheet's own D19 reads 29: the other
+  // entry's blank row had fallen back to Inventory's 40 and been added on.
+  //
+  // Oil Sale(s) is handled by ONE submitter a day, so one entry owns the oil
+  // section and the other's rows are blanks the backend filled from Inventory.
+  // Read stock from that owner. Picking per-row instead ("whichever recorded one
+  // first") still put the screen at odds with the Excel export on the zero-qty
+  // rows - Acid Water read 60 against the sheet's 64 - because the two ended up
+  // preferring opposite entries. Same rule as _day_sales() on the backend.
+  const num = (x) => (isNaN(parseFloat(x)) ? 0 : parseFloat(x));
+  const sold = (e) => ((e.payload || {}).oils || []).some((o) => num(o.qty) > 0);
+  const owner = entries.find(sold) || entries[entries.length - 1];
+
   const oilTotals = new Map();
   let oilGrand = 0;
   for (const e of entries) {
@@ -509,12 +544,14 @@ async function loadDaySales(dateStr) {
       const label = o.label || (inOils[i] || {}).label;
       if (!label) return;
       const prev = oilTotals.get(label) || { qty: 0, rate: null, open: 0, close: 0, amount: 0 };
-      const num = (x) => (isNaN(parseFloat(x)) ? 0 : parseFloat(x));
-      prev.qty += num((inOils[i] || {}).qty);
-      const rate = num((inOils[i] || {}).rate);
+      const src = inOils[i] || {};
+      prev.qty += num(src.qty);
+      const rate = num(src.rate);
       if (rate) prev.rate = rate;
-      prev.open += num((inOils[i] || {}).opening);
-      prev.close += num(o.closing);
+      if (e === owner) {
+        prev.open = num(src.opening);
+        prev.close = num(o.closing);
+      }
       prev.amount += o.amount || 0;
       oilTotals.set(label, prev);
     });
@@ -867,6 +904,7 @@ function render(view) {
   $("cash-bv").value = money(i.s54_cash_book_value);
   fillManual(lastManual);
   fillDerived(view.computed.derived);
+  stampSection8(); // the heading carries the loaded day's date, so re-stamp here
 
   for (const f of ["hs", "ms"]) {
     const s = view.computed.section1[f];

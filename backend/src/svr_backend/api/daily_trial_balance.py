@@ -144,9 +144,18 @@ def _day_sales(conn: sqlite3.Connection, shift_date: str) -> dict:
     Section 2 there is per-pump, not the combined figure Daily Sales Summary
     reports. Oil rows come back in OIL_KEYS order, resolved by each saved row's
     own label (the row order changed on 2026-09-12).
+
+    Oil Sale(s) is handled by ONE submitter a day, so one entry owns the oil
+    section; the other pump's rows are blanks the backend filled in from Inventory
+    at save time, and are indistinguishable from typed figures once stored. Take
+    every oil row from that owner rather than merging the two per row - merging
+    made this and the screen prefer opposite entries on the zero-quantity rows,
+    so Acid Water's Opening Stock read 60 here and 64 on screen where the SEP12
+    sheet's own D21 says 64. Oldest entry of the day is the fallback when nothing
+    sold, so the same day always resolves the same way.
     """
     out: dict = {"road": {}, "office": {}, "oils": []}
-    oil_rows: dict[str, dict] = {}
+    payloads: list[dict] = []
     for row in conn.execute(
         "SELECT pump_serial, payload FROM daily_sales_entry WHERE shift_date = ? "
         "ORDER BY id DESC",
@@ -156,17 +165,28 @@ def _day_sales(conn: sqlite3.Connection, shift_date: str) -> dict:
         if side is None:
             continue
         payload = json.loads(row["payload"] or "{}")
+        payloads.append(payload)
         if not out[side]:
             for fuel in ("hs", "ms"):
                 f = payload.get(fuel) or {}
                 out[side][fuel] = {
                     "current": f.get("current"), "last": f.get("last"), "rate": f.get("rate"),
                 }
-        # Oil sales are handled by one submitter a day, so the first entry that
-        # actually carries a quantity for an item is the one that sold it.
-        for key, oil in oils_by_key(payload.get("oils")).items():
-            if key not in oil_rows or oil_rows[key].get("qty") in (None, "", 0):
-                oil_rows[key] = oil
+
+    def _qty(oil: dict) -> float:
+        # Quantities come back as whatever was submitted - "8", 8, "" or None - so
+        # coerce rather than testing membership: the string "0" is falsy as a
+        # quantity but not equal to 0.
+        try:
+            return float(oil.get("qty") or 0)
+        except (TypeError, ValueError):
+            return 0.0
+
+    def _sold(payload: dict) -> bool:
+        return any(_qty(oil) > 0 for oil in oils_by_key(payload.get("oils")).values())
+
+    owner = next((p for p in payloads if _sold(p)), payloads[-1] if payloads else {})
+    oil_rows = oils_by_key(owner.get("oils"))
     out["oils"] = [
         {
             "qty": (oil_rows.get(k) or {}).get("qty"),
