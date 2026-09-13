@@ -12,7 +12,7 @@ import json
 import sqlite3
 from dataclasses import dataclass, field
 
-from svr_backend.calc.daily_sales_entry import OIL_KEYS, OIL_LABELS, oils_by_key
+from svr_backend import oil_items
 
 # Explicit serial -> side map (client-confirmed 2026-09-11), not a substring guess.
 # A previous version inferred the side from "OFF"/"RDF" inside the serial itself,
@@ -42,7 +42,9 @@ class PumpSide:
     ms_amount: float = 0.0
     hs_liters: float = 0.0
     ms_liters: float = 0.0
-    oil_amounts: list[float] = field(default_factory=lambda: [0.0] * len(OIL_KEYS))
+    # One entry per active oil item, in display order. Sized from the item list
+    # at build time, not from a constant - the list is data now (migration 0023).
+    oil_amounts: list[float] = field(default_factory=list)
     gas_total: float = 0.0
     oil_total: float = 0.0
 
@@ -62,8 +64,11 @@ def _latest_entry_for(conn: sqlite3.Connection, shift_date: str, side: str) -> s
     return None
 
 
-def _side_from_entry(row: sqlite3.Row | None) -> PumpSide:
+def _side_from_entry(
+    conn: sqlite3.Connection, row: sqlite3.Row | None, keys: tuple[str, ...]
+) -> PumpSide:
     side = PumpSide()
+    side.oil_amounts = [0.0] * len(keys)
     if row is None:
         return side
     result = json.loads(row["result"] or "{}")
@@ -79,8 +84,8 @@ def _side_from_entry(row: sqlite3.Row | None) -> PumpSide:
     # Resolved by each saved row's own label, not by position: the Oil Sale(s)
     # row order changed on 2026-09-12, so an entry saved before then lines up
     # correctly here only when it is matched by item (see oils_by_key()).
-    by_key = oils_by_key(result.get("oils"))
-    side.oil_amounts = [(by_key.get(k) or {}).get("amount") or 0.0 for k in OIL_KEYS]
+    by_key = oil_items.oils_by_key(conn, result.get("oils"))
+    side.oil_amounts = [(by_key.get(k) or {}).get("amount") or 0.0 for k in keys]
     side.gas_total = result.get("gas_total") or 0.0
     side.oil_total = result.get("oil_total") or 0.0
     return side
@@ -101,8 +106,10 @@ def build_summary(conn: sqlite3.Connection, shift_date: str) -> dict:
     off_row = bound_or_latest("off_entry_id", "office")
     road_row = bound_or_latest("road_entry_id", "road")
 
-    office = _side_from_entry(off_row)
-    road = _side_from_entry(road_row)
+    items = oil_items.active_items(conn)
+    keys = tuple(i.key for i in items)
+    office = _side_from_entry(conn, off_row, keys)
+    road = _side_from_entry(conn, road_row, keys)
 
     if row is not None:
         office.verified = bool(row["off_verified"])
@@ -121,9 +128,9 @@ def build_summary(conn: sqlite3.Connection, shift_date: str) -> dict:
         "hs_liters": line(office.hs_liters, road.hs_liters),
         "ms_liters": line(office.ms_liters, road.ms_liters),
         "oils": [
-            {"key": OIL_KEYS[i], "label": OIL_LABELS[OIL_KEYS[i]],
+            {"key": item.key, "label": item.label,
              **line(office.oil_amounts[i], road.oil_amounts[i])}
-            for i in range(len(OIL_KEYS))
+            for i, item in enumerate(items)
         ],
         # Gas Total alongside Oil Total, so the combined table carries the same
         # three closing lines the Daily Sales Entry form now does (2026-09-12):

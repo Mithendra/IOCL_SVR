@@ -32,9 +32,14 @@ from openpyxl import load_workbook
 TEMPLATE = Path(__file__).with_name("templates") / "trial_balance_template.xlsx"
 SHEET = "SEP12"
 
-# Oil rows, in the template's own order. It carries SEVEN - row 20 ("2T/1.40 ML
-# Total #") is all zeros on SEP12, which is why it reads as six at a glance. The
-# order matches OIL_KEYS exactly, so the two line up one for one.
+# Oil rows the station's own sheet has. It carries SEVEN - row 20 ("2T/1.40 ML
+# Total #") is all zeros on SEP12, which is why it reads as six at a glance.
+#
+# The item list is editable now (migration 0023), so the two can disagree. These
+# seven rows are FIXED in the template: F26 sums F19..F25 by name, and every row
+# below 26 is referenced by absolute position from seven other places. Inserting a
+# row would silently repoint all of that, so the export does not insert - it fills
+# these seven in order and reports the rest rather than dropping them quietly.
 _OIL_ROWS = (19, 20, 21, 22, 23, 24, 25)
 
 
@@ -106,11 +111,32 @@ def build_full_workbook(view: dict) -> bytes:
     w.num("E15", pulled.get("sell_rate_hs"))
     w.num("E16", pulled.get("sell_rate_ms"))
 
-    # ---- 2.1 Oil Sales: B Sold, C Rate, D Opening Stock ----------------------
-    for row, oil in zip(_OIL_ROWS, (view.get("day_sales") or {}).get("oils") or [], strict=False):
+    # ---- 2.1 Oil Sales: A Item, B Sold, C Rate, D Opening Stock ---------------
+    # The label is written too, so a renamed or newly added item is named on the
+    # exported sheet instead of appearing under the row the template shipped with.
+    day_oils = (view.get("day_sales") or {}).get("oils") or []
+    for row, oil in zip(_OIL_ROWS, day_oils, strict=False):
+        w.text(f"A{row}", oil.get("label"))
         w.num(f"B{row}", oil.get("qty"))
         w.num(f"C{row}", oil.get("rate"))
         w.num(f"D{row}", oil.get("opening"))
+
+    # More items than the sheet has rows. Rather than drop them silently - which
+    # would make the exported Oil Total disagree with the screen's - they go in a
+    # note beside the block, where a person will see them. Inserting real rows
+    # would repoint F26's SUM and every absolute reference below it.
+    if len(day_oils) > len(_OIL_ROWS):
+        extra = day_oils[len(_OIL_ROWS):]
+        w.text(
+            "H18",
+            "NOT SHOWN ABOVE - this sheet has "
+            f"{len(_OIL_ROWS)} oil rows and the station now sells {len(day_oils)}: "
+            + "; ".join(
+                f"{o.get('label') or '?'} = {o.get('qty') or 0} x {o.get('rate') or 0}"
+                for o in extra
+            )
+            + ". Their amounts are excluded from 2.1's total on this sheet.",
+        )
 
     # ---- 3. Daily Cash & Bank Balances ---------------------------------------
     for ref, key in (("B29", "onhand"), ("B30", "night"), ("B31", "morning"),

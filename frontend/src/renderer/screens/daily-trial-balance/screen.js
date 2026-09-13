@@ -616,18 +616,17 @@ function noteRow(text) {
   return tr;
 }
 
-// The seven oil items, in the sheet's order, from the server rather than a copy
-// kept here - the list and its order changed on 2026-09-12 and a second copy
-// would be one more thing to keep in step. Fetched once per screen load.
+// The oil items, in the sheet's order, from the server rather than a copy kept
+// here. The list is editable now (client, 2026-09-13), so 2.1 has however many
+// rows the station currently sells - it is not seven by definition. Straight from
+// /oil-items rather than via the entry form's prefill, which is a heavier call
+// that also resolves rates, stock and carry-forward readings we do not need here.
+// Fetched once per screen load.
 let oilLabelsCache = null;
 async function oilLabels() {
   if (oilLabelsCache) return oilLabelsCache;
   try {
-    const p = await api.get(
-      `/daily-sales-entry/prefill?pump_serial=${encodeURIComponent(SIDE_SERIAL.road)}` +
-      `&shift_date=${encodeURIComponent($("tb-date").value)}`,
-    );
-    oilLabelsCache = Object.values(p.oil_labels || {});
+    oilLabelsCache = (await api.get("/oil-items")).map((i) => i.label);
   } catch {
     oilLabelsCache = [];
   }

@@ -15,20 +15,20 @@ from __future__ import annotations
 import json
 import sqlite3
 
+from svr_backend import oil_items
 from svr_backend.calc.amounts import is_blank
-from svr_backend.calc.daily_sales_entry import OIL_KEYS, oils_by_key
 from svr_backend.core.audit import record_write
 from svr_backend.core.db import transaction
 
 
 def _sold_today(conn: sqlite3.Connection, shift_date: str) -> dict[str, float]:
-    sold = {k: 0.0 for k in OIL_KEYS}
+    sold = {k: 0.0 for k in oil_items.keys(conn)}
     for row in conn.execute(
         "SELECT payload FROM daily_sales_entry WHERE shift_date = ?", (shift_date,)
     ):
         payload = json.loads(row["payload"] or "{}")
         # By item, not by position - the Oil Sale(s) row order changed 2026-09-12.
-        for key, oil in oils_by_key(payload.get("oils")).items():
+        for key, oil in oil_items.oils_by_key(conn, payload.get("oils")).items():
             if key not in sold:
                 continue
             qty = oil.get("qty")
@@ -109,7 +109,7 @@ def sync_from_daily_sales(
     ).fetchall()
 
     found: dict[str, dict] = {}
-    remaining = set(OIL_KEYS)
+    remaining = set(oil_items.keys(conn))
     for row in rows:
         if not remaining:
             break
@@ -117,8 +117,8 @@ def sync_from_daily_sales(
         result = json.loads(row["result"] or "{}")
         # By item, not by position - the Oil Sale(s) row order changed 2026-09-12,
         # so an entry saved before then has its rows in a different sequence.
-        oils_in = oils_by_key(payload.get("oils"))
-        oils_out = oils_by_key(result.get("oils"))
+        oils_in = oil_items.oils_by_key(conn, payload.get("oils"))
+        oils_out = oil_items.oils_by_key(conn, result.get("oils"))
         for key in list(remaining):
             qty = (oils_in.get(key) or {}).get("qty")
             if is_blank(qty):

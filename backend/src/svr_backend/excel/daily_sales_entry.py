@@ -21,7 +21,7 @@ from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Alignment, Font, PatternFill
 
 from svr_backend.calc.amounts import is_blank
-from svr_backend.calc.daily_sales_entry import OIL_KEYS, OIL_LABELS, compute_payload
+from svr_backend.calc.daily_sales_entry import OIL_ITEMS, compute_payload
 
 SHEET = "Daily Sales Entry"
 _MAX_OILS = 10  # 7 fixed + up to 3 operator-added
@@ -59,15 +59,14 @@ def _gas_rows(payload: dict, result: dict) -> list[_Row]:
     return rows
 
 
-def _oil_rows(payload: dict, result: dict) -> list[_Row]:
+def _oil_rows(payload: dict, result: dict, items=OIL_ITEMS) -> list[_Row]:
     oils = payload.get("oils") or []
     r_oils = result.get("oils") or []
     rows: list[_Row] = [_section("2. Oil Sale(s)")]
     for i in range(_MAX_OILS):
         o = oils[i] if i < len(oils) else {}
         ro = r_oils[i] if i < len(r_oils) else {}
-        key = OIL_KEYS[i] if i < len(OIL_KEYS) else ""
-        label = o.get("label") or OIL_LABELS.get(key, f"Oil {i + 1}")
+        label = o.get("label") or (items[i][1] if i < len(items) else f"Oil {i + 1}")
         rows += [
             _r(label, "Quantity", o.get("qty"), key=f"oils.{i}.qty"),
             _r(label, "Rate", o.get("rate"), key=f"oils.{i}.rate"),
@@ -217,10 +216,10 @@ def build_workbook(record: dict) -> bytes:
     return buf.getvalue()
 
 
-def blank_template(pump_serial: str | None = None) -> bytes:
+def blank_template(pump_serial: str | None = None, items=OIL_ITEMS) -> bytes:
     empty = {
         "hs": {}, "ms": {},
-        "oils": [{"label": OIL_LABELS[k]} for k in OIL_KEYS],
+        "oils": [{"label": label} for _, label in items],
         "expenses": [], "credit_card_amounts": [], "new_credits": [], "old_credit_amounts": [],
     }
     return build_workbook({
@@ -401,7 +400,7 @@ def _section_span(rows: list[tuple], title: str, next_title: str | None) -> tupl
     return start, end if end is not None else len(rows)
 
 
-def _parse_paper_layout(rows: list[tuple]) -> tuple[dict, dict, list[str]]:
+def _parse_paper_layout(rows: list[tuple], items=OIL_ITEMS) -> tuple[dict, dict, list[str]]:
     warnings = [
         "Read as a paper-form layout (no SVR field keys found) - this is a "
         "best-effort match on the form's own labels. Check EVERY value against "
@@ -459,8 +458,11 @@ def _parse_paper_layout(rows: list[tuple]) -> tuple[dict, dict, list[str]]:
         # 7 fixed rows since 2026-09-12, plus slack for blank spacer rows.
         stop = stop if stop is not None else min(oil_hdr + 10, len(rows))
         oils = []
-        for key in OIL_KEYS:
-            hints = _OIL_MATCH_HINTS[key]
+        for key, item_label in items:
+            # A hand-written hint where one exists; otherwise the item's own
+            # label, which is all there is to go on for an item the Owner added
+            # after these hints were written.
+            hints = _OIL_MATCH_HINTS.get(key) or _norm_hints((item_label,))
             ridx = next(
                 (i for i in range(oil_hdr + 1, stop) if any(h in _row_txt(rows[i]) for h in hints)),
                 None,
@@ -484,7 +486,7 @@ def _parse_paper_layout(rows: list[tuple]) -> tuple[dict, dict, list[str]]:
                 try:
                     if abs(float(sheet_closing) - (float(opening) - float(qty))) > _EPS:
                         warnings.append(
-                            f"{OIL_LABELS[key]}: sheet shows Closing Stock {sheet_closing}, "
+                            f"{item_label}: sheet shows Closing Stock {sheet_closing}, "
                             f"recomputes to {float(opening) - float(qty)} - using recomputed."
                         )
                 except (TypeError, ValueError):
@@ -565,7 +567,7 @@ def _parse_paper_layout(rows: list[tuple]) -> tuple[dict, dict, list[str]]:
             if ridx is not None:
                 payload[key] = _rightmost_value(rows[ridx])
 
-    payload["oils"] = _trim_oils(payload["oils"])
+    payload["oils"] = _trim_oils(payload["oils"], items)
     for k in ("expenses", "credit_card_amounts", "old_credit_amounts"):
         payload[k] = _rtrim(list(payload[k]))
     payload["new_credits"] = _rtrim_dicts(payload["new_credits"], ("ltrs", "rate"))
@@ -601,12 +603,18 @@ def _select_sheet(wb, pump_serial: str | None):
     )
 
 
-def parse_workbook(data: bytes, pump_serial: str | None = None) -> tuple[dict, dict, list[str]]:
+def parse_workbook(
+    data: bytes, pump_serial: str | None = None, items=OIL_ITEMS
+) -> tuple[dict, dict, list[str]]:
     """bytes -> (payload, meta, warnings). Recompute downstream; never trust sheet totals.
 
     ``pump_serial`` is the Pump Serial Number currently selected on the form -
     used only to pick the right sheet out of a multi-pump workbook; the parsed
     payload never trusts an in-file pump serial for identity either way.
+
+    ``items`` is the live Oil Sale(s) list as ``(key, label)`` pairs. It defaults
+    to the constant so the pure-function tests keep working; the API passes what
+    the station actually sells today (migration 0023).
     """
     wb = load_workbook(io.BytesIO(data), data_only=True, read_only=True)
     ws, sheet_warning = _select_sheet(wb, pump_serial)
@@ -631,7 +639,7 @@ def parse_workbook(data: bytes, pump_serial: str | None = None) -> tuple[dict, d
         # the physical form's own labels instead (exact cell text, not OCR, so it's
         # reliable whenever the layout resembles the printed form). ADR-5 review
         # still applies downstream - nothing here is trusted without a human Save.
-        payload, meta, warnings = _parse_paper_layout(all_rows)
+        payload, meta, warnings = _parse_paper_layout(all_rows, items)
         if sheet_warning:
             warnings.insert(0, sheet_warning)
         return payload, meta, warnings
@@ -656,9 +664,9 @@ def parse_workbook(data: bytes, pump_serial: str | None = None) -> tuple[dict, d
     return payload, meta, warnings
 
 
-def _trim_oils(oils: list[dict]) -> list[dict]:
-    kept = list(oils[: len(OIL_KEYS)])  # always keep the 5 fixed rows
-    for extra in oils[len(OIL_KEYS):]:
+def _trim_oils(oils: list[dict], items=OIL_ITEMS) -> list[dict]:
+    kept = list(oils[: len(items)])  # always keep the registered item rows
+    for extra in oils[len(items):]:
         if any(not is_blank(extra.get(f)) for f in ("qty", "rate", "opening")):
             kept.append(extra)
     return kept

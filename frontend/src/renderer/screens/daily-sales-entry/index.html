@@ -135,11 +135,14 @@
           <tr>
             <th>Item</th><th>Quantity</th><th>Rate</th>
             <th>Opening Stock</th><th>Closing Stock</th><th>Amount</th>
+            <!-- Retire column, Manager/Owner only - hidden entirely for Sales -->
+            <th id="oil-admin-head" hidden></th>
           </tr>
-          <tbody id="oil-rows"><!-- filled from /prefill oil_labels --></tbody>
+          <tbody id="oil-rows"><!-- built from /oil-items --></tbody>
           <tr class="total-row">
             <td colspan="5">Total Amt Oil(s)</td>
             <td><input id="oil-total" disabled placeholder="auto" /></td>
+            <td id="oil-admin-total" hidden></td>
           </tr>
           <!-- Gas Total + Oil Total, the day's gross sale, closing out section 2
                (client-added 2026-09-12). Section 7's "Cash (Gas + Oils)" is the
@@ -147,8 +150,25 @@
           <tr class="total-row">
             <td colspan="5">Total Gas &amp; Oil Sales Amt</td>
             <td><input id="gas-oil-total" disabled placeholder="auto" /></td>
+            <td id="oil-admin-total2" hidden></td>
           </tr>
         </table>
+
+        <!-- What the station sells is the station's decision, not the build's
+             (client, 2026-09-13). Manager/Owner only: Sales keys the day's
+             figures and does not decide the product list. window.prompt() is
+             blocked in Electron, so this is an inline box, not a dialog. -->
+        <div id="oil-admin" hidden>
+          <button type="button" class="btn-small" id="oil-add-btn">+ New Oil Item</button>
+          <div id="oil-new" class="oil-newbox" hidden>
+            <input id="oil-new-label" placeholder="Item name, e.g. Coolant Total 1 Lts" />
+            <input id="oil-new-rate" placeholder="Rate" />
+            <input id="oil-new-stock" placeholder="Opening stock" />
+            <button type="button" class="btn-small" id="oil-new-save">Add</button>
+            <button type="button" class="btn-small secondary" id="oil-new-cancel">Cancel</button>
+          </div>
+          <p id="oil-admin-status" class="status-line"></p>
+        </div>
 
         <!-- 3. Expenses -->
         <div class="section-title">

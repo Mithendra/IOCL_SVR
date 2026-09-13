@@ -17,7 +17,8 @@ from datetime import date
 from fastapi import APIRouter, Depends, File, HTTPException, Response, UploadFile, status
 from pydantic import BaseModel, Field
 
-from svr_backend.calc.daily_sales_entry import OIL_KEYS, OIL_LABELS, compute_payload
+from svr_backend import oil_items
+from svr_backend.calc.daily_sales_entry import compute_payload
 from svr_backend.carry_forward import carried_last_readings
 from svr_backend.core.audit import record_write
 from svr_backend.core.config import get_settings
@@ -133,7 +134,10 @@ def _apply_locked_context(
     rates = latest_effective_rates(conn, shift_date)
     hs_rate = rates["HS"]["sell_rate"] if "HS" in rates else None
     ms_rate = rates["MS"]["sell_rate"] if "MS" in rates else None
-    oil_rates = {k: (rates[k]["sell_rate"] if k in rates else None) for k in OIL_KEYS}
+    # The item list is data now (oil_item, migration 0023), so read it per call
+    # rather than from a constant - the Owner can add or retire a row at any time.
+    items = oil_items.active_items(conn)
+    oil_rates = {i.key: (rates[i.key]["sell_rate"] if i.key in rates else None) for i in items}
     oil_openings = on_hand_map(conn)  # Opening Stock pulled from Inventory Tracking
 
     carried = carried_last_readings(conn, pump_serial, shift_date)
@@ -156,15 +160,20 @@ def _apply_locked_context(
     payload["hs"]["rate"] = hs_rate
     payload["ms"]["rate"] = ms_rate
 
+    # Match submitted rows to items by their own LABEL, not by position: the form
+    # the operator submitted from may be a row out of date with this one if an item
+    # was added or retired between the page loading and the save.
+    submitted = oil_items.oils_by_key(conn, payload.get("oils"))
     oils = payload.get("oils") or []
     normalized = []
-    for i, key in enumerate(OIL_KEYS):
-        src = oils[i] if i < len(oils) else {}
+    for item in items:
+        key = item.key
+        src = submitted.get(key) or {}
         manual_opening = _num(src.get("opening"))
         manual_rate = _num(src.get("rate"))
         normalized.append(
             {
-                "label": OIL_LABELS[key],
+                "label": item.label,
                 "qty": src.get("qty"),
                 # Oil Rate comes from the submitted form/sheet when given, else
                 # Rate Master (client-confirmed 2026-09-11: the sheet's rate is
@@ -181,8 +190,19 @@ def _apply_locked_context(
                 "opening": manual_opening if manual_opening is not None else oil_openings.get(key),
             }
         )
-    # keep any operator-added extra rows as-is (manual rate/opening)
-    normalized.extend(oils[len(OIL_KEYS) :])
+    # Keep any row the operator added ad-hoc that is not a registered item - it
+    # carries its own label, rate and opening.
+    #
+    # Identity, not label: oils_by_key() falls back to POSITION for a row with no
+    # label, so an unlabelled row is already consumed as items[n] above. Filtering
+    # on "label not known" let every unlabelled row through a second time and
+    # doubled the day's Oil Total - it put SEP12's Section 1 Total Sale Amt at
+    # 4,601.21 against the sheet's 4,185.2135, out by exactly the 416 oil total.
+    consumed = {id(r) for r in submitted.values()}
+    normalized.extend(
+        r for i, r in enumerate(oils)
+        if isinstance(r, dict) and id(r) not in consumed and i >= len(items)
+    )
     payload["oils"] = normalized
 
     meta = {
@@ -223,7 +243,7 @@ def prefill(
         sell_rate_ms=meta["sell_rate_ms"],
         oil_rates=meta["oil_rates"],
         oil_openings=meta["oil_openings"],
-        oil_labels=dict(OIL_LABELS),
+        oil_labels={i.key: i.label for i in oil_items.active_items(conn)},
     )
 
 

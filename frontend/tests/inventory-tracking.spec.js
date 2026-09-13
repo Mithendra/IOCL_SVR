@@ -25,8 +25,21 @@ test("Manager sees the 7 SKUs and can record a restock", async ({ page }) => {
   await page.fill("#as-of", DATE);
   await page.locator("#as-of").dispatchEvent("change");
 
-  // Seven oil SKUs since the 2026-09-12 form change (migration 0017).
-  await expect(page.locator("#stock-rows tr")).toHaveCount(7);
+  // The seven the station seeds with (migration 0017). NOT an exact row count any
+  // more: the Owner can add oil items since 2026-09-13, and retiring one leaves
+  // its inventory row alone on purpose - tins already on the shelf are still
+  // stock, whether or not the product is still sold.
+  for (const sku of [
+    "2T/1.50 ML Total#",
+    "2T/2.40 ML Total#",
+    "Acid Water Total 1 Lts",
+    "Battery Water Total 1 Lts",
+    "Battery Water Total 5 Lts",
+    "20/40 Engine Total in 05. Lts",
+    "20/40 Engine Total in 1 Lts",
+  ]) {
+    await expect(page.locator("#stock-rows")).toContainText(sku);
+  }
 
   // Reorder inputs are read-only for a Manager.
   await expect(page.locator("#stock-rows tr").first().locator(".reorder")).toBeDisabled();

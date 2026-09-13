@@ -7,19 +7,18 @@ import { api, getToken } from "../../lib/api.js";
 import * as mirror from "../../lib/calc-mirror.js";
 import { fmt2 } from "../../lib/format.js";
 
-// Oil Sale(s) rows in form order. NOT in numeric key order: item_key identifies a
-// product, so when the client revised the list on 2026-09-12 the three renamed
-// products kept their keys (and their rate history / tracked stock) and only
-// moved position. Keep in step with OIL_ITEMS in calc/daily_sales_entry.py.
-const OIL_KEYS = ["oil1", "oil2", "oil3", "oil6", "oil4", "oil7", "oil5"];
-// Labels the 5-row form used until 2026-09-12, so reopening an entry saved then
-// puts each row back under the right item instead of under whatever now sits at
-// the same position. Mirrors LEGACY_OIL_LABELS in calc/daily_sales_entry.py.
-const LEGACY_OIL_LABELS = {
-  "2T/1.20 ML Total#": "oil1",
-  "Acid Water Total 5 Lts": "oil4",
-  "20/40 Engine Total in Lts": "oil5",
-};
+// Oil Sale(s) rows come from the server (/oil-items), not from a list kept here.
+// The station decides what it sells (client, 2026-09-13), so a second copy in the
+// renderer would be one more thing to drift. Loaded once per screen load.
+//
+// The order is NOT numeric key order: item_key identifies a product, so when the
+// list was revised on 2026-09-12 the renamed products kept their keys - and their
+// rate history and tracked stock - and only moved position.
+let OIL_KEYS = [];
+// Every label the station has ever used -> its product, from /oil-items/aliases.
+// Reopening an entry saved under an old label must put each row back against the
+// right item rather than against whatever now sits at that position.
+let OIL_ALIASES = {};
 // Client's own reference blank forms (SVR_DSR_EMPTY_<serial>.pdf) print this
 // qualifier next to the serial - shown on screen too so it's clear which
 // physical pump is selected before Save or Print (2026-09-11).
@@ -39,7 +38,7 @@ const setNum = (id, v) => setVal(id, fmt2(v));
 let entryId = null; // set after first Save (or on loading an existing day) -> Update = PUT
 let calcTimer = null;
 let me = null;
-let oilLabels = { ...Object.fromEntries(OIL_KEYS.map((k) => [k, k])) };
+let oilLabels = {};
 
 // --------------------------------------------------------------------- build DOM
 
@@ -72,11 +71,153 @@ function buildOilRows() {
           // manual entry (short-term fix, 2026-09-11; see IMPLEMENTATION-MAP.md).
           `<td><input id="${k}-opening" data-calc placeholder="auto (Inventory) - override if needed"></td>` +
           `<td><input id="${k}-closing" disabled placeholder="auto"></td>` +
-          `<td><input id="${k}-amount" disabled placeholder="auto"></td>`
+          `<td><input id="${k}-amount" disabled placeholder="auto"></td>` +
+          // Retire. Hidden for Sales; the column header is hidden with it so the
+          // table does not show an empty trailing column.
+          `<td class="oil-admin-cell" hidden>` +
+          `<button type="button" class="btn-small secondary" data-retire="${k}" ` +
+          `title="Take this item off the form. Days already recorded keep it.">&times;</button>` +
+          `</td>`
       )
     );
     ds.appendChild(blankRow(`<td>${oilLabels[k]}</td><td><input id="ds-${k}" disabled></td>`));
   });
+  showOilAdmin();
+}
+
+// ------------------------------------------------------------- the item list
+
+// Manager and Owner decide what the station sells; Sales keys the day's figures.
+// Server-side RBAC is the real enforcement - this only keeps the controls out of
+// the way of someone who cannot use them.
+function canEditOilItems() {
+  return me && (me.role === "Manager" || me.role === "Owner");
+}
+
+function showOilAdmin() {
+  const on = canEditOilItems();
+  const admin = $("oil-admin");
+  if (admin) admin.hidden = !on;
+  ["oil-admin-head", "oil-admin-total", "oil-admin-total2"].forEach((id) => {
+    if ($(id)) $(id).hidden = !on;
+  });
+  document.querySelectorAll(".oil-admin-cell").forEach((td) => {
+    td.hidden = !on;
+  });
+  document.querySelectorAll("[data-retire]").forEach((b) => {
+    b.onclick = () => retireOilItem(b.dataset.retire);
+  });
+}
+
+async function loadOilItems() {
+  const [items, aliases] = await Promise.all([
+    api.get("/oil-items"),
+    api.get("/oil-items/aliases").catch(() => ({})),
+  ]);
+  OIL_KEYS = items.map((i) => i.item_key);
+  oilLabels = Object.fromEntries(items.map((i) => [i.item_key, i.label]));
+  OIL_ALIASES = aliases || {};
+}
+
+async function addOilItem() {
+  const st = $("oil-admin-status");
+  const label = val("oil-new-label").trim();
+  if (!label) {
+    st.className = "status-line err";
+    st.textContent = "Give the item a name first.";
+    return;
+  }
+  st.className = "status-line";
+  st.textContent = "Adding…";
+  try {
+    // Rate and Opening Stock go in with it: an oil row is unusable without both,
+    // and the alternative is the operator finding a blank row and no way to price
+    // it. Either can be corrected later in Rate Master / Inventory Tracking.
+    await api.post("/oil-items", {
+      label,
+      rate: Number(val("oil-new-rate")) || 0,
+      opening_stock: Number(val("oil-new-stock")) || 0,
+    });
+    await refreshOilSection();
+    $("oil-new").hidden = true;
+    ["oil-new-label", "oil-new-rate", "oil-new-stock"].forEach((id) => setVal(id, ""));
+    st.className = "status-line ok";
+    st.textContent = `Added "${label}". It is on every Oil Sale(s) row from now on.`;
+  } catch (err) {
+    st.className = "status-line err";
+    st.textContent = err.message || String(err);
+  }
+}
+
+async function retireOilItem(key) {
+  const st = $("oil-admin-status");
+  const label = oilLabels[key] || key;
+  // Deliberately not window.confirm(): Electron blocks it, and it would be the
+  // second dialog this screen silently lost. The message says what retiring does.
+  st.className = "status-line";
+  st.textContent = `Removing "${label}"…`;
+  try {
+    await api.del(`/oil-items/${key}`);
+    await refreshOilSection();
+    st.className = "status-line ok";
+    st.textContent =
+      `"${label}" is off the form. Days already recorded still show it and are ` +
+      `worth exactly what they were - add it again by name to bring it back.`;
+  } catch (err) {
+    st.className = "status-line err";
+    st.textContent = err.message || String(err);
+  }
+}
+
+// Put back a row for any item the saved day names that is no longer on the form -
+// a product retired since. It is appended, read-only, and flagged as retired, so
+// the day reads as what was actually recorded and its Oil Total still adds up.
+function restoreRetiredRows(savedOils) {
+  const body = $("oil-rows");
+  const ds = $("ds-oil-rows");
+  savedOils.forEach((o, i) => {
+    const label = String((o && o.label) || "").trim();
+    if (!label) return;
+    const key = OIL_ALIASES[label] || oilKeyOf(o, i);
+    if (!key || OIL_KEYS.includes(key)) return; // still on the form
+
+    OIL_KEYS.push(key);
+    oilLabels[key] = label;
+    body.appendChild(
+      blankRow(
+        `<td data-oil-label="${key}">${label} <span class="oil-retired">retired</span></td>` +
+          `<td><input id="${key}-qty" disabled></td>` +
+          `<td><input id="${key}-rate" disabled></td>` +
+          `<td><input id="${key}-opening" disabled></td>` +
+          `<td><input id="${key}-closing" disabled></td>` +
+          `<td><input id="${key}-amount" disabled></td>` +
+          `<td class="oil-admin-cell" hidden></td>`
+      )
+    );
+    ds.appendChild(blankRow(`<td>${label}</td><td><input id="ds-${key}" disabled></td>`));
+  });
+  showOilAdmin();
+}
+
+// Rebuild Oil Sale(s) after the list changes, keeping what is already typed in.
+async function refreshOilSection() {
+  const typed = Object.fromEntries(
+    OIL_KEYS.map((k) => [k, { qty: val(`${k}-qty`), rate: val(`${k}-rate`),
+      opening: val(`${k}-opening`) }]),
+  );
+  await loadOilItems();
+  buildOilRows();
+  // Prefill FIRST - a new item needs its rate and opening stock from the server -
+  // then put the operator's own typing back over the top, or their edits would be
+  // silently replaced by Rate Master's figures every time the list changed.
+  await loadPrefill();
+  for (const [k, v] of Object.entries(typed)) {
+    if (!OIL_KEYS.includes(k)) continue;
+    if (v.qty !== "") setVal(`${k}-qty`, v.qty);
+    if (v.rate !== "") setVal(`${k}-rate`, v.rate);
+    if (v.opening !== "") setVal(`${k}-opening`, v.opening);
+  }
+  refresh();
 }
 
 function addCcRow() {
@@ -138,7 +279,7 @@ function readForm() {
 function oilKeyOf(row, i) {
   const label = String((row && row.label) || "").trim();
   return (
-    LEGACY_OIL_LABELS[label] ||
+    OIL_ALIASES[label] ||
     OIL_KEYS.find((k) => oilLabels[k] === label) ||
     OIL_KEYS[i]
   );
@@ -450,6 +591,13 @@ function populateInputs(payload) {
   if (!$("hs-last").disabled) setVal("hs-last", payload.hs && payload.hs.last);
   if (!$("ms-last").disabled) setVal("ms-last", payload.ms && payload.ms.last);
 
+  // A day recorded before an item was retired still has a row for it. Put that
+  // row back on the form, marked retired, rather than dropping it: without this
+  // the screen recomputes the day from the rows it can see and shows a SMALLER
+  // Oil Total than the one actually stored - which is precisely the silent change
+  // to a past day that retiring-instead-of-deleting exists to prevent.
+  restoreRetiredRows(payload.oils || []);
+
   (payload.oils || []).forEach((o, i) => {
     const k = oilKeyOf(o, i);
     if (!k) return;
@@ -648,7 +796,6 @@ async function init() {
     return;
   }
   $("shift-date").value = new Date().toISOString().slice(0, 10);
-  buildOilRows();
   addCcRow();
   addCcRow();
   addNcRow();
@@ -665,6 +812,23 @@ async function init() {
     window.location.href = "../../index.html";
     return;
   }
+
+  // Both of these have to be known before the oil rows are built: the list
+  // supplies the rows, and the role decides whether the retire column exists.
+  try {
+    await loadOilItems();
+  } catch {
+    /* leave Oil Sale(s) empty rather than half-built; loadPrefill retries */
+  }
+  buildOilRows();
+  $("oil-add-btn").addEventListener("click", () => {
+    $("oil-new").hidden = !$("oil-new").hidden;
+  });
+  $("oil-new-save").addEventListener("click", addOilItem);
+  $("oil-new-cancel").addEventListener("click", () => {
+    $("oil-new").hidden = true;
+  });
+
   // Print & Sync writes to Inventory Tracking (Manager/Owner only, same access
   // as that module itself) - a Sales user still has plain Print Blank.
   const canSync = me.role === "Manager" || me.role === "Owner";

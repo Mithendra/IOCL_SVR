@@ -33,7 +33,7 @@ from datetime import UTC, date, datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from pydantic import BaseModel
 
-from svr_backend.calc.daily_sales_entry import OIL_KEYS, oils_by_key
+from svr_backend import oil_items
 from svr_backend.calc.daily_trial_balance import (
     Section1Input,
     TrialBalanceInput,
@@ -142,8 +142,9 @@ def _day_sales(conn: sqlite3.Connection, shift_date: str) -> dict:
     The screen builds this itself from the same entries; the Excel export needs it
     server-side, because the export writes into the station's own workbook and
     Section 2 there is per-pump, not the combined figure Daily Sales Summary
-    reports. Oil rows come back in OIL_KEYS order, resolved by each saved row's
-    own label (the row order changed on 2026-09-12).
+    reports. Oil rows come back in the item list's display order, resolved by
+    each saved row's own label (the order changed on 2026-09-12, and the list
+    itself is now editable - migration 0023).
 
     Oil Sale(s) is handled by ONE submitter a day, so one entry owns the oil
     section; the other pump's rows are blanks the backend filled in from Inventory
@@ -183,17 +184,20 @@ def _day_sales(conn: sqlite3.Connection, shift_date: str) -> dict:
             return 0.0
 
     def _sold(payload: dict) -> bool:
-        return any(_qty(oil) > 0 for oil in oils_by_key(payload.get("oils")).values())
+        return any(
+            _qty(oil) > 0 for oil in oil_items.oils_by_key(conn, payload.get("oils")).values()
+        )
 
     owner = next((p for p in payloads if _sold(p)), payloads[-1] if payloads else {})
-    oil_rows = oils_by_key(owner.get("oils"))
+    oil_rows = oil_items.oils_by_key(conn, owner.get("oils"))
     out["oils"] = [
         {
-            "qty": (oil_rows.get(k) or {}).get("qty"),
-            "rate": (oil_rows.get(k) or {}).get("rate"),
-            "opening": (oil_rows.get(k) or {}).get("opening"),
+            "label": item.label,
+            "qty": (oil_rows.get(item.key) or {}).get("qty"),
+            "rate": (oil_rows.get(item.key) or {}).get("rate"),
+            "opening": (oil_rows.get(item.key) or {}).get("opening"),
         }
-        for k in OIL_KEYS
+        for item in oil_items.active_items(conn)
     ]
     return out
 

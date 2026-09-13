@@ -854,3 +854,64 @@ td input:disabled {
     display: none !important;
   }
 }
+
+/* Adding / retiring an Oil Sale(s) item, on Daily Sales Entry. An inline box, not
+   a dialog: window.prompt() and window.confirm() are both blocked in Electron,
+   which is how the Trial Balance's "+ New Type" silently did nothing until
+   2026-09-12. Manager/Owner only - hidden outright for Sales. */
+#oil-admin {
+  margin: 6px 0 14px;
+}
+.oil-newbox {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  margin-top: 6px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: #f7f9ff;
+}
+.oil-newbox input {
+  padding: 4px 6px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  font-size: 12px;
+}
+.oil-newbox input:first-child {
+  min-width: 260px;
+}
+.oil-newbox input:not(:first-child) {
+  width: 110px;
+}
+#oil-admin .status-line {
+  margin: 6px 0 0;
+}
+
+/* The item-list controls are for setting the form up, not part of the form. They
+   pushed a blank print to a second A4 page, which the client's own reference
+   blank (SVR_DSR_EMPTY_<serial>.pdf) fits on one. */
+@media print {
+  #oil-admin,
+  .oil-admin-cell,
+  #oil-admin-head,
+  #oil-admin-total,
+  #oil-admin-total2 {
+    display: none !important;
+  }
+}
+
+/* A product retired since the day was recorded. The row is read-only and says so,
+   rather than vanishing and quietly shrinking the day's Oil Total. */
+.oil-retired {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #8a6410;
+  background: #faf1dc;
+  border-radius: 2px;
+  padding: 1px 4px;
+  margin-left: 6px;
+}

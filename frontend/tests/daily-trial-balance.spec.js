@@ -420,8 +420,20 @@ test("Section 2 keeps its whole shape on a day with nothing entered", async ({ p
   await expect(page.locator("#s2-gas-rows")).toContainText(`${PUMP_A} (Road)`);
   await expect(page.locator("#s2-gas-rows")).toContainText(`${PUMP_B} (Office)`);
   await expect(page.locator("#s2-combined-rows tr")).toHaveCount(2);
-  await expect(page.locator("#s2-oil-rows tr")).toHaveCount(7); // all seven items
-  await expect(page.locator("#s2-oil-rows")).toContainText("20/40 Engine Total in 1 Lts");
+  // Every item the station sells gets a row. NOT an exact count of seven any
+  // more - the list is editable since 2026-09-13 - so this asserts the seven the
+  // station seeds with are all present, which is the part that matters.
+  for (const label of [
+    "2T/1.50 ML Total#",
+    "Acid Water Total 1 Lts",
+    "Battery Water Total 1 Lts",
+    "Battery Water Total 5 Lts",
+    "20/40 Engine Total in 05. Lts",
+    "20/40 Engine Total in 1 Lts",
+  ]) {
+    await expect(page.locator("#s2-oil-rows")).toContainText(label);
+  }
+  expect(await page.locator("#s2-oil-rows tr").count()).toBeGreaterThanOrEqual(7);
 
   // ...and the figures are BLANK, not 0.00. A pump that has not been entered has
   // an unknown total; printing zero would claim it sold nothing.

@@ -33,6 +33,11 @@ async function login(page, user) {
 async function openReport(page, user) {
   await login(page, user);
   await page.goto(SCREEN);
+  // Wait for init() to put the CURRENT financial year in #fy-year before
+  // overwriting it. Filling first is silently undone, and Generate then reports
+  // on the wrong FY - it came back "FY 2026-27" where 2031-32 was asked for. Same
+  // race as #tb-date on the Trial Balance and #shift-date on Daily Sales Entry.
+  await expect(page.locator("#fy-year")).not.toHaveValue("");
   await page.fill("#fy-year", String(FY));
   await page.click("#gen-btn");
   await expect(page.locator("#fy-tag")).toHaveText(`FY ${FY}-${String(FY + 1).slice(-2)}`);

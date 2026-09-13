@@ -257,6 +257,99 @@ test("the revised Oil Sale(s) list, and Night Cash Hand Off gone from the Summar
   );
 });
 
+test("Manager adds an Oil Sale(s) item and it sells like any other", async ({ page }) => {
+  // The list used to be a tuple in the build, so selling a new product meant a
+  // release (client, 2026-09-13: "people should be able to add it, or people
+  // should be able to remove it").
+  const DATE = "2026-06-21";
+  await login(page, "mmanager");
+  await page.goto(SCREEN);
+  await expect(page.locator("#oil-rows tr")).toHaveCount(7);
+
+  await page.click("#oil-add-btn");
+  await page.fill("#oil-new-label", "Gear Oil Total 1 Lts");
+  await page.fill("#oil-new-rate", "190");
+  await page.fill("#oil-new-stock", "25");
+  await page.click("#oil-new-save");
+  await expect(page.locator("#oil-admin-status")).toContainText("Added");
+  await expect(page.locator("#oil-rows tr")).toHaveCount(8);
+
+  // It arrives with its Rate and Opening Stock already on the row - an oil row
+  // without both is unusable, and there would be no way to price the sale.
+  const row = page.locator("#oil-rows tr").nth(7);
+  await expect(row.locator("td[data-oil-label]")).toHaveText("Gear Oil Total 1 Lts");
+  await expect(page.locator("#oil8-rate")).toHaveValue("190");
+  await expect(page.locator("#oil8-opening")).toHaveValue("25");
+
+  // And it computes and saves like any other row.
+  await page.fill("#shift-date", DATE);
+  await page.fill("#hs-current", "1000");
+  await page.fill("#oil8-qty", "4");
+  await expect(page.locator("#oil8-amount")).toHaveValue("760.00"); // 4 x 190
+  await page.click("#save-btn");
+  await expect(page.locator("#save-status")).toContainText("Saved (entry #");
+
+  // Reopen: this screen loads on the date itself, there is no Load button.
+  await page.goto(SCREEN);
+  await page.fill("#shift-date", DATE);
+  await expect(page.locator("#editing-note")).toContainText("Editing saved entry #");
+  await expect(page.locator("#oil8-qty")).toHaveValue("4");
+
+  // Put the list back. The item list is global state shared with every other spec
+  // in this run, and leaving a row behind made three unrelated tests fail on a
+  // count they had every right to rely on before the list became editable.
+  await page.click('[data-retire="oil8"]');
+  await expect(page.locator("#oil-admin-status")).toContainText("off the form");
+});
+
+test("retiring an item takes it off the form without changing past days", async ({ page }) => {
+  const DATE = "2026-06-22";
+  await login(page, "mmanager");
+  await page.goto(SCREEN);
+
+  await page.click("#oil-add-btn");
+  await page.fill("#oil-new-label", "Brake Fluid Total 1 Lts");
+  await page.fill("#oil-new-rate", "300");
+  await page.click("#oil-new-save");
+  await expect(page.locator("#oil-admin-status")).toContainText("Added");
+  const key = await page.locator("#oil-rows tr").last().locator("[data-retire]")
+    .getAttribute("data-retire");
+
+  // Sell it, so there is a day that depends on it.
+  await page.fill("#shift-date", DATE);
+  await page.fill("#hs-current", "1000");
+  await page.fill(`#${key}-qty`, "2");
+  await expect(page.locator("#oil-total")).not.toHaveValue("");
+  await page.click("#save-btn");
+  await expect(page.locator("#save-status")).toContainText("Saved (entry #");
+  const total = await page.locator("#oil-total").inputValue();
+  expect(Number(total)).toBeGreaterThanOrEqual(600);
+
+  // Retire it...
+  const before = await page.locator("#oil-rows tr").count();
+  await page.click(`[data-retire="${key}"]`);
+  await expect(page.locator("#oil-admin-status")).toContainText("off the form");
+  await expect(page.locator("#oil-rows tr")).toHaveCount(before - 1);
+
+  // ...and the day it was sold on is worth exactly what it was worth. This is why
+  // retiring is a deactivation and never a delete.
+  await page.goto(SCREEN);
+  await page.fill("#shift-date", DATE);
+  await expect(page.locator("#editing-note")).toContainText("Editing saved entry #");
+  await expect(page.locator("#oil-total")).toHaveValue(total);
+});
+
+test("Sales sees the oil items but cannot add or retire them", async ({ page }) => {
+  // Sales keys the day's figures; it does not decide what the station sells.
+  // Server-side RBAC is the real gate - this is just keeping unusable controls out
+  // of the way.
+  await login(page);
+  await page.goto(SCREEN);
+  await expect(page.locator("#oil-rows tr").first()).toBeVisible();
+  await expect(page.locator("#oil-admin")).toBeHidden();
+  await expect(page.locator("#oil-rows [data-retire]").first()).toBeHidden();
+});
+
 test("an oil sale keyed with the sheet's own Rate survives Save and reopen", async ({ page }) => {
   const DATE = "2026-06-14";
   await login(page);
