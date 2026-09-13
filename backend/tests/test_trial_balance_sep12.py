@@ -23,8 +23,8 @@ HS_IOCL_LAST, HS_IOCL_CURRENT = 5514, 4937
 MS_IOCL_LAST, MS_IOCL_CURRENT = 7584, 7043
 HS_ACTUAL_CONSUMP = 591.8699999998789
 MS_ACTUAL_CONSUMP = 546.2700000000186
-HS_MARGIN = 1530.425699999684
-MS_MARGIN = 2238.787800000077
+HS_MARGIN = 1531.730699999684
+MS_MARGIN = 2240.857800000077
 HS_IOCL_ADV = 1527.8924999875599
 MS_IOCL_ADV = 598.4612000021152
 
@@ -35,7 +35,7 @@ STOCK_VALUE_TOTAL = 1307079.83
 CASH_BOOK_VALUE = 1995980.46
 NET_WORTH = 3303060.29
 
-TESTING_DEDUCTION = 5.5  # SEP12: "Daily Testing" = "Actual Consump" - 5.5
+TESTING_DEDUCTION = 5  # SEP12 G3/G4 = "=E3-5" (client-corrected 2026-09-13)
 
 
 def _computed():
@@ -63,9 +63,9 @@ def test_section1_columns_reproduce_the_sheet():
     # F Consump Diff = Actual Consump - [Last-Current]
     assert round(r.hs.computer_pump_diff, 4) == round(14.869999999878928, 4)
     assert round(r.ms.computer_pump_diff, 4) == round(5.2700000000186265, 4)
-    # G Daily Testing = Actual Consump - 5.5
-    assert round(r.hs.deduct_testing, 4) == round(586.3699999998789, 4)
-    assert round(r.ms.deduct_testing, 4) == round(540.7700000000186, 4)
+    # G Daily Testing = Actual Consump - 5
+    assert round(r.hs.deduct_testing, 4) == round(586.8699999998789, 4)
+    assert round(r.ms.deduct_testing, 4) == round(541.2700000000186, 4)
 
 
 def test_section5_stock_value_reproduces_the_sheet():
@@ -108,10 +108,10 @@ MANUAL = {
         "yesterday": 1861869.74, "todaysale": 125594.5722, "reported": CASH_BOOK_VALUE,
         "yesbank_return": 8525.95,
     },
-    "section7": {"yesterday": 3289672.2800000003, "profit": 4185.213499999761},
+    "section7": {"yesterday": 3289672.2800000003, "profit": 4188.588499999762},
     "section8": {
         "f1": 1861869.74, "f2": 125594.5722, "f4": CASH_BOOK_VALUE,
-        "mgmt_yesterday_tb": 3289672.2800000003, "mgmt_profit": 4185.213499999761,
+        "mgmt_yesterday_tb": 3289672.2800000003, "mgmt_profit": 4188.588499999762,
         # SEP12 rows 102-104, the sign-off block.
         "prepared_by": "Gopi",
         "verified_by": "Girish/Sriharsha",
@@ -131,8 +131,8 @@ def _derived():
     # out by the entire cash/book value. `test_the_whole_sheet_through_the_api`
     # below is what actually pins the wiring.
     return derive_manual(MANUAL, NET_WORTH, OIL_TOTAL, {
-        "hs_deduct_testing": 586.3699999998789,
-        "ms_deduct_testing": 540.7700000000186,
+        "hs_deduct_testing": 586.8699999998789,
+        "ms_deduct_testing": 541.2700000000186,
         "hs_computer_pump_diff": 14.869999999878928,
         "ms_computer_pump_diff": 5.2700000000186265,
         "margin_rate_hs": 2.61, "margin_rate_ms": 4.14,
@@ -156,7 +156,7 @@ def test_the_whole_sheet_through_the_api(client, auth_headers, conn):
     # Dating them earlier here rather than moving the test is deliberate: the
     # effective-dating itself is asserted separately, below.
     for name, value in (
-        ("testing_density_deduction", 5.5),
+        ("testing_density_deduction", 5),
         ("margin_rate_hs", 2.61),
         ("margin_rate_ms", 4.14),
         ("daily_expenses_deduction", 3299.98),
@@ -197,20 +197,20 @@ def test_the_whole_sheet_through_the_api(client, auth_headers, conn):
     c = r.json()["computed"]
     d = c["derived"]
 
-    assert round(d["section1"]["total_sale_amt"], 2) == 4185.21   # K4, off real consumption
+    assert round(d["section1"]["total_sale_amt"], 2) == 4188.59   # K4, off real consumption
     assert round(d["section1"]["iocl_profit"], 2) == 2126.35      # M4
     assert c["section6"]["total"] == STOCK_VALUE_TOTAL      # 5.3 Stock Value
     assert c["section7"]["7_3_total"] == NET_WORTH          # 6.3 Net Worth
     assert d["section3"]["total15"] == CASH_BOOK_VALUE      # 3.15
     assert round(d["section4"]["total3"], 4) == round(1987464.3122, 4)   # 4.3
     assert round(d["section4"]["diff"], 4) == round(8516.147799999919, 4)  # 4.5
-    assert round(d["section7"]["total3"], 4) == round(3293857.4935, 4)   # 7.3
+    assert round(d["section7"]["total3"], 4) == round(3293860.8685, 4)   # 7.3
     # 7.4 = 6.3 Net Worth - 7.3 Projected. This is the assertion that fails if the
     # wrong total is wired in: it reported -1,986,777.66 against the sheet's
     # 9,202.80 when `section6["total"]` was passed instead of the net worth.
-    assert round(d["section7"]["diff"], 4) == round(9202.796500000171, 4)
+    assert round(d["section7"]["diff"], 4) == round(9199.421500000171, 4)
     assert d["section7"]["total5"] == NET_WORTH                          # 7.5
-    assert round(d["section8"]["mgmt_networth_diff"], 4) == round(9202.796500000171, 4)
+    assert round(d["section8"]["mgmt_networth_diff"], 4) == round(9199.421500000171, 4)
     assert d["section10"]["hs"]["total"] == 9872 and d["section10"]["hs"]["lost"] == 128
 
 
@@ -220,8 +220,8 @@ def test_section1_columns_are_computed_from_the_sheets_own_formulas():
     that their formulas had "never been confirmed against a filled workbook";
     running the extractor over SEP12 confirmed all four in one pass."""
     d = derive_manual(MANUAL, NET_WORTH, OIL_TOTAL, {
-        "hs_deduct_testing": 586.3699999998789,
-        "ms_deduct_testing": 540.7700000000186,
+        "hs_deduct_testing": 586.8699999998789,
+        "ms_deduct_testing": 541.2700000000186,
         "hs_computer_pump_diff": 14.869999999878928,
         "ms_computer_pump_diff": 5.2700000000186265,
         "margin_rate_hs": 2.61, "margin_rate_ms": 4.14,
@@ -236,9 +236,9 @@ def test_section1_columns_are_computed_from_the_sheets_own_formulas():
 
 def test_section1_cross_fuel_columns():
     d = _derived()["section1"]
-    assert round(d["margin_total"], 4) == round(3769.2134999997606, 4)   # I4
+    assert round(d["margin_total"], 4) == round(3772.588499999761, 4)   # I4
     assert d["two_t_sales"] == OIL_TOTAL                                  # J4, pulled
-    assert round(d["total_sale_amt"], 4) == round(4185.213499999761, 4)  # K4 = I + J
+    assert round(d["total_sale_amt"], 4) == round(4188.588499999762, 4)  # K4 = I + J
     assert round(d["iocl_profit"], 4) == round(2126.353699989675, 4)     # M4
 
 
@@ -261,8 +261,8 @@ def test_section4_reconciliation():
 
 def test_section7_projected_trial_balance():
     d = _derived()["section7"]
-    assert round(d["total3"], 4) == round(3293857.4935, 4)            # 7.3
-    assert round(d["diff"], 4) == round(9202.796500000171, 4)         # 7.4
+    assert round(d["total3"], 4) == round(3293860.8685, 4)            # 7.3
+    assert round(d["diff"], 4) == round(9199.421500000171, 4)         # 7.4
     assert d["total5"] == NET_WORTH                                   # 7.5 = 6.3
 
 
@@ -271,8 +271,8 @@ def test_section8_mirrors_section4_and_the_mgmt_summary():
     assert round(d["f3"], 4) == round(1987464.3122, 4)                # 8.3 = 4.3
     assert round(d["f5"], 4) == round(8516.147799999919, 4)           # 8.5 = 4.5
     assert d["mgmt_actual_networth"] == NET_WORTH
-    assert round(d["mgmt_projected_networth"], 4) == round(3293857.4935, 4)
-    assert round(d["mgmt_networth_diff"], 4) == round(9202.796500000171, 4)
+    assert round(d["mgmt_projected_networth"], 4) == round(3293860.8685, 4)
+    assert round(d["mgmt_networth_diff"], 4) == round(9199.421500000171, 4)
 
 
 def test_section10_load_unload():
@@ -299,11 +299,17 @@ def test_the_sep12_oil_rates_are_in_rate_master(conn):
 
 
 def test_the_testing_deduction_is_effective_dated_not_replaced(conn):
-    """5.5 from 2026-09-12; every earlier Trial Balance keeps the 10.0 that was in
-    force on its own date, so no historical record moves."""
+    """5 from 2026-09-12; every earlier Trial Balance keeps the 10.0 that was in
+    force on its own date, so no historical record moves.
+
+    It was 5.5 briefly - read off the SEP12 tab as first supplied. The client
+    corrected it to 5 on 2026-09-13 and restated that tab, where G3/G4 now carry
+    the live formula '=E3-5'. The parameter is append-only by effective_date, so
+    this is a new row for the same date rather than an edit.
+    """
     from svr_backend.params import get_param
 
-    assert get_param(conn, "testing_density_deduction", 0.0, as_of="2026-09-12") == 5.5
+    assert get_param(conn, "testing_density_deduction", 0.0, as_of="2026-09-12") == 5.0
     # The seed itself is effective 2026-08-28, so pick a date after that and
     # before the change - AUG11/AUG12 predate the parameter entirely.
     assert get_param(conn, "testing_density_deduction", 0.0, as_of="2026-09-01") == 10.0

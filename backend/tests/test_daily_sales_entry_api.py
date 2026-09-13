@@ -214,3 +214,36 @@ def test_correction_via_put_updates_the_same_row(client, auth_headers, conn):
         (PUMP, "2026-08-12"),
     ).fetchone()["c"]
     assert n == 1
+
+
+def test_a_meter_cannot_run_backwards(client, auth_headers):
+    """Client, 2026-09-13: IOCL monitors the pumps remotely and a reading only ever
+    moves forward; a reset is theirs to make, under regulation. So a Current
+    Reading below the Last Shift Reading is always a data error.
+
+    Refused rather than warned about, because nothing downstream questions a
+    negative: transposed readings once produced a gas total of -234,448,737.88 and
+    it flowed through every total, the Summary and Trial Balance Section 3 without
+    a murmur.
+    """
+    h = auth_headers("Manager")
+    r = client.post("/daily-sales-entry", json={
+        "pump_serial": "12BC4523V-RD", "shift_date": "2026-12-01",
+        "hs": {"current": "900", "last": "1000"},
+    }, headers=h)
+    assert r.status_code == 422
+    detail = r.json()["detail"]
+    assert "cannot run backwards" in detail
+    assert "Diesel (HS)" in detail
+    assert "IOCL" in detail
+
+    # Nothing was written.
+    assert client.get("/daily-sales-entry?shift_date=2026-12-01", headers=h).json() == []
+
+    # Equal readings are fine - that is how an out-of-service pump is filed.
+    ok = client.post("/daily-sales-entry", json={
+        "pump_serial": "12BC4523V-RD", "shift_date": "2026-12-01",
+        "hs": {"current": "1000", "last": "1000"},
+    }, headers=h)
+    assert ok.status_code == 201, ok.text
+    assert ok.json()["result"]["hs"]["cons"] == 0

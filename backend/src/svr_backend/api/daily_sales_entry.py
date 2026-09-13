@@ -320,6 +320,37 @@ def list_entries(
     return [_row_to_out(r) for r in rows]
 
 
+def _reject_backwards_readings(result: dict, payload: dict) -> None:
+    """A pump meter only ever counts up, so a Current Reading below the Last Shift
+    Reading is always a data error - never a real day.
+
+    Client, 2026-09-13: "Pump Reading always monitored by IOCL Remotely and always
+    moving forward never goes back no matter what... if you need to reset it should
+    be taken care by strictly IOCL, lot of govt regulations."
+
+    Worth refusing rather than warning: nothing downstream questions a negative. A
+    transposed pair of readings in testing produced a gas total of
+    -234,448,737.88 and every total, the Summary and Trial Balance Section 3
+    carried it through without a murmur.
+    """
+    bad = []
+    for fuel, name in (("hs", "Diesel (HS)"), ("ms", "Petrol (MS)")):
+        cons = (result.get(fuel) or {}).get("cons")
+        if cons is not None and cons < 0:
+            f = payload.get(fuel) or {}
+            bad.append(
+                f"{name}: Current Reading {f.get('current')} is below the Last Shift "
+                f"Reading {f.get('last')} ({cons:g} litres)"
+            )
+    if bad:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            "A pump meter cannot run backwards - "
+            + "; ".join(bad)
+            + ". Check the reading; a genuine meter reset has to come from IOCL.",
+        )
+
+
 @router.post("", response_model=EntryOut, status_code=status.HTTP_201_CREATED)
 def create_entry(
     body: EntryCreate,
@@ -344,6 +375,7 @@ def create_entry(
     raw = body.model_dump(exclude={"shift_date", "pump_serial"})
     payload, meta = _apply_locked_context(conn, raw, shift_date, body.pump_serial)
     result = compute_payload(payload)
+    _reject_backwards_readings(result, payload)
 
     with transaction(conn):
         cur = conn.execute(
@@ -413,6 +445,7 @@ def update_entry(
     raw = body.model_dump(exclude={"shift_date", "pump_serial"})
     payload, meta = _apply_locked_context(conn, raw, shift_date, body.pump_serial)
     result = compute_payload(payload)
+    _reject_backwards_readings(result, payload)
     old_snapshot = {
         "net_bal_hand_off": row["net_bal_hand_off"],
         "payload": json.loads(row["payload"]),

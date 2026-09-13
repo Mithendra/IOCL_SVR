@@ -1,0 +1,33 @@
+-- Testing/density deduction is 5 litres, not 5.5 (client, 2026-09-13).
+--
+-- The client's own words: "there will be testing every day and every pump
+-- HS-5 Lts and MS-5 Lts for both pumps and total 20 Lts."
+--
+-- Confirmed in their workbook rather than taken on trust. Both tabs of
+-- Trail_balance_13-SEP-2026.xlsx now carry a LIVE formula, not a typed figure:
+--
+--     SEP12  G3 = '=E3-5'   G4 = '=E4-5'
+--     SEP13  G3 = '=E3-5'   G4 = '=E4-5'
+--
+-- and the figures that follow from it, which the engine reproduces unaided:
+--
+--     SEP12  H3 1531.7307  H4 2240.8578  I4 3772.5885  J4 416  K4 4188.5885
+--     SEP13  H3 1082.8890  H4 2736.7884  I4 3819.6774  J4 291  K4 4110.6774
+--
+-- EFFECTIVE DATE is 2026-09-12, not the 13th. The client restated SEP12 as well -
+-- that tab's K4 moved from 4185.2135 to 4188.5885 - so the app has to move with
+-- it or the day it already reconciled against would stop matching.
+--
+-- system_parameter is append-only by effective_date and get_param() resolves the
+-- value in force on a given shift_date, so days before 2026-09-12 keep the 10.0
+-- they were computed under. Migration 0019's 5.5 for the same date is superseded:
+-- a same-date tie breaks by newest id, so this row wins.
+--
+-- A note for whoever reads this next, NOT a change: 20 litres a day across two
+-- pumps is 10 litres per fuel, yet Section 1 deducts 5 per fuel against the
+-- combined consumption. The client has confirmed these figures twice and signed
+-- off both tabs, and Section 9 - which deducts differently again - is a manual
+-- cross-check by their own description, so the two are not required to agree.
+
+INSERT INTO system_parameter (name, value, effective_date, updated_by)
+VALUES ('testing_density_deduction', 5, '2026-09-12', 'client-confirmed-2026-09-13');
