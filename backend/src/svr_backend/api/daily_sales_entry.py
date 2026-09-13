@@ -47,6 +47,14 @@ class CalcRequest(BaseModel):
     ms: dict = Field(default_factory=dict)
     oils: list[dict] = Field(default_factory=list)
     expenses: list = Field(default_factory=list)
+    # Descriptions for the Expenses rows, aligned by index with `expenses`
+    # (client, 2026-09-13: the section must take extra rows). The first three are
+    # the printed form's own fixed labels; anything beyond them is typed, and
+    # without this the amount would be saved as a figure with no name against it.
+    # The engine never reads these - it only sums the amounts - but they have to
+    # survive the round-trip, and an undeclared field is silently dropped by
+    # Pydantic on the way in.
+    expense_labels: list = Field(default_factory=list)
     credit_card_amounts: list = Field(default_factory=list)
     new_credits: list[dict] = Field(default_factory=list)
     old_credit_amounts: list = Field(default_factory=list)

@@ -296,6 +296,44 @@ test("mandatory fields carry a star, and Save acts on them", async ({ page }) =>
   );
 });
 
+test("Expenses takes extra rows, and an added row keeps its description", async ({ page }) => {
+  // Client, 2026-09-13: "in section three expenses you should be able to add more
+  // rows if needed." The three printed rows have fixed labels; an added row types
+  // its own, and that text has to be saved with the amount or the figure comes
+  // back with no name against it.
+  const DATE = "2026-04-19";
+  await login(page);
+  await page.goto(SCREEN);
+  await page.fill("#shift-date", DATE);
+  await page.fill("#hs-current", "999999");
+  await page.fill("#exp1", "500");
+
+  await page.click('[data-add="exp"]');
+  await page.click('[data-add="exp"]');
+  const extra = page.locator("#exp-rows tr");
+  await expect(extra).toHaveCount(2);
+  await extra.nth(0).locator(".exp-desc").fill("Tyre puncture - auto");
+  await extra.nth(0).locator(".exp").fill("250");
+  await extra.nth(1).locator(".exp-desc").fill("Water cans");
+  await extra.nth(1).locator(".exp").fill("120");
+
+  // The added rows count towards the total like any other.
+  await expect(page.locator("#exp-total")).toHaveValue("870.00"); // 500 + 250 + 120
+  await page.click("#save-btn");
+  await expect(page.locator("#save-status")).toContainText("Saved (entry #");
+
+  // Reopen: both the amounts AND their descriptions come back.
+  await page.goto(SCREEN);
+  await page.fill("#shift-date", DATE);
+  await expect(page.locator("#editing-note")).toContainText("Editing saved entry #");
+  const back = page.locator("#exp-rows tr");
+  await expect(back).toHaveCount(2);
+  await expect(back.nth(0).locator(".exp-desc")).toHaveValue("Tyre puncture - auto");
+  await expect(back.nth(0).locator(".exp")).toHaveValue("250");
+  await expect(back.nth(1).locator(".exp-desc")).toHaveValue("Water cans");
+  await expect(page.locator("#exp-total")).toHaveValue("870.00");
+});
+
 test("Manager adds an Oil Sale(s) item and it sells like any other", async ({ page }) => {
   // The list used to be a tuple in the build, so selling a new product meant a
   // release (client, 2026-09-13: "people should be able to add it, or people

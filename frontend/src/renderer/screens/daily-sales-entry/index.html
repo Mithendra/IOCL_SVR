@@ -194,17 +194,23 @@
              rather than to fit the figure exactly (client, 2026-09-12). -->
         <table class="wide-amounts">
           <tr><th>Description</th><th>Amount</th></tr>
+          <!-- The three printed rows. Their descriptions are fixed because they
+               are pre-printed on the paper form; an added row types its own
+               (client, 2026-09-13) and that text is saved with the amount, or the
+               figure would come back with no name against it. -->
           <tr>
-            <td>Daily Diesel(5L) &amp; Petrol(5L) + Density Testing + Beta</td>
+            <td data-exp-label>Daily Diesel(5L) &amp; Petrol(5L) + Density Testing + Beta</td>
             <td><input id="exp1" class="exp" data-calc /></td>
           </tr>
-          <tr><td>Any Other Expenses</td><td><input id="exp2" class="exp" data-calc /></td></tr>
+          <tr><td data-exp-label>Any Other Expenses</td><td><input id="exp2" class="exp" data-calc /></td></tr>
           <tr>
-            <td>Last Night Cash Hand-off Person's Name-Signature-Amount</td>
+            <td data-exp-label>Last Night Cash Hand-off Person's Name-Signature-Amount</td>
             <td><input id="exp3" class="exp" data-calc /></td>
           </tr>
+          <tbody id="exp-rows"></tbody>
           <tr class="total-row"><td>Total Amt Expenses</td><td><input id="exp-total" disabled placeholder="auto" /></td></tr>
         </table>
+        <button type="button" class="add-row-btn" data-add="exp">+ Add row</button>
 
         <!-- 4. Credit Cards Swiping(s) -->
         <div class="section-title">

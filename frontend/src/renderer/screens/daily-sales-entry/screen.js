@@ -239,6 +239,20 @@ function addNcRow() {
     )
   );
 }
+// An extra Expenses row. Unlike the three printed ones its description is typed,
+// so the row carries both a description input and an amount - and readForm()
+// sends the descriptions alongside the amounts (client, 2026-09-13).
+function addExpRow(desc = "", amount = "") {
+  const tr = blankRow(
+    '<td><input class="exp-desc" placeholder="What was this expense?"></td>' +
+      '<td><input class="exp" data-calc></td>'
+  );
+  tr.querySelector(".exp-desc").value = desc;
+  tr.querySelector(".exp").value = amount;
+  $("exp-rows").appendChild(tr);
+  return tr;
+}
+
 function addOcRow() {
   $("oc-rows").appendChild(
     blankRow('<td><input></td><td><input class="oc-amount" data-calc></td><td><input></td><td><input></td>')
@@ -261,6 +275,9 @@ function readForm() {
     ms: { current: val("ms-current"), last: val("ms-last"), rate: val("ms-rate") },
     oils,
     expenses: [...document.querySelectorAll(".exp")].map((i) => i.value),
+    // Aligned by index with `expenses`. The three printed rows contribute their
+    // own fixed label; an added row contributes what was typed into it.
+    expense_labels: expenseLabels(),
     credit_card_amounts: [...document.querySelectorAll(".cc-amount")].map((i) => i.value),
     new_credits: [...document.querySelectorAll("#nc-rows tr")].map((tr) => ({
       ltrs: tr.querySelector(".nc-ltrs").value,
@@ -270,6 +287,18 @@ function readForm() {
     phone_pay_settled: val("pp-settled"),
     phone_pay_unsettled: val("pp-unsettled"),
   };
+}
+
+// Every Expenses row's description, in the same order as the amounts: the fixed
+// printed text for the first three, the typed text for anything added after.
+const isBlankish = (v) => v === null || v === undefined || String(v).trim() === "";
+
+function expenseLabels() {
+  const fixed = [...document.querySelectorAll("[data-exp-label]")].map((td) =>
+    td.textContent.trim()
+  );
+  const typed = [...document.querySelectorAll(".exp-desc")].map((i) => i.value.trim());
+  return [...fixed, ...typed];
 }
 
 // Which oil item a stored/computed row is, by its own label when it has one,
@@ -641,6 +670,18 @@ function populateInputs(payload) {
   if (!$("hs-last").disabled) setVal("hs-last", payload.hs && payload.hs.last);
   if (!$("ms-last").disabled) setVal("ms-last", payload.ms && payload.ms.last);
 
+  // Extra Expenses rows are rebuilt from what was saved. The three printed rows
+  // are always on the form; anything past them was added by hand and would
+  // otherwise come back as a missing amount and a lost description.
+  $("exp-rows").innerHTML = "";
+  const expAmounts = payload.expenses || [];
+  const expLabels = payload.expense_labels || [];
+  const FIXED = 3;
+  for (let i = FIXED; i < expAmounts.length; i += 1) {
+    if (isBlankish(expAmounts[i]) && !String(expLabels[i] || "").trim()) continue;
+    addExpRow(expLabels[i] || "", expAmounts[i] ?? "");
+  }
+
   // A day recorded before an item was retired still has a row for it. Put that
   // row back on the form, marked retired, rather than dropping it: without this
   // the screen recomputes the day from the rows it can see and shows a SMALLER
@@ -900,7 +941,7 @@ async function init() {
   $("shift-date").addEventListener("change", reload);
   document.querySelectorAll("[data-add]").forEach((btn) => {
     btn.addEventListener("click", () => {
-      ({ cc: addCcRow, nc: addNcRow, oc: addOcRow })[btn.dataset.add]();
+      ({ cc: addCcRow, nc: addNcRow, oc: addOcRow, exp: addExpRow })[btn.dataset.add]();
       refresh();
     });
   });
