@@ -459,6 +459,16 @@ td input:disabled {
 .tb-sec[data-w="full"] table {
   max-width: 100%;
 }
+/* Section 2 is pulled, never typed, so "nothing to pull yet" is a real state it
+   has to show - as a note inside the table it belongs to, with the table's own
+   headings and rows still standing around it. */
+.tb-emptynote {
+  color: var(--io-blue-dark);
+  font-size: 12px;
+  font-style: italic;
+  padding: 8px 10px;
+}
+
 /* Special Note fills the empty space to the RIGHT of its block's table, growing
    left-to-right into it - the client sketched exactly this on the Section 3
    screenshot (2026-09-12). The table keeps its own width; the note takes the rest. */

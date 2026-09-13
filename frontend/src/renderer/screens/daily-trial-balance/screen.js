@@ -464,10 +464,23 @@ async function loadDaySales(dateStr) {
     return;
   }
   if (run !== daySalesRun) return; // a newer load started while this one waited
+
+  // A day with nothing entered still shows the WHOLE of Section 2 - both pumps,
+  // the combined block, all seven oil rows - with the figures blank, and says
+  // why. It used to collapse to a single line, which hid the section's entire
+  // shape: the form opens on today, today usually has no entry yet, and Section 2
+  // then looked like it had lost most of its rows and columns (client,
+  // 2026-09-13). Section 2 is pulled, never typed, so blank is a real state it
+  // has to show properly rather than hide.
+  const labels = await oilLabels();
+  if (run !== daySalesRun) return;
   if (!entries.length) {
-    gas.innerHTML =
-      '<tr><td colspan="6">No Daily Sales Entry recorded for this date yet.</td></tr>';
-    return;
+    gas.appendChild(
+      noteRow(
+        `Nothing pulled yet — no Daily Sales Entry has been recorded for ${dateStr}. ` +
+        `Section 2 fills in on its own once the pumps are entered; it is never typed here.`,
+      ),
+    );
   }
 
   // Per-pump blocks, in the sheet's order: Road first, then Office, each with its
@@ -477,11 +490,19 @@ async function loadDaySales(dateStr) {
   const bySide = {};
   for (const e of entries) bySide[PUMP_LABELS[e.pump_serial]] = e;
 
+  // A pump that has not been entered has an UNKNOWN total, not a zero one - so
+  // its cells stay blank. Printing 0.00 there would read as "this pump sold
+  // nothing today", which is a different and much worse claim.
+  const blankIf = (missing, v) => (missing ? "" : fmt2(v));
+
   let grandAmount = 0;
   const perSide = {};
   for (const side of ["Road", "Office"]) {
-    const e = bySide[side];
-    if (!e) continue;
+    // A pump with no entry still gets its heading, its two fuel rows and its
+    // subtotal, blank - so it is visible that the pump is missing, rather than
+    // the whole block silently disappearing.
+    const e = bySide[side] || {};
+    const missing = !bySide[side];
     const serial = SIDE_SERIAL[side.toLowerCase()];
     gas.appendChild(headerRow(`${serial} (${side})`));
     let subtotal = 0;
@@ -500,20 +521,23 @@ async function loadDaySales(dateStr) {
     }
     const sub = document.createElement("tr");
     sub.className = "total-row";
-    sub.innerHTML = `<td colspan="5">${serial} Total</td><td>${fmt2(subtotal)}</td>`;
+    sub.innerHTML =
+      `<td colspan="5">${serial} Total</td><td>${blankIf(missing, subtotal)}</td>`;
     gas.appendChild(sub);
     grandAmount += subtotal;
   }
 
+  const noPumps = !entries.length;
   for (const [fuel, label] of [["hs", "Diesel (HS)"], ["ms", "Petrol (MS)"]]) {
     const road = (perSide.Road || {})[fuel] || {};
     const office = (perSide.Office || {})[fuel] || {};
     const total = (road.cons || 0) + (office.cons || 0);
     const tr = document.createElement("tr");
     tr.innerHTML =
-      `<td>${label}</td><td>${fmt2(road.cons)}</td><td>${fmt2(office.cons)}</td>` +
-      `<td>${fmt2(total)}</td><td>${fmt2(road.rate || office.rate)}</td>` +
-      `<td>${fmt2((road.amount || 0) + (office.amount || 0))}</td>`;
+      `<td>${label}</td><td>${blankIf(!bySide.Road, road.cons)}</td>` +
+      `<td>${blankIf(!bySide.Office, office.cons)}</td>` +
+      `<td>${blankIf(noPumps, total)}</td><td>${fmt2(road.rate || office.rate)}</td>` +
+      `<td>${blankIf(noPumps, (road.amount || 0) + (office.amount || 0))}</td>`;
     combined.appendChild(tr);
   }
 
@@ -558,8 +582,11 @@ async function loadDaySales(dateStr) {
     oilGrand += e.oil_total || 0;
   }
 
+  // Driven off the fixed item list, not off whatever rows happen to be saved, so
+  // all seven always appear in the sheet's order even on a day with no entry.
   let k = 0;
-  for (const [label, o] of oilTotals) {
+  for (const label of labels) {
+    const o = oilTotals.get(label) || { qty: null, rate: null, open: null, close: null, amount: null };
     k += 1;
     const tr = document.createElement("tr");
     tr.innerHTML =
@@ -567,9 +594,9 @@ async function loadDaySales(dateStr) {
       `<td>${fmt2(o.open)}</td><td>${fmt2(o.close)}</td><td>${fmt2(o.amount)}</td>`;
     oils.appendChild(tr);
   }
-  txt("s2-total-ltrs", fmt2(grandAmount));
-  txt("s2-oil-subtotal", fmt2(oilGrand));
-  txt("s2-daily-total", fmt2(grandAmount + oilGrand));
+  txt("s2-total-ltrs", blankIf(noPumps, grandAmount));
+  txt("s2-oil-subtotal", blankIf(noPumps, oilGrand));
+  txt("s2-daily-total", blankIf(noPumps, grandAmount + oilGrand));
 }
 
 function headerRow(label) {
@@ -577,6 +604,34 @@ function headerRow(label) {
   tr.className = "total-row";
   tr.innerHTML = `<td colspan="6">${label}</td>`;
   return tr;
+}
+
+function noteRow(text) {
+  const tr = document.createElement("tr");
+  const td = document.createElement("td");
+  td.colSpan = 6;
+  td.className = "tb-emptynote";
+  td.textContent = text; // esc() only handles quotes; this carries a date value
+  tr.appendChild(td);
+  return tr;
+}
+
+// The seven oil items, in the sheet's order, from the server rather than a copy
+// kept here - the list and its order changed on 2026-09-12 and a second copy
+// would be one more thing to keep in step. Fetched once per screen load.
+let oilLabelsCache = null;
+async function oilLabels() {
+  if (oilLabelsCache) return oilLabelsCache;
+  try {
+    const p = await api.get(
+      `/daily-sales-entry/prefill?pump_serial=${encodeURIComponent(SIDE_SERIAL.road)}` +
+      `&shift_date=${encodeURIComponent($("tb-date").value)}`,
+    );
+    oilLabelsCache = Object.values(p.oil_labels || {});
+  } catch {
+    oilLabelsCache = [];
+  }
+  return oilLabelsCache;
 }
 
 // ------------------------------------------------- Section 8: send to management

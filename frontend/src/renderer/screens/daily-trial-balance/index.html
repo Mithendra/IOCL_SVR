@@ -170,17 +170,25 @@
           </div>
 
           <!-- ============================ 6 ============================ -->
+          <!-- A table like every other section, NOT a summary-box. As a box with
+               its own 140px inputs it was the one section whose value column did
+               not line up: measured at 1250-1398 where Sections 3, 4, 7 and 8 all
+               sit at 936-1123 (client, 2026-09-13). Same markup as those four, so
+               it lines up by construction rather than by matching numbers. -->
           <div class="tb-sec" data-w="wide">
-          <div class="summary-box">
-            <h3>6. Trial Balance — Actual Reported — Today</h3>
-            <div class="summary-row"><span>Today's Actual Reported SVR Cash/Book Value</span>
-              <span><input id="cash-bv" style="width:140px;text-align:right" /></span></div>
-            <div class="summary-row"><span>Today's Closing Stock Value</span><span><input id="s7-2" disabled style="width:140px;text-align:right"></span></div>
-            <div class="summary-row net"><span>Today's Total Working Capital / Net Worth</span><span><input id="s7-3" disabled style="width:140px;text-align:right"></span></div>
-            <p style="font-size:11px;color:var(--io-blue-dark);margin:6px 0 0">
-              Carry this amount forward as tomorrow's 7.1 — Close &amp; Sign Off does it for you.
-            </p>
+          <div class="section-title">
+            6. Trial Balance — Actual Reported — Today
+            <span style="font-weight:400;font-size:11px">[Cash/Book Value + Closing Stock Value]</span>
           </div>
+          <table class="tb-fields">
+            <tr><th>Line</th><th>Amount</th></tr>
+            <tr><td>6.1 Today's Actual Reported SVR Cash/Book Value</td><td><input id="cash-bv"></td></tr>
+            <tr><td>6.2 Today's Closing Stock Value</td><td><input id="s7-2" disabled placeholder="auto"></td></tr>
+            <tr class="total-row"><td>6.3 Today's Total Working Capital / Net Worth</td><td><input id="s7-3" disabled placeholder="auto"></td></tr>
+          </table>
+          <p style="font-size:11px;color:var(--io-blue-dark);margin:6px 0 0">
+            Carry this amount forward as tomorrow's 7.1 — Close &amp; Sign Off does it for you.
+          </p>
 
           </div>
 

@@ -404,6 +404,53 @@ test("Section 2 shows the day's real per-pump figures, pulled not typed", async 
   await expect(page.locator("#s2-combined-rows tr")).toHaveCount(2);
 });
 
+test("Section 2 keeps its whole shape on a day with nothing entered", async ({ page }) => {
+  // It used to collapse to one line, which hid the section's entire structure.
+  // The form opens on today, today usually has no Daily Sales Entry yet, and
+  // Section 2 then looked like it had lost most of its rows and columns
+  // (client, 2026-09-13: "I only see a few columns and few rows").
+  await login(page, "mmanager");
+  await page.goto(SCREEN);
+  await expect(page.locator("#body")).toBeVisible();
+  await openDate(page, "2026-07-04"); // no entry ever recorded here
+
+  await expect(page.locator("#s2-gas-rows")).toContainText("Nothing pulled yet");
+  // Heading + 2 fuels + subtotal, per pump, plus the note row.
+  await expect(page.locator("#s2-gas-rows tr")).toHaveCount(9);
+  await expect(page.locator("#s2-gas-rows")).toContainText(`${PUMP_A} (Road)`);
+  await expect(page.locator("#s2-gas-rows")).toContainText(`${PUMP_B} (Office)`);
+  await expect(page.locator("#s2-combined-rows tr")).toHaveCount(2);
+  await expect(page.locator("#s2-oil-rows tr")).toHaveCount(7); // all seven items
+  await expect(page.locator("#s2-oil-rows")).toContainText("20/40 Engine Total in 1 Lts");
+
+  // ...and the figures are BLANK, not 0.00. A pump that has not been entered has
+  // an unknown total; printing zero would claim it sold nothing.
+  await expect(page.locator("#s2-total-ltrs")).toHaveValue("");
+  await expect(page.locator("#s2-daily-total")).toHaveValue("");
+  await expect(
+    page.locator("#s2-gas-rows tr", { hasText: `${PUMP_A} Total` }).locator("td").last(),
+  ).toHaveText("");
+});
+
+test("Section 6 lines up with the other sections", async ({ page }) => {
+  // It was the one section built as a summary-box with its own 140px inputs, so
+  // its value column sat ~127px right of everything else (client, 2026-09-13).
+  await login(page, "mmanager");
+  await page.goto(SCREEN);
+  await expect(page.locator("#body")).toBeVisible();
+
+  const rightEdge = async (sel) =>
+    Math.round((await page.locator(sel).boundingBox()).x + (await page.locator(sel).boundingBox()).width);
+
+  // Same markup as every other section - a table, not a box.
+  const s6 = page.locator("#cash-bv").locator("xpath=ancestor::table[1]");
+  await expect(s6).toHaveClass(/tb-fields/);
+  // And it ends where its neighbours do.
+  expect(await rightEdge("#cash-bv >> xpath=ancestor::table[1]")).toBe(
+    await rightEdge("#s6-total >> xpath=ancestor::table[1]"),
+  );
+});
+
 test("Manager enters Section 1, sees computed columns + pulled Section 3, then finalizes", async ({
   page,
 }) => {
