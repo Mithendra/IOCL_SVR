@@ -314,19 +314,24 @@ def test_expenses_is_one_shared_list_for_sections_4_and_8(client, auth_headers):
 # --- whole-sheet export and date lookup (client, 2026-09-12) ------------------
 
 
-def test_whole_trial_balance_exports_to_excel(client, auth_headers):
-    """Section 8 exports alone for the management send; this is the full day's
-    record - all eleven sections, in the station's own numbering."""
+def test_whole_trial_balance_exports_as_the_stations_own_sheet(client, auth_headers):
+    """The export is not a rebuilt approximation - it is the client's SEP12 tab
+    with the day's figures written into its input cells (client, 2026-09-12:
+    "exactly the same thing"). So assert the SHEET's own headings came through
+    untouched, and that our numbers landed in its cells."""
     import io
 
     from openpyxl import load_workbook
 
     h = auth_headers("Manager")
     client.put(f"/daily-trial-balance/{DATE}", json={
-        "s1_hs_yesterday": 100, "s1_hs_current": 60, "s54_cash_book_value": 500000,
+        "s1_hs_yesterday": 5514, "s1_hs_current": 4937,
+        "s1_ms_yesterday": 7584, "s1_ms_current": 7043,
         "manual": {
-            "header": {"shift": "10.30 AM to next day - K. Ashok"},
-            "section3": {"onhand": 76096.51, "special_note": "Yes Bank returned 8,525.95"},
+            "section3": {"onhand": 76096.51, "night": 40000, "indianbank": 1311580.42},
+            "section4": {"yesterday": 1861869.74, "yesbank_return": 8525.95},
+            "section8": {"prepared_by": "Gopi", "verified_by": "Girish/Sriharsha"},
+            "section10": {"hs_old": 2207, "hs_new": 12079, "hs_load": 10000},
             "section11": {"new_airtel": 64352},
         },
     }, headers=h)
@@ -335,23 +340,35 @@ def test_whole_trial_balance_exports_to_excel(client, auth_headers):
     assert r.status_code == 200
     assert f"SVR-TrialBalance-{DATE}.xlsx" in r.headers["content-disposition"]
 
-    ws = load_workbook(io.BytesIO(r.content)).active
-    col_a = [row[0] for row in ws.iter_rows(min_col=1, max_col=1, values_only=True)]
-    for heading in (
-        "1. IOCL Stock Readings", "2. Day Sales Report (pulled from the day's Daily Sales Entries)",
-        "3. Daily Cash & Bank Balances", "4. Cash/Book Value Reconciliation", "5. Stock Value",
-        "6. Trial Balance - Actual Reported - Today", "7. Trial Balance - Projected - Today",
-        "8. Daily Management Reporting", "9. Daily Mgr Calculation",
-        "10. Load/Unload Details", "11. Old/New Credit Sales Details",
-    ):
-        assert heading in col_a, heading
+    ws = load_workbook(io.BytesIO(r.content))["SEP12"]
 
-    cells = {row[0]: row[1] for row in ws.iter_rows(min_row=5, max_col=2, values_only=True)}
-    assert cells["3.1 On Hand Old Cash"] == 76096.51
-    assert cells["Special Note - Section 3"] == "Yes Bank returned 8,525.95"
-    assert cells["11.1 NEW Airtel Balance"] == 64352
-    # The shift line rides along in the header.
-    assert "K. Ashok" in ws["A2"].value
+    # The station's own wording and layout, verbatim - spacing and typos included,
+    # because any difference here means we stopped shipping their sheet.
+    assert ws["A1"].value == "1.IOCL Stock Readings "
+    assert ws["A5"].value == "2.Day Sales Report "
+    assert ws["A18"].value == "2.1 Oil Sales"
+    assert ws["A65"].value == "5.Stock Value  "
+    assert ws["A131"].value.startswith("10.Load/Unload Details")
+
+    # Its formulas are left alone, so Excel recalculates from the new inputs.
+    assert ws["D3"].value == "=B3-C3"
+    assert ws["D69"].value == "=D67+D68"
+    assert ws["F26"].value == "=F19+F20+F21+F22+F23+F24+F25"
+
+    # Our figures landed in its input cells.
+    assert ws["B3"].value == 5514
+    assert ws["C4"].value == 7043
+    assert ws["B29"].value == 76096.51
+    assert ws["D37"].value == 1311580.42
+    assert ws["F55"].value == 8525.95
+    assert ws["D103"].value == "Gopi"
+    assert ws["C133"].value == 2207
+    assert ws["B138"].value == 64352
+    assert f"Trial Balance {DATE}" in ws["A2"].value
+
+    # The two cross-sheet references become values - a one-tab export cannot
+    # resolve ='SEP11'!D51 and would open showing #REF!.
+    assert ws["D49"].value == 1861869.74
 
 
 def test_saved_dates_can_be_listed_without_knowing_them(client, auth_headers):

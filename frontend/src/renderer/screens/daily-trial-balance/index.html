@@ -36,13 +36,19 @@
 
         <div class="meta-grid">
           <div class="field"><label for="tb-date">Date</label><input type="date" id="tb-date" /></div>
+          <!-- Who is doing THIS Trial Balance - not the pump shift operator. The
+               shift window and the salesman who held it belong on Daily Sales
+               Entry; by the time the figures reach here they are summarised from
+               both pumps, so the only person this form is about is the one
+               preparing it (client, 2026-09-12). Same value as 8.9's Prepared by,
+               bound to one field so the two can never disagree. -->
           <div class="field">
-            <label for="tb-shift">Shift window &amp; operator</label>
-            <input id="tb-shift" data-manual="header.shift"
-                   title="The shift this sheet covers and who held it — the sheet's own first line, e.g. &quot;11-09-2026 10.30 AM to 12-09-2026: K. Ashok&quot;"
-                   placeholder="11-09-2026 10.30 AM to 12-09-2026 — K. Ashok" />
+            <label for="tb-prepared">Prepared by</label>
+            <select id="tb-prepared" data-manual="section8.prepared_by"
+                    title="Who is preparing this Trial Balance — the same name as 8.9 Sign-off"></select>
           </div>
-          <div class="field"><label>&nbsp;</label><button type="button" class="export-btn" id="load-btn">Load</button></div>
+          <div class="field"><label>&nbsp;</label><button type="button" class="export-btn" id="query-btn">Query</button></div>
+          <div class="field"><label>&nbsp;</label><button type="button" class="export-btn secondary" id="load-btn">Load</button></div>
         </div>
         <div style="margin:0 0 8px">
           <button type="button" class="export-btn secondary" id="browse-btn">Browse saved dates…</button>
@@ -188,6 +194,7 @@
           <div class="tb-actions">
             <button type="button" class="export-btn" id="s8-snapshot-btn">Snapshot &rarr; Clipboard</button>
             <button type="button" class="export-btn secondary" id="s8-export-btn">Export Section 8 to Excel</button>
+            <button type="button" class="export-btn secondary" id="sheet-snapshot-btn">Snapshot whole sheet &rarr; Clipboard</button>
           </div>
           <!-- Management's own layout, built from the live figures and captured as
                the picture they receive daily. Hidden until Snapshot is pressed. -->

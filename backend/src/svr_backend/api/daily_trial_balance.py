@@ -33,6 +33,7 @@ from datetime import UTC, date, datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from pydantic import BaseModel
 
+from svr_backend.calc.daily_sales_entry import OIL_KEYS, oils_by_key
 from svr_backend.calc.daily_trial_balance import (
     Section1Input,
     TrialBalanceInput,
@@ -50,7 +51,7 @@ from svr_backend.excel.trial_balance_section8 import (
 )
 from svr_backend.params import get_param
 from svr_backend.rates import latest_effective_rates
-from svr_backend.summary import build_summary
+from svr_backend.summary import PUMP_SIDE, build_summary
 
 router = APIRouter(prefix="/daily-trial-balance", tags=["daily-trial-balance"])
 
@@ -94,6 +95,8 @@ def _context(conn: sqlite3.Connection, shift_date: str, row: sqlite3.Row | None)
     rates = latest_effective_rates(conn, shift_date)
     buy_hs = rates["HS"]["buy_rate"] if "HS" in rates else None
     buy_ms = rates["MS"]["buy_rate"] if "MS" in rates else None
+    sell_hs = rates["HS"]["sell_rate"] if "HS" in rates else None
+    sell_ms = rates["MS"]["sell_rate"] if "MS" in rates else None
     testing = get_param(conn, "testing_density_deduction", 10.0, as_of=shift_date)
     # Per-litre margin (commission) rates and the daily-expenses deduction, from
     # the SEP12 formulas (migration 0022).
@@ -123,12 +126,56 @@ def _context(conn: sqlite3.Connection, shift_date: str, row: sqlite3.Row | None)
         "oil_total": oil_total,
         "buy_rate_hs": buy_hs,
         "buy_rate_ms": buy_ms,
+        "sell_rate_hs": sell_hs,
+        "sell_rate_ms": sell_ms,
         "testing_deduction": testing,
         "margin_rate_hs": margin_hs,
         "margin_rate_ms": margin_ms,
         "daily_expenses_deduction": daily_expenses,
         "summary_status": summary["status"],
     }
+
+
+def _day_sales(conn: sqlite3.Connection, shift_date: str) -> dict:
+    """The day's per-pump readings and oil rows, for Section 2.
+
+    The screen builds this itself from the same entries; the Excel export needs it
+    server-side, because the export writes into the station's own workbook and
+    Section 2 there is per-pump, not the combined figure Daily Sales Summary
+    reports. Oil rows come back in OIL_KEYS order, resolved by each saved row's
+    own label (the row order changed on 2026-09-12).
+    """
+    out: dict = {"road": {}, "office": {}, "oils": []}
+    oil_rows: dict[str, dict] = {}
+    for row in conn.execute(
+        "SELECT pump_serial, payload FROM daily_sales_entry WHERE shift_date = ? "
+        "ORDER BY id DESC",
+        (shift_date,),
+    ):
+        side = PUMP_SIDE.get(row["pump_serial"])
+        if side is None:
+            continue
+        payload = json.loads(row["payload"] or "{}")
+        if not out[side]:
+            for fuel in ("hs", "ms"):
+                f = payload.get(fuel) or {}
+                out[side][fuel] = {
+                    "current": f.get("current"), "last": f.get("last"), "rate": f.get("rate"),
+                }
+        # Oil sales are handled by one submitter a day, so the first entry that
+        # actually carries a quantity for an item is the one that sold it.
+        for key, oil in oils_by_key(payload.get("oils")).items():
+            if key not in oil_rows or oil_rows[key].get("qty") in (None, "", 0):
+                oil_rows[key] = oil
+    out["oils"] = [
+        {
+            "qty": (oil_rows.get(k) or {}).get("qty"),
+            "rate": (oil_rows.get(k) or {}).get("rate"),
+            "opening": (oil_rows.get(k) or {}).get("opening"),
+        }
+        for k in OIL_KEYS
+    ]
+    return out
 
 
 def _most_recent_finalized(conn: sqlite3.Connection, before_date: str) -> sqlite3.Row | None:
@@ -205,6 +252,8 @@ def _view(conn: sqlite3.Connection, shift_date: str) -> dict:
             "s3_ms_consumption": ctx["s3_ms_consumption"],
             "buy_rate_hs": ctx["buy_rate_hs"],
             "buy_rate_ms": ctx["buy_rate_ms"],
+            "sell_rate_hs": ctx["sell_rate_hs"],
+            "sell_rate_ms": ctx["sell_rate_ms"],
             "testing_deduction": ctx["testing_deduction"],
         },
         "computed": result,
@@ -334,7 +383,9 @@ def export_full(
     conn: sqlite3.Connection = Depends(get_db),
 ) -> Response:
     """The whole day's Trial Balance - all eleven sections - as one .xlsx."""
-    data = build_full_workbook(_view(conn, shift_date))
+    view = _view(conn, shift_date)
+    view["day_sales"] = _day_sales(conn, shift_date)
+    data = build_full_workbook(view)
     return Response(
         content=data,
         media_type=_XLSX,

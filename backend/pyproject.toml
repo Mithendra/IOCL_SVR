@@ -49,7 +49,7 @@ svr-create-user = "svr_backend.cli:run_create_user"
 where = ["src"]
 
 [tool.setuptools.package-data]
-svr_backend = ["migrations/*.sql"]
+svr_backend = ["migrations/*.sql", "excel/templates/*.xlsx"]
 
 [tool.ruff]
 line-length = 100

@@ -23,6 +23,9 @@ from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 SRC = "../src"  # relative to this spec (backend/packaging/)
 
 _datas = collect_data_files("svr_backend.migrations")  # the NNNN_*.sql files
+# The Daily Trial Balance export writes into the station's own SEP12 sheet, so
+# that template has to ship inside the frozen exe like the migrations do.
+_datas += collect_data_files("svr_backend.excel", includes=["templates/*.xlsx"])
 
 _hiddenimports = [
     "svr_backend.app",

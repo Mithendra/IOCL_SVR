@@ -129,20 +129,22 @@ function fieldsBlock(sectionKey, block) {
       `<tr><td>${no ? `${no} ` : ""}${label}${hintHtml(hint)}</td>${cellFor(sectionKey, spec)}</tr>`
     )
     .join("");
-  // Special Note runs LEFT TO RIGHT as its own row, the way a note reads in the
-  // sheet - not as a tall narrow column down the right (client, 2026-09-12).
-  const noteRow = block.note
-    ? `<tr class="tb-noterow"><td>Special Note</td>` +
-      `<td><textarea class="tb-note" rows="2" ` +
-      `data-manual="${esc(`${sectionKey}.${block.note.key}`)}" ` +
-      `placeholder="Anything worth recording about this section today"></textarea></td></tr>`
-    : "";
   // A continuation block (no title, one line) would otherwise repeat a bare
   // "Line | Amount" header with nothing to explain it - 3.15 read as a mystery.
-  const head = block.noHead
-    ? ""
-    : `<tr><th>Line</th><th>Amount</th></tr>`;
-  return `${title}<table class="tb-fields">${head}${rows}${noteRow}</table>`;
+  const head = block.noHead ? "" : `<tr><th>Line</th><th>Amount</th></tr>`;
+  const table = `<table class="tb-fields">${head}${rows}</table>`;
+  if (!block.note) return title + table;
+  // Special Note fills the empty space to the RIGHT of the block's own table,
+  // growing left-to-right into it rather than sitting as a narrow column or a
+  // cramped row inside the table (client's own sketch, 2026-09-12).
+  return (
+    title +
+    `<div class="tb-blockrow">${table}` +
+    `<div class="tb-notepanel"><div class="tb-block-title">Special Note</div>` +
+    `<textarea class="tb-note" data-manual="${esc(`${sectionKey}.${block.note.key}`)}" ` +
+    `placeholder="Anything worth recording about this section today"></textarea>` +
+    `</div></div>`
+  );
 }
 
 function rowsBlock(sectionKey, block) {
@@ -260,6 +262,13 @@ function buildManualSections() {
     }
     host.innerHTML = html;
   }
+  // The header's "Prepared by" is the same field as 8.9's - fill its options
+  // from the staff list, and keep the two controls in step so neither can be
+  // left showing a name the other does not.
+  const header = $("tb-prepared");
+  if (header) header.innerHTML = optionMarkup("staff", null);
+  syncDuplicateFields();
+
   stampSection8();
   document.querySelectorAll("[data-add-row]").forEach((btn) => {
     btn.addEventListener("click", () => addRow(btn.dataset.addRow));
@@ -309,6 +318,22 @@ function stampSection8() {
     ...opts, hour: "numeric", minute: "2-digit",
   });
   el.textContent = `— ${day}, ${time} IST`;
+}
+
+// Two controls can legitimately edit the same stored field - "Prepared by"
+// appears in the header and again at 8.9. Mirror any change across every control
+// bound to the same path, so readManual() cannot pick up a stale one and quietly
+// discard what the operator typed in the other.
+function syncDuplicateFields() {
+  document.querySelectorAll("[data-manual]").forEach((el) => {
+    el.addEventListener("change", () => {
+      document
+        .querySelectorAll(`[data-manual="${el.dataset.manual}"]`)
+        .forEach((other) => {
+          if (other !== el) other.value = el.value;
+        });
+    });
+  });
 }
 
 function blockFor(path) {
@@ -747,6 +772,32 @@ async function searchDates() {
   status.textContent = `${rows.length} saved day${rows.length === 1 ? "" : "s"} found.`;
 }
 
+// Query - pull up a specific day and SAY what came back. Load quietly does
+// nothing when a date has no record, which is exactly what made saved data look
+// unreachable on Daily Sales Entry in round 2. shift_date is UNIQUE on the table,
+// so SQLite already has an index on it and this is a direct lookup.
+async function queryDate() {
+  const st = $("tb-status");
+  const wanted = $("tb-date").value;
+  if (!wanted) {
+    st.className = "status-line err";
+    st.textContent = "Pick a date first.";
+    return;
+  }
+  st.className = "status-line";
+  st.textContent = "Looking for that day…";
+  await load();
+  if (!lastView) return;
+  const on = savedThisDate;
+  st.className = on ? "status-line ok" : "status-line err";
+  st.textContent = on
+    ? `Loaded ${wanted} — ${lastView.status}` +
+      (lastView.status === "finalized"
+        ? `, closed off by ${lastView.finalized_by || "—"}. Read-only.`
+        : ". Use Update to correct it.")
+    : `No Trial Balance saved for ${wanted}. Enter it, then Save.`;
+}
+
 async function exportFull() {
   const st = $("save-status");
   st.className = "status-line";
@@ -764,6 +815,39 @@ async function exportFull() {
   }
 }
 
+// The whole sheet as a picture, for sending on WhatsApp. Same clipboard route as
+// the Section 8 snapshot - management sometimes wants the full day, not just
+// their own block (client, 2026-09-12).
+async function snapshotWholeSheet() {
+  const st = $("s8-send-status");
+  const block = $("body");
+  if (!window.svr || typeof window.svr.captureSection !== "function") {
+    st.className = "status-line err";
+    st.textContent =
+      "Snapshot needs the installed SVR app. From a browser tab, " +
+      "use Export Trial Balance to Excel and attach that instead.";
+    return;
+  }
+  st.className = "status-line";
+  st.textContent = "Capturing the whole sheet…";
+  window.scrollTo(0, 0);
+  await new Promise((r) => setTimeout(r, 150));
+  const r = block.getBoundingClientRect();
+  try {
+    const out = await window.svr.captureSection({
+      x: r.left, y: r.top, width: r.width, height: r.height,
+      label: `${$("tb-date").value}-full`,
+    });
+    st.className = "status-line ok";
+    st.textContent =
+      `Whole sheet copied to the clipboard — paste it into WhatsApp with Ctrl+V. ` +
+      `Saved at ${out.file}.`;
+  } catch (err) {
+    st.className = "status-line err";
+    st.textContent = `Snapshot failed — ${err.message || err}`;
+  }
+}
+
 // ------------------------------------------------------------------ main render
 
 let lastManual = {};
@@ -774,11 +858,13 @@ function render(view) {
   lastManual = view.manual || {};
   $("status-tag").textContent = view.status;
   const i = view.inputs;
-  $("hs-y").value = i.s1_hs_yesterday ?? "";
-  $("hs-c").value = i.s1_hs_current ?? "";
-  $("ms-y").value = i.s1_ms_yesterday ?? "";
-  $("ms-c").value = i.s1_ms_current ?? "";
-  $("cash-bv").value = i.s54_cash_book_value ?? "";
+  // Through money() like every other figure - these were being set raw, so a
+  // reading showed as "60" next to a computed "44.50" in the same row.
+  $("hs-y").value = money(i.s1_hs_yesterday);
+  $("hs-c").value = money(i.s1_hs_current);
+  $("ms-y").value = money(i.s1_ms_yesterday);
+  $("ms-c").value = money(i.s1_ms_current);
+  $("cash-bv").value = money(i.s54_cash_book_value);
   fillManual(lastManual);
   fillDerived(view.computed.derived);
 
@@ -946,6 +1032,8 @@ async function init() {
   $("update-btn").addEventListener("click", save);
   $("export-btn").addEventListener("click", exportFull);
   $("q-search-btn").addEventListener("click", searchDates);
+  $("query-btn").addEventListener("click", queryDate);
+  $("sheet-snapshot-btn").addEventListener("click", snapshotWholeSheet);
   $("browse-btn").addEventListener("click", () => {
     const panel = $("browse-panel");
     panel.hidden = !panel.hidden;

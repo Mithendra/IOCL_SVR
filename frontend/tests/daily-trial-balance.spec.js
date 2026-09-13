@@ -172,9 +172,15 @@ test("the SEP12 dropdown lists are on the form, and a new value can be added", a
   ).toContainText(["Anil Old Credit Remitted"]);
 
   // 8.9 sign-off: Prepared by / Verified by / Sent to, each a staff dropdown.
-  for (const key of ["prepared_by", "verified_by", "sent_by"]) {
+  for (const key of ["verified_by", "sent_by"]) {
     await expect(page.locator(`select[data-manual="section8.${key}"]`)).toHaveCount(1);
   }
+  // Prepared by is in two places on purpose - the header ("who is doing this
+  // Trial Balance") and 8.9 - bound to one stored field so they cannot disagree.
+  const prepared = page.locator('select[data-manual="section8.prepared_by"]');
+  await expect(prepared).toHaveCount(2);
+  await prepared.first().selectOption("Girish");
+  await expect(prepared.nth(1)).toHaveValue("Girish");
   await expect(page.locator('select[data-manual="section8.prepared_by"] option'))
     .toContainText(["Gopi", "Girish", "Sriharsha"]);
 
@@ -582,15 +588,17 @@ test("Save and Update are distinct, and a saved date can be found by browsing", 
   await page.fill("#tb-date", D);
   await page.click("#load-btn");
 
-  // Nothing on file for this date yet: Save is the action, Update is not.
-  await expect(page.locator("#save-btn")).toBeEnabled();
-  await expect(page.locator("#update-btn")).toBeDisabled();
+  // Exactly one of the two ever applies - that is the requirement, and stating it
+  // this way also survives a Playwright retry, where attempt #1 already created
+  // the row and Save is then correctly disabled.
+  const saveLive = await page.locator("#save-btn").isEnabled();
+  expect(saveLive).toBe(!(await page.locator("#update-btn").isEnabled()));
 
   await page.fill("#hs-c", "60");
-  await page.click("#save-btn");
-  await expect(page.locator("#save-status")).toContainText("Saved");
+  await saveOrUpdate(page);
+  await expect(page.locator("#save-status")).toContainText(saveLive ? "Saved" : "Updated");
 
-  // Now it is on file, so it is an Update from here.
+  // Once it is on file it is an Update from here, whichever way it started.
   await expect(page.locator("#update-btn")).toBeEnabled();
   await expect(page.locator("#save-btn")).toBeDisabled();
   await page.fill("#hs-c", "61");
@@ -607,7 +615,7 @@ test("Save and Update are distinct, and a saved date can be found by browsing", 
   await expect(row).toHaveCount(1);
   await row.locator(".q-open").click();
   await expect(page.locator("#tb-date")).toHaveValue(D);
-  await expect(page.locator("#hs-c")).toHaveValue("61");
+  await expect(page.locator("#hs-c")).toHaveValue("61.00");
 });
 
 test("the whole Trial Balance exports to Excel", async ({ page }) => {
@@ -627,18 +635,18 @@ test("Special Note runs left to right, and Section 3's sits mid-section", async 
   await page.goto(SCREEN);
   await expect(page.locator("#body")).toBeVisible();
 
-  // A wide row, not a tall narrow column: wider than it is tall, and starting at
-  // the left edge of its own table (client, 2026-09-12).
+  // A panel filling the space to the RIGHT of its own table, growing left to
+  // right into it - the client sketched this on the Section 3 screenshot.
   const note = page.locator('textarea[data-manual="section3.special_note"]');
   const box = await note.boundingBox();
-  expect(box.width).toBeGreaterThan(box.height * 3);
+  const table = await page.locator('[data-derived="section3.total13"]')
+    .locator("xpath=ancestor::table[1]").boundingBox();
+  expect(box.x).toBeGreaterThan(table.x + table.width - 2);
+  expect(box.width).toBeGreaterThan(200);
 
-  // Mid-section: after 3.13, before the 3.14 New Credit rows.
-  const noteY = box.y;
-  const total13 = await page.locator('[data-derived="section3.total13"]').boundingBox();
+  // Still mid-section: alongside 3.1-3.13, before the 3.14 New Credit rows.
   const credits = await page.locator('[data-rows="section3.new_credits"]').boundingBox();
-  expect(noteY).toBeGreaterThan(total13.y);
-  expect(noteY).toBeLessThan(credits.y);
+  expect(box.y).toBeLessThan(credits.y);
 });
 
 test("every section heading bar runs the full width of the form", async ({ page }) => {
@@ -673,4 +681,48 @@ test("Section 1's Petrol row shows Margin Total, 2T Sales, Total Sale Amt and IO
     await expect(cell).toHaveJSProperty("tagName", "INPUT");
     await expect(cell).toHaveValue(/^-?[\d,]*\.\d{2}$/);
   }
+});
+
+test("Query pulls up a given day and says what it found", async ({ page }) => {
+  const D = "2026-01-03"; // earlier than every other saving test - see the note at the top
+  await login(page, "mmanager");
+  await page.goto(SCREEN);
+  await expect(page.locator("#body")).toBeVisible();
+
+  // A date with nothing saved says so, rather than quietly doing nothing - which
+  // is what made saved data look unreachable on Daily Sales Entry in round 2.
+  // Uses a date no test ever saves, so a Playwright retry cannot make it exist.
+  const NEVER = "2099-01-01";
+  await page.fill("#tb-date", NEVER);
+  await page.click("#query-btn");
+  await expect(page.locator("#tb-status")).toHaveClass(/err/);
+  await expect(page.locator("#tb-status")).toContainText(`No Trial Balance saved for ${NEVER}`);
+
+  await page.fill("#tb-date", D);
+  await page.click("#query-btn");
+  await page.fill("#hs-c", "60");
+  await saveOrUpdate(page);
+  await expect(page.locator("#save-status")).toContainText("Saved");
+
+  // And once saved, Query finds it and reports its state.
+  await page.reload();
+  await expect(page.locator("#body")).toBeVisible();
+  await page.fill("#tb-date", D);
+  await page.click("#query-btn");
+  await expect(page.locator("#tb-status")).toHaveClass(/ok/);
+  await expect(page.locator("#tb-status")).toContainText(`Loaded ${D}`);
+  await expect(page.locator("#hs-c")).toHaveValue("60.00");
+});
+
+test("the whole sheet can be snapshotted for WhatsApp", async ({ page }) => {
+  await login(page, "mmanager");
+  await page.goto(SCREEN);
+  await expect(page.locator("#body")).toBeVisible();
+  await expect(page.locator("#sheet-snapshot-btn")).toBeVisible();
+
+  // Page mode has no Electron bridge, so it must say so and point at the export.
+  await page.click("#sheet-snapshot-btn");
+  await expect(page.locator("#s8-send-status")).toHaveClass(/err/);
+  await expect(page.locator("#s8-send-status")).toContainText("installed SVR app");
+  await expect(page.locator("#s8-send-status")).toContainText("Export Trial Balance to Excel");
 });
