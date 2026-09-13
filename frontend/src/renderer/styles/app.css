@@ -459,6 +459,28 @@ td input:disabled {
 .tb-sec[data-w="full"] table {
   max-width: 100%;
 }
+/* Column borders. The Trial Balance tables had horizontal row lines only, so the
+   columns never read AS columns - and on a day with nothing entered, Section 2
+   was labels down the left and an unbroken void to the right, which is exactly
+   "column sections are missing" (client, raised twice: 2026-09-12 and -13). This
+   is a ruled grid like the workbook it came from.
+   Scoped to #body, which only the Daily Trial Balance screen uses - the other
+   forms are not part of this change. */
+#body th,
+#body td {
+  border-right: 1px solid var(--line);
+}
+#body th:last-child,
+#body td:last-child {
+  border-right: none; /* the table's own outer border closes the row */
+}
+/* The full-width banner row is one cell spanning the grid, not a column in it.
+   Scoped to that row only - a subtotal row also spans, but its label still wants
+   a divider before the amount, the way the workbook rules it. */
+#body td.tb-emptynote {
+  border-right: none;
+}
+
 /* Section 2 is pulled, never typed, so "nothing to pull yet" is a real state it
    has to show - as a note inside the table it belongs to, with the table's own
    headings and rows still standing around it. */
@@ -469,12 +491,16 @@ td input:disabled {
   padding: 8px 10px;
 }
 
-/* Special Note fills the empty space to the RIGHT of its block's table, growing
-   left-to-right into it - the client sketched exactly this on the Section 3
-   screenshot (2026-09-12). The table keeps its own width; the note takes the rest. */
+/* Special Note sits in the empty space to the RIGHT of its block's table, and
+   VERTICALLY IN THE MIDDLE of it - beside the middle rows of the section, not
+   level with the section header. Stretching it top-to-bottom put its heading up
+   against the orange bar, which is what the client objected to (2026-09-13:
+   "should be somewhere in the middle between 3.6 and 3.8, but still it is on the
+   top of the section header"). centre is what puts it there, and it is the one
+   rule that has to hold for every section, so it lives on .tb-blockrow. */
 .tb-blockrow {
   display: flex;
-  align-items: stretch;
+  align-items: center;
   gap: 12px;
 }
 /* The table gives ground so the note gets a usable width; the note takes a fixed
@@ -494,9 +520,11 @@ td input:disabled {
 .tb-notepanel .tb-block-title {
   margin: 0 0 4px;
 }
+/* A fixed box, not one stretched to the table's full height - height is what
+   pinned it to the top edge. */
 .tb-notepanel .tb-note {
-  flex: 1 1 auto;
-  min-height: 90px;
+  flex: 0 0 auto;
+  height: 110px;
 }
 .tb-fields td:last-child,
 .tb-fields th:last-child {

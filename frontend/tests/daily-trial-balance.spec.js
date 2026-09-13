@@ -432,6 +432,48 @@ test("Section 2 keeps its whole shape on a day with nothing entered", async ({ p
   ).toHaveText("");
 });
 
+test("the sheet is ruled into columns, not just rows", async ({ page }) => {
+  // Row lines only meant the columns never read AS columns - and on a day with
+  // nothing entered Section 2 was labels down the left and a void to the right
+  // (client, raised twice: "column sections are missing").
+  await login(page, "mmanager");
+  await page.goto(SCREEN);
+  await expect(page.locator("#body")).toBeVisible();
+
+  const borderOf = (loc) =>
+    loc.evaluate((el) => getComputedStyle(el).borderRightWidth);
+
+  // A header cell and a body cell, both mid-row, carry a right-hand rule...
+  expect(await borderOf(page.locator("#body th", { hasText: "Opening Stock" }))).not.toBe("0px");
+  const row31 = page.locator("#sec-3 table tr").nth(1);
+  expect(await borderOf(row31.locator("td").first())).not.toBe("0px");
+  // ...and the last column does not, because the table's own border closes it.
+  expect(await borderOf(row31.locator("td").last())).toBe("0px");
+});
+
+test("the Special Note sits in the middle of its section, not at the top", async ({ page }) => {
+  // It was stretched top-to-bottom, so its heading sat against the orange bar.
+  // The client wants it beside the middle rows - for Section 3, "somewhere in the
+  // middle between 3.6 and 3.8" (2026-09-13).
+  await login(page, "mmanager");
+  await page.goto(SCREEN);
+  await expect(page.locator("#body")).toBeVisible();
+
+  const note = page.locator("#sec-3 .tb-notepanel .tb-note");
+  const table = page.locator("#sec-3 .tb-blockrow > table");
+  const nb = await note.boundingBox();
+  const tb = await table.boundingBox();
+
+  // Vertically centred on the table, within a row's height.
+  const noteMid = nb.y + nb.height / 2;
+  const tableMid = tb.y + tb.height / 2;
+  expect(Math.abs(noteMid - tableMid)).toBeLessThan(20);
+  // And well clear of the top, which is the thing that was wrong.
+  expect(nb.y - tb.y).toBeGreaterThan(100);
+  // A fixed box, not stretched to the table's height.
+  expect(nb.height).toBeLessThan(tb.height / 2);
+});
+
 test("Section 6 lines up with the other sections", async ({ page }) => {
   // It was the one section built as a summary-box with its own 140px inputs, so
   // its value column sat ~127px right of everything else (client, 2026-09-13).
@@ -795,8 +837,11 @@ test("Query pulls up a given day and says what it found", async ({ page }) => {
   await expect(page.locator("#tb-status")).toHaveClass(/err/);
   await expect(page.locator("#tb-status")).toContainText(`No Trial Balance saved for ${NEVER}`);
 
-  await page.fill("#tb-date", D);
-  await page.click("#query-btn");
+  // openDate, not fill-then-click: waiting for the load to land is the whole
+  // point. Without it the 60 below is typed into a form that render() then
+  // repaints from the stored record, so an EMPTY hs-c gets saved and the
+  // assertion at the bottom fails - which is how this flaked.
+  await openDate(page, D);
   await page.fill("#hs-c", "60");
   await saveOrUpdate(page);
   await expect(page.locator("#save-status")).toContainText(SAVED_OR_UPDATED);
@@ -804,8 +849,7 @@ test("Query pulls up a given day and says what it found", async ({ page }) => {
   // And once saved, Query finds it and reports its state.
   await page.reload();
   await expect(page.locator("#body")).toBeVisible();
-  await page.fill("#tb-date", D);
-  await page.click("#query-btn");
+  await openDate(page, D);
   await expect(page.locator("#tb-status")).toHaveClass(/ok/);
   await expect(page.locator("#tb-status")).toContainText(`Loaded ${D}`);
   await expect(page.locator("#hs-c")).toHaveValue("60.00");
