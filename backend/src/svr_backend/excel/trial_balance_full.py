@@ -32,8 +32,16 @@ from openpyxl import load_workbook
 TEMPLATE = Path(__file__).with_name("templates") / "trial_balance_template.xlsx"
 SHEET = "SEP12"
 
-# Oil rows the station's own sheet has. It carries SEVEN - row 20 ("2T/1.40 ML
-# Total #") is all zeros on SEP12, which is why it reads as six at a glance.
+# Oil rows the station's own sheet has. It carries SEVEN - row 20 is all zeros on
+# SEP12, which is why it reads as six at a glance.
+#
+# That row used to be labelled "2T/1.40 ML Total #". Client-confirmed 2026-09-13:
+# there is no 1.40 pack and never was - the station sells 2T/1.50 and 2T/2.40, and
+# 1.40 was a typo in their SEP12 tab. The template now carries 2T/2.40 ML Total#
+# there, matching the app's own second oil item. (The client is correcting their
+# master workbook by hand; the copy of it under docs/ is their record, not ours to
+# edit.) Every export overwrites A19..A25 from the live item list anyway, so a
+# stale label there could only ever show through on a row no item fills.
 #
 # The item list is editable now (migration 0023), so the two can disagree. These
 # seven rows are FIXED in the template: F26 sums F19..F25 by name, and every row

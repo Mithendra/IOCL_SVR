@@ -371,6 +371,42 @@ def test_whole_trial_balance_exports_as_the_stations_own_sheet(client, auth_head
     assert ws["D49"].value == 1861869.74
 
 
+def test_there_is_no_2t_1_40_ml_anywhere(client, auth_headers):
+    """Client-confirmed 2026-09-13: the station sells 2T/1.50 and 2T/2.40. There is
+    no 1.40 pack and never was - it was a typo in the SEP12 tab, which row 20 of
+    the shipped template inherited.
+
+    Checked in the template itself and in an export, because the export writes the
+    oil labels over rows 19-25 and would otherwise hide a stale one.
+    """
+    import io
+
+    from openpyxl import load_workbook
+
+    from svr_backend.excel.trial_balance_full import TEMPLATE
+
+    def cells_mentioning(ws, needle):
+        return [
+            c.coordinate
+            for row in ws.iter_rows(min_row=1, max_row=200, max_col=16)
+            for c in row
+            if isinstance(c.value, str) and needle in c.value
+        ]
+
+    tpl = load_workbook(TEMPLATE, data_only=False)["SEP12"]
+    assert cells_mentioning(tpl, "1.40") == []
+    assert tpl["A20"].value == "2T/2.40 ML Total#"
+
+    h = auth_headers("Manager")
+    client.put(f"/daily-trial-balance/{DATE}", json={"s1_hs_current": 4937}, headers=h)
+    out = client.get(f"/daily-trial-balance/{DATE}/export-excel", headers=h)
+    ws = load_workbook(io.BytesIO(out.content))["SEP12"]
+    assert cells_mentioning(ws, "1.40") == []
+    # And the two packs that DO exist are both there.
+    assert cells_mentioning(ws, "2T/1.50")
+    assert cells_mentioning(ws, "2T/2.40")
+
+
 def test_oil_opening_stock_comes_from_the_entry_that_sold_it(client, auth_headers):
     """Opening Stock is one tin's level, not something to merge across pumps.
 
