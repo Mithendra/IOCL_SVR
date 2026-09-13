@@ -3,6 +3,7 @@
 // date range + category; Section 3 is the grouped summary for the current range.
 
 import { api, getToken } from "../../lib/api.js";
+import { fmt2 } from "../../lib/format.js";
 
 const $ = (id) => document.getElementById(id);
 let me = null;
@@ -29,7 +30,7 @@ function renderList(items) {
     .map(
       (e) =>
         `<tr><td>${e.expense_date}</td><td>${e.category}</td><td>${e.kind}</td>` +
-        `<td>${e.description || ""}</td><td>${e.amount}</td>` +
+        `<td>${e.description || ""}</td><td>${fmt2(e.amount)}</td>` +
         `<td><button type="button" class="add-row-btn" style="margin:0" data-del="${e.id}">Delete</button></td></tr>`
     )
     .join("");
@@ -42,12 +43,12 @@ function renderSummary(s) {
   $("summary-cats").innerHTML = s.by_category
     .map(
       (c) =>
-        `<div class="summary-row"><span>${c.kind === "payroll" ? "Payroll" : "Ops"} — ${c.category}</span><span>${c.total}</span></div>`
+        `<div class="summary-row"><span>${c.kind === "payroll" ? "Payroll" : "Ops"} — ${c.category}</span><span>${fmt2(c.total)}</span></div>`
     )
     .join("");
-  $("s-payroll").textContent = s.payroll_subtotal;
-  $("s-ops").textContent = s.operational_subtotal;
-  $("s-grand").textContent = s.grand_total;
+  $("s-payroll").textContent = fmt2(s.payroll_subtotal);
+  $("s-ops").textContent = fmt2(s.operational_subtotal);
+  $("s-grand").textContent = fmt2(s.grand_total);
 }
 
 function rangeQuery() {

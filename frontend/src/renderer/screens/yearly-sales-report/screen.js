@@ -3,6 +3,7 @@
 // Revenue / salaries / operational expenses are computed live by the backend.
 
 import { api, getToken } from "../../lib/api.js";
+import { fmt2 } from "../../lib/format.js";
 
 const $ = (id) => document.getElementById(id);
 let me = null;
@@ -14,16 +15,16 @@ function fill(report) {
   $("disclaimer").textContent = report.disclaimer;
 
   const L = report.live;
-  $("v-hs").textContent = L.hs_sales;
-  $("v-ms").textContent = L.ms_sales;
-  $("v-fuel").textContent = L.fuel_sales_total;
-  $("v-oil").textContent = L.oil_sales;
-  $("v-revenue").textContent = L.total_revenue;
-  $("v-salaries").textContent = L.salaries_total;
+  $("v-hs").textContent = fmt2(L.hs_sales);
+  $("v-ms").textContent = fmt2(L.ms_sales);
+  $("v-fuel").textContent = fmt2(L.fuel_sales_total);
+  $("v-oil").textContent = fmt2(L.oil_sales);
+  $("v-revenue").textContent = fmt2(L.total_revenue);
+  $("v-salaries").textContent = fmt2(L.salaries_total);
   $("v-opex").textContent =
     L.operational_expenses_total +
     (L.operational_expenses.length
-      ? " (" + L.operational_expenses.map((o) => `${o.category} ${o.total}`).join(", ") + ")"
+      ? " (" + L.operational_expenses.map((o) => `${o.category} ${fmt2(o.total)}`).join(", ") + ")"
       : "");
 
   const m = report.manual;
@@ -34,11 +35,11 @@ function fill(report) {
   $("m-mscomm").value = m.ms_commission;
   $("m-notes").value = m.notes || "";
 
-  $("d-cogs").textContent = report.cogs;
-  $("d-gross").textContent = report.gross_profit;
-  $("d-comm").textContent = report.total_commission;
-  $("d-opcost").textContent = report.total_operating_costs;
-  $("d-net").textContent = report.net_profit;
+  $("d-cogs").textContent = fmt2(report.cogs);
+  $("d-gross").textContent = fmt2(report.gross_profit);
+  $("d-comm").textContent = fmt2(report.total_commission);
+  $("d-opcost").textContent = fmt2(report.total_operating_costs);
+  $("d-net").textContent = fmt2(report.net_profit);
 
   $("month-rows").innerHTML = L.by_month
     .map((r) => `<tr><td>${r.month}</td><td>${r.fuel_sales}</td><td>${r.oil_sales}</td></tr>`)

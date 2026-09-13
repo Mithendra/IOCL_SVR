@@ -51,7 +51,7 @@ test("Manager adds an employee (bank data masked in list, revealed on edit) and 
   await page.click("#run-btn");
 
   await expect(page.locator("#run-status")).toContainText("recorded");
-  await expect(page.locator("#r-net")).toContainText("6700"); // 7200 - 500
+  await expect(page.locator("#r-net")).toContainText("6700.00"); // 7200 - 500
 });
 
 test("Manager records accidental + health insurance; section 5 summary totals up", async ({ page }) => {
@@ -87,8 +87,9 @@ test("Manager records accidental + health insurance; section 5 summary totals up
   await page.click('[data-ins-add="health"]');
   await expect(page.locator("#hea-rows tr").filter({ hasText: "Star Health" })).toContainText("3200");
 
-  await expect(page.locator("#ins-acc-total")).toHaveText("1800");
-  await expect(page.locator("#ins-hea-total")).toHaveText("3200");
+  // Two decimals on every sheet and section (client, 2026-09-11).
+  await expect(page.locator("#ins-acc-total")).toHaveText("1800.00");
+  await expect(page.locator("#ins-hea-total")).toHaveText("3200.00");
   await expect(page.locator("#ins-grand")).toHaveText("5000");
 
   // delete the accidental row -> summary drops
@@ -97,6 +98,6 @@ test("Manager records accidental + health insurance; section 5 summary totals up
     .filter({ hasText: "Insurance Tester" })
     .getByRole("button", { name: "Delete" })
     .click();
-  await expect(page.locator("#ins-acc-total")).toHaveText("0");
+  await expect(page.locator("#ins-acc-total")).toHaveText("0.00");
   await expect(page.locator("#ins-grand")).toHaveText("3200");
 });

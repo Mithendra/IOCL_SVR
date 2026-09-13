@@ -28,7 +28,8 @@ test("Manager adds a credit and a remittance; summary shows the outstanding bala
   await page.fill("#c-name", CREDITOR);
   await page.fill("#c-ltrs", "40");
   await page.fill("#c-rate", "125");
-  await expect(page.locator("#c-amount")).toHaveValue("5000");
+  // Two decimals on every sheet and section (client, 2026-09-11).
+  await expect(page.locator("#c-amount")).toHaveValue("5000.00");
   await page.click("#add-credit");
   await expect(page.locator("#txn-status")).toContainText("Credit added");
 
@@ -40,5 +41,5 @@ test("Manager adds a credit and a remittance; summary shows the outstanding bala
   const row = page.locator("#summary-rows tr").filter({ hasText: CREDITOR });
   await expect(row).toContainText("5000"); // total credit
   await expect(row).toContainText("2000"); // total remitted
-  await expect(row.locator("td").nth(4)).toHaveText("3000"); // outstanding
+  await expect(row.locator("td").nth(4)).toHaveText("3000.00"); // outstanding
 });

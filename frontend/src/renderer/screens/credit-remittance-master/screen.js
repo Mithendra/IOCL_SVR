@@ -3,6 +3,7 @@
 // GET /credit-master/summary (pending first).
 
 import { api, getToken } from "../../lib/api.js";
+import { fmt2 } from "../../lib/format.js";
 
 const $ = (id) => document.getElementById(id);
 const num = (v) => {
@@ -13,7 +14,8 @@ const num = (v) => {
 function creditPreview() {
   const l = num($("c-ltrs").value);
   const r = num($("c-rate").value);
-  $("c-amount").value = l !== null && r !== null ? Math.round(l * r * 10000) / 10000 : "";
+  // Disabled preview cell, never typed into - safe to format.
+  $("c-amount").value = l !== null && r !== null ? fmt2(Math.round(l * r * 10000) / 10000) : "";
 }
 
 function renderCredits(rows) {
@@ -21,7 +23,7 @@ function renderCredits(rows) {
     .map(
       (t) =>
         `<tr><td>${t.txn_date}</td><td>${t.creditor_name}</td><td>${t.fuel_type || ""}</td>` +
-        `<td>${t.ltrs ?? ""}</td><td>${t.rate ?? ""}</td><td>${t.amount}</td>` +
+        `<td>${fmt2(t.ltrs)}</td><td>${fmt2(t.rate)}</td><td>${fmt2(t.amount)}</td>` +
         `<td><button type="button" class="add-row-btn" style="margin:0" data-del="${t.id}">Delete</button></td></tr>`
     )
     .join("");
@@ -31,7 +33,7 @@ function renderRemittances(rows) {
   $("remittance-rows").innerHTML = rows
     .map(
       (t) =>
-        `<tr><td>${t.txn_date}</td><td>${t.creditor_name}</td><td>${t.amount}</td>` +
+        `<tr><td>${t.txn_date}</td><td>${t.creditor_name}</td><td>${fmt2(t.amount)}</td>` +
         `<td>${t.source || ""}</td>` +
         `<td><button type="button" class="add-row-btn" style="margin:0" data-del="${t.id}">Delete</button></td></tr>`
     )
@@ -44,8 +46,8 @@ function renderSummary(rows) {
       const owed = s.outstanding > 0;
       return (
         `<tr><td>${s.creditor_name}</td><td>${s.phone || ""}</td>` +
-        `<td>${s.total_credit}</td><td>${s.total_remitted}</td>` +
-        `<td style="color:${owed ? "var(--io-red)" : "#157347"};font-weight:700">${s.outstanding}</td></tr>`
+        `<td>${fmt2(s.total_credit)}</td><td>${fmt2(s.total_remitted)}</td>` +
+        `<td style="color:${owed ? "var(--io-red)" : "#157347"};font-weight:700">${fmt2(s.outstanding)}</td></tr>`
       );
     })
     .join("");

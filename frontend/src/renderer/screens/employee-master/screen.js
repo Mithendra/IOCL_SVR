@@ -2,6 +2,7 @@
 // Bank fields are masked in the list; Edit fetches the full (decrypted) record.
 
 import { api, getToken } from "../../lib/api.js";
+import { fmt2 } from "../../lib/format.js";
 
 const $ = (id) => document.getElementById(id);
 let editingId = null;
@@ -121,12 +122,12 @@ function renderRun(run) {
     .map(
       (l) =>
         `<div class="summary-row"><span>${l.employee_name} — ${l.days_worked}d × ${l.daily_wage}</span>` +
-        `<span>gross ${l.gross_salary} / net ${l.net_pay}</span></div>`
+        `<span>gross ${fmt2(l.gross_salary)} / net ${fmt2(l.net_pay)}</span></div>`
     )
     .join("");
-  $("r-gross").textContent = run.gross_total;
-  $("r-advance").textContent = run.advance_total;
-  $("r-net").textContent = run.net_total;
+  $("r-gross").textContent = fmt2(run.gross_total);
+  $("r-advance").textContent = fmt2(run.advance_total);
+  $("r-net").textContent = fmt2(run.net_total);
 }
 
 async function runPayroll() {
@@ -206,8 +207,8 @@ async function loadInsurance() {
   ]);
   renderInsRows("accidental", acc);
   renderInsRows("health", hea);
-  $("ins-acc-total").textContent = summary.accidental_total;
-  $("ins-hea-total").textContent = summary.health_total;
+  $("ins-acc-total").textContent = fmt2(summary.accidental_total);
+  $("ins-hea-total").textContent = fmt2(summary.health_total);
   $("ins-grand").textContent = summary.grand_total;
 }
 

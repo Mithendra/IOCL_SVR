@@ -42,9 +42,10 @@ test("Manager adds payroll + operational expenses; summary subtotals and date fi
   await page.fill("#f-end", "2026-04-30");
   await page.click("#apply-filter");
   await expect(page.locator("#expense-rows tr")).toHaveCount(2);
-  await expect(page.locator("#s-ops")).toHaveText("1200");
-  await expect(page.locator("#s-payroll")).toHaveText("9000");
-  await expect(page.locator("#s-grand")).toHaveText("10200");
+  // Two decimals everywhere, on every sheet and section (client, 2026-09-11).
+  await expect(page.locator("#s-ops")).toHaveText("1200.00");
+  await expect(page.locator("#s-payroll")).toHaveText("9000.00");
+  await expect(page.locator("#s-grand")).toHaveText("10200.00");
 
   // Narrow to the first half of April -> only the operational one.
   await page.fill("#f-end", "2026-04-10");

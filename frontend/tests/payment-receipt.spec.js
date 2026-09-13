@@ -30,8 +30,9 @@ test("Sales issues a Diesel receipt; rate + total come from Rate Master", async 
 
   await expect(page.locator("#issue-status")).toContainText("Issued SVR-");
   await expect(page.locator("#issued-card")).toBeVisible();
-  await expect(page.locator("#ic-body")).toContainText("10 × 105.36");
-  await expect(page.locator("#ic-body")).toContainText("₹ 1053.6");
+  // Two decimals on every sheet and section (client, 2026-09-11).
+  await expect(page.locator("#ic-body")).toContainText("10.00 × 105.36");
+  await expect(page.locator("#ic-body")).toContainText("₹ 1053.60");
 
   // The new receipt shows in the recent list; a Sales user gets no Delete button.
   const row = page.locator("#receipt-rows tr").first();

@@ -69,8 +69,9 @@ test("Owner sets COGS / commission and the summary recalculates", async ({ page 
   await page.fill("#m-hscomm", "8000");
   await page.click("#save-figs-btn");
 
-  await expect(page.locator("#d-cogs")).toHaveText("48000"); // 1000 + 50000 - 3000
-  await expect(page.locator("#d-comm")).toHaveText("8000");
+  // Two decimals on every sheet and section (client, 2026-09-11).
+  await expect(page.locator("#d-cogs")).toHaveText("48000.00"); // 1000 + 50000 - 3000
+  await expect(page.locator("#d-comm")).toHaveText("8000.00");
   // Gross Profit = Revenue - COGS, whatever the live revenue turned out to be.
-  await expect(page.locator("#d-gross")).toHaveText(String(Math.round((revenue - 48000) * 10000) / 10000));
+  await expect(page.locator("#d-gross")).toHaveText((revenue - 48000).toFixed(2));
 });

@@ -3,6 +3,7 @@
 // current Sell Rate; total = liters x rate.
 
 import { api, getToken } from "../../lib/api.js";
+import { fmt2 } from "../../lib/format.js";
 
 const $ = (id) => document.getElementById(id);
 const numOrNull = (v) => {
@@ -21,7 +22,8 @@ function syncModeRows() {
 function preview() {
   const l = numOrNull($("r-liters").value);
   const r = numOrNull($("r-rate").value);
-  $("r-total").value = l !== null && r !== null ? Math.round(l * r * 10000) / 10000 : "";
+  // Disabled preview cell, never typed into - safe to format.
+  $("r-total").value = l !== null && r !== null ? fmt2(Math.round(l * r * 10000) / 10000) : "";
 }
 
 function renderList(rows) {
@@ -29,7 +31,8 @@ function renderList(rows) {
     .map(
       (x) =>
         `<tr><td>${x.receipt_no || ""}</td><td>${x.receipt_date}</td><td>${x.fuel_type}</td>` +
-        `<td>${x.liters}</td><td>${x.rate}</td><td>${x.total}</td><td>${x.payment_mode}</td>` +
+        `<td>${fmt2(x.liters)}</td><td>${fmt2(x.rate)}</td><td>${fmt2(x.total)}</td>` +
+        `<td>${x.payment_mode}</td>` +
         `<td>${me.role === "Sales" ? "" : `<button type="button" class="add-row-btn" style="margin:0" data-del="${x.id}">Delete</button>`}</td></tr>`
     )
     .join("");
@@ -46,8 +49,8 @@ function showIssued(r) {
     ["Attendant", r.attendant || ""],
     ["Vehicle", r.vehicle_no || "—"],
     ["Fuel", r.fuel_type],
-    ["Liters × Rate", `${r.liters} × ${r.rate}`],
-    ["Total", `₹ ${r.total}`],
+    ["Liters × Rate", `${fmt2(r.liters)} × ${fmt2(r.rate)}`],
+    ["Total", `₹ ${fmt2(r.total)}`],
     ["Paid via", `${r.payment_mode}${r.ref_no ? " · " + r.ref_no : ""}${r.card_last4 ? " · ****" + r.card_last4 : ""}`],
   ]
     .map(([k, v]) => `<div class="summary-row"><span>${k}</span><span>${v}</span></div>`)
@@ -94,7 +97,7 @@ async function issue() {
     showIssued(r);
     await load();
     st.className = "status-line ok";
-    st.textContent = `Issued ${r.receipt_no} — ₹ ${r.total}.`;
+    st.textContent = `Issued ${r.receipt_no} — ₹ ${fmt2(r.total)}.`;
     $("r-liters").value = "";
     $("r-total").value = "";
   } catch (err) {
