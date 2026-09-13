@@ -494,8 +494,58 @@ async function searchEntries() {
   status.textContent = `${rows.length} saved entr${rows.length === 1 ? "y" : "ies"} found.`;
 }
 
+// The starred fields, and what Save does about each. A star that never stops
+// anything is decoration, so these are checked - but the two levels are different
+// on purpose (client, 2026-09-13):
+//
+//   blocking  - a record cannot exist without a date and a pump. Both are always
+//               populated on this form, so this can only fire if something has
+//               gone wrong.
+//   warning   - a reading that is missing is named, and the save still goes
+//               through. A shift has to be submittable at the end of the day, and
+//               refusing the save outright would just push people to invent a
+//               number. Last Shift Reading is backend-owned once a prior day
+//               exists (SDD 7.7), so the station's rule for an out-of-service
+//               pump is to type that carried figure into Current - verified end
+//               to end: the day then records 0 litres, 0 amount, still counts as
+//               a submission, and Section 3 pulls the other pump's figures alone.
+const REQUIRED_BLOCKING = [
+  ["shift-date", "Shift Date"],
+  ["pump-serial", "Pump Serial#"],
+];
+const REQUIRED_WARNING = [
+  ["hs-current", "Diesel (HS) Current Reading"],
+  ["ms-current", "Petrol (MS) Current Reading"],
+  ["hs-last", "Diesel (HS) Last Shift Reading"],
+  ["ms-last", "Petrol (MS) Last Shift Reading"],
+];
+
+function checkRequired() {
+  const warn = $("req-warning");
+  const missing = REQUIRED_BLOCKING.filter(([id]) => !String(val(id)).trim());
+  if (missing.length) {
+    return { blocked: `Cannot save — ${missing.map(([, l]) => l).join(" and ")} is required.` };
+  }
+  const gaps = REQUIRED_WARNING.filter(([id]) => !String(val(id)).trim()).map(([, l]) => l);
+  if (warn) {
+    warn.hidden = gaps.length === 0;
+    warn.textContent = gaps.length
+      ? `Saved with mandatory field(s) blank: ${gaps.join(", ")}. ` +
+        "If the pump was out of service, type its Last Shift Reading into " +
+        "Current Reading so the day records a zero."
+      : "";
+  }
+  return { blocked: null };
+}
+
 async function save() {
   const status = $("save-status");
+  const gate = checkRequired();
+  if (gate.blocked) {
+    status.className = "status-line err";
+    status.textContent = gate.blocked;
+    return;
+  }
   const payload = readForm();
   status.className = "status-line";
   status.textContent = "Saving…";

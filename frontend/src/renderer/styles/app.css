@@ -915,3 +915,22 @@ td input:disabled {
   padding: 1px 4px;
   margin-left: 6px;
 }
+
+/* Mandatory-field marker (client, 2026-09-13). Red, and carries a title so the
+   meaning is available on hover as well as in the legend. */
+.req {
+  color: var(--io-red);
+  font-weight: 700;
+  cursor: help;
+}
+
+/* The mandatory legend and the Save warning are screen guidance, not part of the
+   form. They pushed a blank print onto a second A4 page, and one page is a hard
+   requirement (round-2 item 1). The stars themselves still print - they are the
+   marking the client asked for; this is only the explanation of them. */
+@media print {
+  #req-legend,
+  #req-warning {
+    display: none !important;
+  }
+}

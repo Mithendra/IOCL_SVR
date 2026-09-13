@@ -257,6 +257,45 @@ test("the revised Oil Sale(s) list, and Night Cash Hand Off gone from the Summar
   );
 });
 
+test("mandatory fields carry a star, and Save acts on them", async ({ page }) => {
+  // Client, 2026-09-13: the mandatory columns should be marked with a star. A
+  // star that never stops anything is decoration, so Save checks them too.
+  await login(page);
+  await page.goto(SCREEN);
+
+  // Marked on the form itself - date, pump, and both reading columns.
+  await expect(page.locator("#req-legend")).toContainText("Mandatory");
+  await expect(page.locator('label[for="shift-date"] .req')).toHaveText("*");
+  await expect(page.locator('label[for="pump-serial"] .req')).toHaveText("*");
+  await expect(page.locator("th", { hasText: "Current Reading" }).locator(".req")).toHaveText("*");
+  await expect(
+    page.locator("th", { hasText: "Last Shift Reading" }).locator(".req"),
+  ).toHaveText("*");
+
+  // Blocking: no date, no record. Nothing is sent.
+  await page.fill("#shift-date", "");
+  await page.click("#save-btn");
+  await expect(page.locator("#save-status")).toHaveClass(/err/);
+  await expect(page.locator("#save-status")).toContainText("Shift Date is required");
+
+  // Warning: a missing reading is NAMED but the save goes through - a shift has
+  // to be submittable, and the station's rule for an out-of-service pump is to
+  // enter equal readings so the day records a zero.
+  // A date no other test touches. 2026-06-30 was in use here and is the date the
+  // Export test relies on having NO saved entry - saving to it made that test's
+  // form auto-load a record and the "Save the entry first" prompt never appeared.
+  await page.fill("#shift-date", "2026-05-17");
+  await page.fill("#hs-current", "100");
+  await page.click("#save-btn");
+  await expect(page.locator("#save-status")).toContainText("Saved (entry #");
+  await expect(page.locator("#req-warning")).toBeVisible();
+  await expect(page.locator("#req-warning")).toContainText("Petrol (MS) Current Reading");
+  await expect(page.locator("#req-warning")).toContainText("out of service");
+  await expect(page.locator("#req-legend")).toContainText(
+    "type its Last Shift Reading into Current Reading",
+  );
+});
+
 test("Manager adds an Oil Sale(s) item and it sells like any other", async ({ page }) => {
   // The list used to be a tuple in the build, so selling a new product meant a
   // release (client, 2026-09-13: "people should be able to add it, or people

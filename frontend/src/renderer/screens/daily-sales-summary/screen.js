@@ -51,7 +51,14 @@ function fillSide(side, data) {
 function fillCombined(c) {
   const body = $("combined-rows");
   body.innerHTML = "";
+  // Litres as well as amounts. These two lines are the figures Daily Trial
+  // Balance Section 3 actually consumes (s3_hs_consumption / s3_ms_consumption),
+  // and until 2026-09-13 they were the only numbers in the whole chain that never
+  // appeared on the form that forwards them - the Summary showed money only, so
+  // there was nowhere to check the consumption the Trial Balance would receive.
   const rows = [
+    ["Diesel (HS) — Ltrs", c.hs_liters],
+    ["Petrol (MS) — Ltrs", c.ms_liters],
     ["Diesel (HS)", c.hs],
     ["Petrol (MS)", c.ms],
     ["Gas Total Amt", c.gas_total],

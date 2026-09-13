@@ -37,11 +37,11 @@
       <div class="body-pad">
         <div class="meta-grid">
           <div class="field">
-            <label for="shift-date">Shift Date</label>
+            <label for="shift-date">Shift Date <span class="req" title="Mandatory">*</span></label>
             <input type="date" id="shift-date" />
           </div>
           <div class="field">
-            <label for="pump-serial">Pump Serial#</label>
+            <label for="pump-serial">Pump Serial# <span class="req" title="Mandatory">*</span></label>
             <select id="pump-serial">
               <option value="12BC4523V-RD">12BC4523V-RD</option>
               <option value="11CC2012V-OFF">11CC2012V-OFF</option>
@@ -89,6 +89,19 @@
           </div>
         </div>
 
+        <!-- Mandatory fields, client-asked 2026-09-13. A star has to mean
+             something, so Save checks them: Shift Date and Pump Serial# are
+             refused outright (a record cannot exist without either), and a
+             missing reading is named in a warning rather than blocking - a pump
+             whose nozzle genuinely has nothing to report still has to be
+             submittable at the end of a shift. -->
+        <p id="req-legend" style="font-size:11px;color:var(--io-blue-dark);margin:0 0 8px">
+          <span class="req">*</span> Mandatory. Both pumps must submit every day —
+          if a pump was out of service, type its Last Shift Reading into Current Reading
+          so the day records a zero, rather than skipping the submission.
+        </p>
+        <p id="req-warning" class="status-line err" hidden style="margin:0 0 8px"></p>
+
         <p id="carried-note" style="font-size:11px;color:var(--io-blue-dark);margin:0 0 8px"></p>
         <p id="editing-note" hidden
            style="font-size:12px;font-weight:700;color:var(--io-blue);background:#eef3fb;border:1px solid var(--io-blue);border-radius:4px;padding:5px 8px;margin:0 0 8px"></p>
@@ -99,7 +112,8 @@
         </div>
         <table>
           <tr>
-            <th>Pump</th><th>Current Reading</th><th>Last Shift Reading</th>
+            <th>Pump</th><th>Current Reading <span class="req" title="Mandatory">*</span></th>
+            <th>Last Shift Reading <span class="req" title="Mandatory — carried automatically once a prior day exists">*</span></th>
             <th>Cons[Last-Current]</th><th>Rate</th><th>Amount</th><th>IOCL #</th>
           </tr>
           <tr>
