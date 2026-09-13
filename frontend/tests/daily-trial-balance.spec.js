@@ -11,6 +11,12 @@ const SCREEN = `/screens/daily-trial-balance/index.html?apiBase=${encodeURICompo
 // by a known amount, so combined consumption is deterministic either way.
 const PUMP_A = "12BC4523V-RD";
 const PUMP_B = "11CC2012V-OFF";
+// ADR-2 blocks CREATING a Trial Balance date while any EARLIER one is still
+// open, and every test in this file shares one database. So each test that
+// creates a new date must use one EARLIER than every test before it - or reuse a
+// date already on file, which skips the gate entirely. Three separate failures
+// in this file have come from ignoring that; the dates below run downhill on
+// purpose. Add a new saving test at a date earlier than 2026-01-05.
 const PRIOR_DATE = "2026-10-19";
 const DATE = "2026-10-20";
 
@@ -42,6 +48,14 @@ test.beforeAll(async () => {
   });
   await ctx.dispose();
 });
+
+// Save is live for a new date, Update for one already on file. A retry re-runs
+// against a date attempt #1 created, so click whichever applies - the same choice
+// the operator faces.
+async function saveOrUpdate(page) {
+  const save = page.locator("#save-btn");
+  await ((await save.isEnabled()) ? save : page.locator("#update-btn")).click();
+}
 
 async function login(page, user) {
   await page.goto(`/index.html?apiBase=${encodeURIComponent(apiBase)}`);
@@ -273,7 +287,7 @@ test("cross-section totals are calculated from what you type, to the SEP12 formu
   await page.fill('[data-manual="section10.hs_new"]', "12079");
   await page.fill('[data-manual="section10.hs_load"]', "10000");
 
-  await page.click("#save-btn");
+  await saveOrUpdate(page);
   await expect(page.locator("#save-status")).toContainText("recalculated");
 
   await expect(page.locator('[data-derived="section3.total6"]')).toHaveValue("146527.41");
@@ -305,7 +319,7 @@ test("manual sections save into the record's manual block and survive a reload",
   await creditRows.first().locator("select").selectOption("AirTel Hari New Credit");
   await creditRows.first().locator('[data-col="amount"]').fill("2500");
 
-  await page.click("#save-btn");
+  await saveOrUpdate(page);
   await expect(page.locator("#save-status")).toContainText("recalculated");
 
   await page.reload();
@@ -358,7 +372,7 @@ test("Manager enters Section 1, sees computed columns + pulled Section 3, then f
   await page.fill("#hs-y", "100");
   await page.fill("#hs-c", "60");
   await page.fill("#cash-bv", "500000");
-  await page.click("#save-btn");
+  await saveOrUpdate(page);
   await expect(page.locator("#save-status")).toContainText("recalculated");
 
   await expect(page.locator("#hs-diff")).toHaveValue("40.00"); // 100 - 60
@@ -463,7 +477,7 @@ test("Section 8 snapshot says plainly it needs the installed app", async ({ page
 test("Special Note is available where the sheet has commentary", async ({ page }) => {
   // The sheet has no field for it, so operators type commentary into the labels
   // (SEP10 A36: "Indian bank Statement Ending Balance @Fraud Pending -Rs 13367").
-  const NOTE_DATE = "2026-02-10"; // early: ADR-2 blocks a date while an earlier one is open
+  const NOTE_DATE = "2026-02-10"; // see the ADR-2 note at the top of this file
   await login(page, "mmanager");
   await page.goto(SCREEN);
   await expect(page.locator("#body")).toBeVisible();
@@ -477,14 +491,10 @@ test("Special Note is available where the sheet has commentary", async ({ page }
   }
   await expect(page.locator('textarea[data-manual="section8.mgmt_note"]')).toBeVisible();
   await expect(page.locator("#sec-8 textarea.tb-note")).toHaveCount(2);
-  // Right-hand column: the note sits to the right of the Amount cell in its OWN
-  // table (3.15's block), not of some other block's wider Amount column.
-  const note = await page.locator('textarea[data-manual="section3.special_note"]').boundingBox();
-  const amount = await page.locator('[data-derived="section3.total15"]').boundingBox();
-  expect(note.x).toBeGreaterThan(amount.x + amount.width - 2);
+  // Geometry is asserted by "Special Note runs left to right..." below.
 
   await page.fill('textarea[data-manual="section3.special_note"]', "Yes Bank returned 8,525.95");
-  await page.click("#save-btn");
+  await saveOrUpdate(page);
   await expect(page.locator("#save-status")).toContainText("recalculated");
 
   await page.reload();
@@ -496,22 +506,15 @@ test("Special Note is available where the sheet has commentary", async ({ page }
   );
 });
 
-test("each section's heading bar is the same width as the tables under it", async ({ page }) => {
-  // The bar used to run the full sheet while a narrow table sat beneath it - the
-  // "no consistency" the client called out (2026-09-12).
+test("buttons sit under their own block, not floated to the far right", async ({ page }) => {
   await login(page, "mmanager");
   await page.goto(SCREEN);
   await expect(page.locator("#body")).toBeVisible();
 
   for (const id of ["sec-3", "sec-4", "sec-7", "sec-8", "sec-10", "sec-11"]) {
-    const host = page.locator(`#${id}`);
-    await expect(host).toHaveClass(/tb-sec tb-w-/);
-    const bar = await host.locator(".section-title").first().boundingBox();
-    const table = await host.locator("table").first().boundingBox();
-    expect(Math.abs(bar.width - table.width)).toBeLessThanOrEqual(2);
+    await expect(page.locator(`#${id}`)).toHaveAttribute("data-w", /std|half|wide|full/);
   }
 
-  // Buttons sit under their own table, not floated to the far right of the sheet.
   const actions = page.locator('[data-rows="section3.new_credits"]')
     .locator("xpath=ancestor::table[1]/following-sibling::div[@class='tb-actions'][1]");
   const bar = await actions.boundingBox();
@@ -566,5 +569,108 @@ test("Section 1 shows all thirteen columns without scrolling", async ({ page }) 
                    "section1.hs_iocl_adv", "section1.ms_iocl_adv"]) {
     await expect(page.locator(`[data-derived="${p}"]`)).toBeDisabled();
     await expect(page.locator(`[data-manual="${p}"]`)).toHaveCount(0);
+  }
+});
+
+test("Save and Update are distinct, and a saved date can be found by browsing", async ({
+  page,
+}) => {
+  const D = "2026-01-05"; // earlier than every other saving test - see the note at the top
+  await login(page, "mmanager");
+  await page.goto(SCREEN);
+  await expect(page.locator("#body")).toBeVisible();
+  await page.fill("#tb-date", D);
+  await page.click("#load-btn");
+
+  // Nothing on file for this date yet: Save is the action, Update is not.
+  await expect(page.locator("#save-btn")).toBeEnabled();
+  await expect(page.locator("#update-btn")).toBeDisabled();
+
+  await page.fill("#hs-c", "60");
+  await page.click("#save-btn");
+  await expect(page.locator("#save-status")).toContainText("Saved");
+
+  // Now it is on file, so it is an Update from here.
+  await expect(page.locator("#update-btn")).toBeEnabled();
+  await expect(page.locator("#save-btn")).toBeDisabled();
+  await page.fill("#hs-c", "61");
+  await page.click("#update-btn");
+  await expect(page.locator("#save-status")).toContainText("Updated");
+
+  // And it can be found without knowing the date.
+  await page.click("#browse-btn");
+  await page.fill("#q-from", "2026-01-01");
+  await page.fill("#q-to", "2026-01-31");
+  await page.click("#q-search-btn");
+  await expect(page.locator("#q-status")).toContainText("found");
+  const row = page.locator("#q-rows tr").filter({ hasText: D });
+  await expect(row).toHaveCount(1);
+  await row.locator(".q-open").click();
+  await expect(page.locator("#tb-date")).toHaveValue(D);
+  await expect(page.locator("#hs-c")).toHaveValue("61");
+});
+
+test("the whole Trial Balance exports to Excel", async ({ page }) => {
+  await login(page, "mmanager");
+  await page.goto(SCREEN);
+  await expect(page.locator("#body")).toBeVisible();
+  const download = page.waitForEvent("download");
+  await page.click("#export-btn");
+  expect((await download).suggestedFilename()).toMatch(
+    /^SVR-TrialBalance-\d{4}-\d{2}-\d{2}\.xlsx$/
+  );
+  await expect(page.locator("#save-status")).toContainText("Exported");
+});
+
+test("Special Note runs left to right, and Section 3's sits mid-section", async ({ page }) => {
+  await login(page, "mmanager");
+  await page.goto(SCREEN);
+  await expect(page.locator("#body")).toBeVisible();
+
+  // A wide row, not a tall narrow column: wider than it is tall, and starting at
+  // the left edge of its own table (client, 2026-09-12).
+  const note = page.locator('textarea[data-manual="section3.special_note"]');
+  const box = await note.boundingBox();
+  expect(box.width).toBeGreaterThan(box.height * 3);
+
+  // Mid-section: after 3.13, before the 3.14 New Credit rows.
+  const noteY = box.y;
+  const total13 = await page.locator('[data-derived="section3.total13"]').boundingBox();
+  const credits = await page.locator('[data-rows="section3.new_credits"]').boundingBox();
+  expect(noteY).toBeGreaterThan(total13.y);
+  expect(noteY).toBeLessThan(credits.y);
+});
+
+test("every section heading bar runs the full width of the form", async ({ page }) => {
+  // One complete block per section - Close & Sign Off is the reference. The
+  // tables inside keep their own narrower widths.
+  await login(page, "mmanager");
+  await page.goto(SCREEN);
+  await expect(page.locator("#body")).toBeVisible();
+
+  const ref = await page.locator("#finalize-block").boundingBox();
+  for (const id of ["sec-3", "sec-4", "sec-7", "sec-8", "sec-10", "sec-11"]) {
+    const bar = await page.locator(`#${id} .section-title`).first().boundingBox();
+    expect(Math.abs(bar.width - ref.width)).toBeLessThanOrEqual(2);
+  }
+});
+
+test("Section 1's Petrol row shows Margin Total, 2T Sales, Total Sale Amt and IOCL Profit", async ({
+  page,
+}) => {
+  // These were bare <td>s, so the renderer wrote .value into a table cell and
+  // nothing ever appeared - the figures were computed the whole time.
+  await login(page, "mmanager");
+  await page.goto(SCREEN);
+  await expect(page.locator("#body")).toBeVisible();
+  await page.fill("#tb-date", DATE);
+  await page.click("#load-btn");
+  await expect(page.locator("#s3-src")).toContainText("Daily Sales Summary");
+
+  for (const path of ["section1.margin_total", "section1.two_t_sales",
+                      "section1.total_sale_amt", "section1.iocl_profit"]) {
+    const cell = page.locator(`[data-derived="${path}"]`);
+    await expect(cell).toHaveJSProperty("tagName", "INPUT");
+    await expect(cell).toHaveValue(/^-?[\d,]*\.\d{2}$/);
   }
 });

@@ -440,20 +440,33 @@ td input:disabled {
 .tb-sec {
   margin-bottom: 2px;
 }
-.tb-sec table {
+/* The heading bar always runs the full width of the form, so a section reads as
+   one complete block - Close & Sign Off is the reference (client, 2026-09-12).
+   The width below governs only the TABLES inside the section. */
+.tb-sec[data-w] .section-title,
+.tb-sec[data-w] .summary-box {
   max-width: 100%;
 }
-.tb-w-std {
+.tb-sec[data-w="std"] table {
   max-width: 820px;
 }
-.tb-w-half {
+.tb-sec[data-w="half"] table {
   max-width: 600px;
 }
-.tb-w-wide {
+.tb-sec[data-w="wide"] table {
   max-width: 1010px;
 }
-.tb-w-full {
+.tb-sec[data-w="full"] table {
   max-width: 100%;
+}
+/* Special Note: a wide row, left to right. */
+.tb-noterow td:first-child {
+  font-weight: 700;
+  color: var(--io-blue-dark);
+  vertical-align: top;
+}
+.tb-noterow td:last-child {
+  width: auto !important;
 }
 .tb-fields td:last-child,
 .tb-fields th:last-child {
@@ -522,18 +535,6 @@ td input:disabled {
   font-size: 10.5px;
   text-align: right;
 }
-/* Special Note in its own right-hand column, where the sheet keeps commentary. */
-.tb-hasnote td:nth-child(2),
-.tb-hasnote th:nth-child(2) {
-  width: 150px;
-}
-.tb-notecell {
-  width: 300px;
-  vertical-align: top;
-}
-.tb-notecell .tb-block-title {
-  margin: 0 0 3px;
-}
 /* Every figure right-aligned, two decimals - the money columns read as money. */
 .tb-sec td input,
 .tb-sec td select {
@@ -541,7 +542,6 @@ td input:disabled {
   font-variant-numeric: tabular-nums;
 }
 .tb-sec td:first-child,
-.tb-sec .tb-notecell,
 .tb-sec .tb-note,
 .tb-sec [data-col="type"],
 .tb-sec [data-col="category"],

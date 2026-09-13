@@ -36,14 +36,32 @@
 
         <div class="meta-grid">
           <div class="field"><label for="tb-date">Date</label><input type="date" id="tb-date" /></div>
-          <div class="field"><label for="tb-shift">Shift</label><input id="tb-shift" data-manual="header.shift" placeholder="e.g. 10.30 AM to next day — K. Ashok" /></div>
+          <div class="field">
+            <label for="tb-shift">Shift window &amp; operator</label>
+            <input id="tb-shift" data-manual="header.shift"
+                   title="The shift this sheet covers and who held it — the sheet's own first line, e.g. &quot;11-09-2026 10.30 AM to 12-09-2026: K. Ashok&quot;"
+                   placeholder="11-09-2026 10.30 AM to 12-09-2026 — K. Ashok" />
+          </div>
           <div class="field"><label>&nbsp;</label><button type="button" class="export-btn" id="load-btn">Load</button></div>
+        </div>
+        <div style="margin:0 0 8px">
+          <button type="button" class="export-btn secondary" id="browse-btn">Browse saved dates…</button>
+          <div id="browse-panel" hidden style="margin-top:6px;padding:8px;border:1px solid var(--line);border-radius:4px;max-width:720px">
+            <label style="font-size:11px">From <input type="date" id="q-from" /></label>
+            <label style="font-size:11px;margin-left:8px">To <input type="date" id="q-to" /></label>
+            <button type="button" class="export-btn" id="q-search-btn" style="margin-left:8px">Search</button>
+            <p id="q-status" class="status-line" style="margin:6px 0 0"></p>
+            <table id="q-results" hidden style="margin-top:6px">
+              <thead><tr><th>Date</th><th>Status</th><th>Last updated by</th><th></th></tr></thead>
+              <tbody id="q-rows"></tbody>
+            </table>
+          </div>
         </div>
         <p id="tb-status" class="status-line"></p>
 
         <div id="body" style="display:none">
           <!-- ============================ 1 ============================ -->
-          <div class="tb-sec tb-w-wide">
+          <div class="tb-sec" data-w="full">
           <div class="section-title">
             1. IOCL Stock Readings
             <span style="font-weight:400;font-size:11px">[independent regulatory reading — manual entry, NOT pulled from Section 2]</span>
@@ -74,11 +92,11 @@
                 <td><input id="ms-diff" disabled placeholder="auto"></td><td><input id="ms-cons" disabled placeholder="auto"></td><td><input id="ms-cpd" disabled placeholder="auto"></td>
                 <td><input id="ms-dt" disabled placeholder="auto"></td>
                 <td><input data-derived="section1.ms_margin" disabled placeholder="auto" /></td>
-                <td data-derived="section1.margin_total"></td>
-                <td data-derived="section1.two_t_sales"></td>
-                <td data-derived="section1.total_sale_amt"></td>
+                <td><input data-derived="section1.margin_total" disabled placeholder="auto" /></td>
+                <td><input data-derived="section1.two_t_sales" disabled placeholder="auto" /></td>
+                <td><input data-derived="section1.total_sale_amt" disabled placeholder="auto" /></td>
                 <td><input data-derived="section1.ms_iocl_adv" disabled placeholder="auto" /></td>
-                <td data-derived="section1.iocl_profit"></td>
+                <td><input data-derived="section1.iocl_profit" disabled placeholder="auto" /></td>
               </tr>
             </table>
           </div>
@@ -94,7 +112,7 @@
           </div>
 
           <!-- ============================ 2 ============================ -->
-          <div class="tb-sec tb-w-wide">
+          <div class="tb-sec" data-w="wide">
           <div class="section-title">
             2. Day Sales Report
             <span style="font-weight:400;font-size:11px">[pulled live from the day's Daily Sales Entries — read-only]</span>
@@ -131,7 +149,7 @@
           <div id="sec-4"></div>
 
           <!-- ============================ 5 ============================ -->
-          <div class="tb-sec tb-w-wide">
+          <div class="tb-sec" data-w="wide">
           <div class="section-title">
             5. Stock Value
             <span style="font-weight:400;font-size:11px">[Computer On-hand Stock Readings × Buy Rate]</span>
@@ -146,7 +164,7 @@
           </div>
 
           <!-- ============================ 6 ============================ -->
-          <div class="tb-sec tb-w-wide">
+          <div class="tb-sec" data-w="wide">
           <div class="summary-box">
             <h3>6. Trial Balance — Actual Reported — Today</h3>
             <div class="summary-row"><span>Today's Actual Reported SVR Cash/Book Value</span>
@@ -186,6 +204,8 @@
 
           <div class="export-bar">
             <button type="button" class="export-btn" id="save-btn">Save</button>
+            <button type="button" class="export-btn" id="update-btn" disabled>Update</button>
+            <button type="button" class="export-btn secondary" id="export-btn">Export Trial Balance to Excel</button>
           </div>
           <p id="save-status" class="status-line"></p>
 

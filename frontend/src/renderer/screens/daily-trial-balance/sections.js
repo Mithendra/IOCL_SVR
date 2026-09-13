@@ -80,6 +80,7 @@ export const SECTIONS = [
             "Already reflects in the Indian Bank statement"],
           ["3.13", "Total Amt", { derived: "section3.total13" }],
         ],
+        note: { key: "special_note" },
       },
       {
         type: "rows",
@@ -94,9 +95,11 @@ export const SECTIONS = [
       },
       {
         type: "fields",
+        // A continuation of the chain above, so no repeated "Line | Amount"
+        // header - on its own it read as a mystery (client, 2026-09-12).
+        noHead: true,
         fields: [["3.15", "Total Cash/Book Amount as of Today",
           { derived: "section3.total15" }]],
-        note: { key: "special_note" },
       },
     ],
   },

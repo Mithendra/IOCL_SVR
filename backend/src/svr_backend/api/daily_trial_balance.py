@@ -43,6 +43,7 @@ from svr_backend.core.audit import record_write
 from svr_backend.core.db import transaction
 from svr_backend.core.rbac import get_db, require
 from svr_backend.core.session import Principal
+from svr_backend.excel.trial_balance_full import build_full_workbook
 from svr_backend.excel.trial_balance_section8 import (
     build_section8_workbook,
     section8_message,
@@ -233,6 +234,33 @@ class OptionCreate(BaseModel):
     value: str
 
 
+@router.get("")
+def list_trial_balances(
+    date_from: str | None = None,
+    date_to: str | None = None,
+    limit: int = 120,
+    _: Principal = Depends(require("Sales", "Manager", "Owner")),
+    conn: sqlite3.Connection = Depends(get_db),
+) -> list[dict]:
+    """Saved Trial Balance days, newest first - for looking one up without
+    already knowing its date (client asked 2026-09-12; Daily Sales Entry has had
+    this since the round-2 Query work)."""
+    clauses, params = [], []
+    if date_from:
+        clauses.append("shift_date >= ?")
+        params.append(date_from)
+    if date_to:
+        clauses.append("shift_date <= ?")
+        params.append(date_to)
+    where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
+    rows = conn.execute(
+        f"SELECT shift_date, status, finalized_by, finalized_at, last_updated_by, "
+        f"last_updated_at FROM {TABLE}{where} ORDER BY shift_date DESC LIMIT ?",
+        [*params, max(1, min(limit, 500))],
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
 @router.get("/options")
 def get_options(
     _: Principal = Depends(require("Sales", "Manager", "Owner")),
@@ -297,6 +325,24 @@ def add_option(
 
 
 _XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+
+@router.get("/{shift_date}/export-excel")
+def export_full(
+    shift_date: str,
+    _: Principal = Depends(require("Sales", "Manager", "Owner")),
+    conn: sqlite3.Connection = Depends(get_db),
+) -> Response:
+    """The whole day's Trial Balance - all eleven sections - as one .xlsx."""
+    data = build_full_workbook(_view(conn, shift_date))
+    return Response(
+        content=data,
+        media_type=_XLSX,
+        headers={
+            "Content-Disposition":
+                f'attachment; filename="SVR-TrialBalance-{shift_date}.xlsx"'
+        },
+    )
 
 
 @router.get("/{shift_date}/export-section8")

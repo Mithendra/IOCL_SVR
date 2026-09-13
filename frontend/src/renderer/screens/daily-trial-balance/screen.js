@@ -26,6 +26,7 @@ import { fmt2 } from "../../lib/format.js";
 import { SECTIONS } from "./sections.js";
 
 const $ = (id) => document.getElementById(id);
+const val = (id) => ($(id) ? $(id).value : "");
 const txt = (id, v) => {
   const el = $(id);
   if (!el) return;
@@ -46,6 +47,8 @@ let currentStatus = "draft";
 // and 8.6 share the `expenses` list, so a category added in one appears in both.
 let OPTIONS = {};
 let lastView = null;
+// True once this date has a row on file, so Save/Update can say which applies.
+let savedThisDate = false;
 
 function canFinalize() {
   return me && (me.role === "Manager" || me.role === "Owner");
@@ -122,28 +125,24 @@ function cellFor(sectionKey, spec) {
 function fieldsBlock(sectionKey, block) {
   const title = block.title ? `<div class="tb-block-title">${block.title}</div>` : "";
   const rows = block.fields
-    .map(([no, label, spec, hint], i) => {
-      // The Special Note sits in a right-hand column spanning the block, which is
-      // where the sheet keeps its own commentary (SEP12 column E) - not stranded
-      // underneath the table (client, 2026-09-12).
-      const noteCell =
-        block.note && i === 0
-          ? `<td class="tb-notecell" rowspan="${block.fields.length}">` +
-            `<div class="tb-block-title">Special Note</div>` +
-            `<textarea class="tb-note" rows="3" ` +
-            `data-manual="${esc(`${sectionKey}.${block.note.key}`)}" ` +
-            `placeholder="Anything worth recording today"></textarea></td>`
-          : "";
-      return (
-        `<tr><td>${no ? `${no} ` : ""}${label}${hintHtml(hint)}</td>` +
-        `${cellFor(sectionKey, spec)}${noteCell}</tr>`
-      );
-    })
+    .map(([no, label, spec, hint]) =>
+      `<tr><td>${no ? `${no} ` : ""}${label}${hintHtml(hint)}</td>${cellFor(sectionKey, spec)}</tr>`
+    )
     .join("");
-  const head = block.note
-    ? `<tr><th>Line</th><th>Amount</th><th class="tb-notecell">Special Note</th></tr>`
+  // Special Note runs LEFT TO RIGHT as its own row, the way a note reads in the
+  // sheet - not as a tall narrow column down the right (client, 2026-09-12).
+  const noteRow = block.note
+    ? `<tr class="tb-noterow"><td>Special Note</td>` +
+      `<td><textarea class="tb-note" rows="2" ` +
+      `data-manual="${esc(`${sectionKey}.${block.note.key}`)}" ` +
+      `placeholder="Anything worth recording about this section today"></textarea></td></tr>`
+    : "";
+  // A continuation block (no title, one line) would otherwise repeat a bare
+  // "Line | Amount" header with nothing to explain it - 3.15 read as a mystery.
+  const head = block.noHead
+    ? ""
     : `<tr><th>Line</th><th>Amount</th></tr>`;
-  return `${title}<table class="tb-fields${block.note ? " tb-hasnote" : ""}">${head}${rows}</table>`;
+  return `${title}<table class="tb-fields">${head}${rows}${noteRow}</table>`;
 }
 
 function rowsBlock(sectionKey, block) {
@@ -239,7 +238,10 @@ function buildManualSections() {
     const hint = section.hint
       ? ` <span style="font-weight:400;font-size:11px">${section.hint}</span>`
       : "";
-    host.className = `tb-sec tb-w-${section.width || "std"}`;
+    // The heading bar spans the whole form so a section reads as one block;
+    // the width only governs the TABLES inside it (client, 2026-09-12).
+    host.className = "tb-sec";
+    host.dataset.w = section.width || "std";
     // Section 8 is stamped with the system date and time in IST, the way the
     // sheet that goes to management is ("SEPT 12, 12:00 PM IST"). Generated, never
     // typed: a report that says when it was produced is only useful if nobody can
@@ -701,6 +703,67 @@ async function snapshotSection8() {
   }
 }
 
+// Query. The Date + Load pair already retrieves one day; this finds a day when
+// nobody remembers its date - the same gap the client reported on Daily Sales
+// Entry in round 2, and it is closed the same way here (2026-09-12).
+async function searchDates() {
+  const status = $("q-status");
+  const table = $("q-results");
+  const body = $("q-rows");
+  const qs = new URLSearchParams();
+  if (val("q-from")) qs.set("date_from", val("q-from"));
+  if (val("q-to")) qs.set("date_to", val("q-to"));
+  status.className = "status-line";
+  status.textContent = "Searching…";
+  let rows;
+  try {
+    rows = await api.get(`/daily-trial-balance?${qs.toString()}`);
+  } catch (err) {
+    status.className = "status-line err";
+    status.textContent = `Search failed — ${err.message || err}`;
+    return;
+  }
+  body.innerHTML = "";
+  if (!rows.length) {
+    table.hidden = true;
+    status.className = "status-line err";
+    status.textContent = "No saved Trial Balance in that range.";
+    return;
+  }
+  for (const row of rows) {
+    const tr = document.createElement("tr");
+    tr.innerHTML =
+      `<td>${row.shift_date}</td><td>${row.status}</td>` +
+      `<td>${row.last_updated_by || "—"}</td>` +
+      `<td><button type="button" class="export-btn secondary q-open">Open</button></td>`;
+    tr.querySelector(".q-open").addEventListener("click", async () => {
+      $("tb-date").value = row.shift_date;
+      await load();
+    });
+    body.appendChild(tr);
+  }
+  table.hidden = false;
+  status.className = "status-line ok";
+  status.textContent = `${rows.length} saved day${rows.length === 1 ? "" : "s"} found.`;
+}
+
+async function exportFull() {
+  const st = $("save-status");
+  st.className = "status-line";
+  st.textContent = "Building the file…";
+  try {
+    const name = await api.download(
+      `/daily-trial-balance/${$("tb-date").value}/export-excel`,
+      `SVR-TrialBalance-${$("tb-date").value}.xlsx`
+    );
+    st.className = "status-line ok";
+    st.textContent = `Exported ${name}.`;
+  } catch (err) {
+    st.className = "status-line err";
+    st.textContent = `Export failed — ${err.message || err}`;
+  }
+}
+
 // ------------------------------------------------------------------ main render
 
 let lastManual = {};
@@ -762,7 +825,12 @@ function render(view) {
     $(id).disabled = locked;
   }
   lockManualInputs(locked);
-  $("save-btn").disabled = locked;
+  // Save starts a day; Update corrects one already saved. Both PUT - the
+  // endpoint upserts - but showing which applies is the point (client asked
+  // 2026-09-12; mirrors Daily Sales Entry).
+  const onFile = view.status !== "draft" || Boolean(view.carried_from) || savedThisDate;
+  $("save-btn").disabled = locked || onFile;
+  $("update-btn").disabled = locked || !onFile;
   if (canFinalize()) {
     $("finalize-btn").disabled = locked;
     $("projected-total").disabled = locked;
@@ -790,9 +858,13 @@ async function load() {
   const st = $("tb-status");
   const wanted = $("tb-date").value;
   try {
-    const view = await api.get(`/daily-trial-balance/${wanted}`);
+    const [view, saved] = await Promise.all([
+      api.get(`/daily-trial-balance/${wanted}`),
+      api.get(`/daily-trial-balance?date_from=${wanted}&date_to=${wanted}`),
+    ]);
     // Ignore a slow response if the user has since changed the date.
     if ($("tb-date").value !== wanted) return;
+    savedThisDate = saved.length > 0;
     render(view);
     st.textContent = "";
     await loadDaySales(wanted);
@@ -805,9 +877,11 @@ async function load() {
 async function save() {
   const st = $("save-status");
   try {
+    const wasOnFile = savedThisDate;
+    savedThisDate = true;
     render(await api.put(`/daily-trial-balance/${$("tb-date").value}`, payload()));
     st.className = "status-line ok";
-    st.textContent = "Saved; formulas recalculated.";
+    st.textContent = `${wasOnFile ? "Updated" : "Saved"}; formulas recalculated.`;
   } catch (err) {
     st.className = "status-line err";
     st.textContent = `Save failed — ${err.message || err}`;
@@ -869,6 +943,20 @@ async function init() {
   $("load-btn").addEventListener("click", load);
   $("tb-date").addEventListener("change", load);
   $("save-btn").addEventListener("click", save);
+  $("update-btn").addEventListener("click", save);
+  $("export-btn").addEventListener("click", exportFull);
+  $("q-search-btn").addEventListener("click", searchDates);
+  $("browse-btn").addEventListener("click", () => {
+    const panel = $("browse-panel");
+    panel.hidden = !panel.hidden;
+    if (!panel.hidden && !val("q-from")) {
+      const d = val("tb-date") || new Date().toISOString().slice(0, 10);
+      const from = new Date(d);
+      from.setDate(from.getDate() - 30);
+      $("q-from").value = from.toISOString().slice(0, 10);
+      $("q-to").value = d;
+    }
+  });
   $("s8-export-btn").addEventListener("click", exportSection8);
   $("s8-snapshot-btn").addEventListener("click", snapshotSection8);
   await load();

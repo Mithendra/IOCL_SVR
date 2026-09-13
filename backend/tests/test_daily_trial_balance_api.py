@@ -309,3 +309,73 @@ def test_expenses_is_one_shared_list_for_sections_4_and_8(client, auth_headers):
         headers=auth_headers("Owner"),
     ).json()
     assert added["expenses"][-1] == "Borewell Repair"
+
+
+# --- whole-sheet export and date lookup (client, 2026-09-12) ------------------
+
+
+def test_whole_trial_balance_exports_to_excel(client, auth_headers):
+    """Section 8 exports alone for the management send; this is the full day's
+    record - all eleven sections, in the station's own numbering."""
+    import io
+
+    from openpyxl import load_workbook
+
+    h = auth_headers("Manager")
+    client.put(f"/daily-trial-balance/{DATE}", json={
+        "s1_hs_yesterday": 100, "s1_hs_current": 60, "s54_cash_book_value": 500000,
+        "manual": {
+            "header": {"shift": "10.30 AM to next day - K. Ashok"},
+            "section3": {"onhand": 76096.51, "special_note": "Yes Bank returned 8,525.95"},
+            "section11": {"new_airtel": 64352},
+        },
+    }, headers=h)
+
+    r = client.get(f"/daily-trial-balance/{DATE}/export-excel", headers=h)
+    assert r.status_code == 200
+    assert f"SVR-TrialBalance-{DATE}.xlsx" in r.headers["content-disposition"]
+
+    ws = load_workbook(io.BytesIO(r.content)).active
+    col_a = [row[0] for row in ws.iter_rows(min_col=1, max_col=1, values_only=True)]
+    for heading in (
+        "1. IOCL Stock Readings", "2. Day Sales Report (pulled from the day's Daily Sales Entries)",
+        "3. Daily Cash & Bank Balances", "4. Cash/Book Value Reconciliation", "5. Stock Value",
+        "6. Trial Balance - Actual Reported - Today", "7. Trial Balance - Projected - Today",
+        "8. Daily Management Reporting", "9. Daily Mgr Calculation",
+        "10. Load/Unload Details", "11. Old/New Credit Sales Details",
+    ):
+        assert heading in col_a, heading
+
+    cells = {row[0]: row[1] for row in ws.iter_rows(min_row=5, max_col=2, values_only=True)}
+    assert cells["3.1 On Hand Old Cash"] == 76096.51
+    assert cells["Special Note - Section 3"] == "Yes Bank returned 8,525.95"
+    assert cells["11.1 NEW Airtel Balance"] == 64352
+    # The shift line rides along in the header.
+    assert "K. Ashok" in ws["A2"].value
+
+
+def test_saved_dates_can_be_listed_without_knowing_them(client, auth_headers):
+    """Query capability: the Date + Load pair retrieves one day, this finds a day
+    when nobody remembers its date."""
+    h = auth_headers("Manager")
+    client.put(f"/daily-trial-balance/{DATE}", json={"s1_hs_current": 60}, headers=h)
+
+    rows = client.get("/daily-trial-balance", headers=h).json()
+    assert [r["shift_date"] for r in rows] == [DATE]
+    assert rows[0]["status"] == "draft"
+    assert rows[0]["last_updated_by"] == "manager"
+
+    # Range filters, newest first.
+    assert client.get(
+        f"/daily-trial-balance?date_from={DATE}&date_to={DATE}", headers=h
+    ).json()[0]["shift_date"] == DATE
+    assert client.get(
+        "/daily-trial-balance?date_from=2099-01-01", headers=h
+    ).json() == []
+
+
+def test_sales_can_export_and_list(client, auth_headers):
+    """The maker prepares the day, so neither is gated behind Manager."""
+    h = auth_headers("Sales")
+    assert client.get("/daily-trial-balance", headers=h).status_code == 200
+    assert client.get(f"/daily-trial-balance/{DATE}/export-excel", headers=h).status_code == 200
