@@ -193,8 +193,10 @@ def test_reopening_after_a_gap_still_needs_each_auto_created_day_closed(client, 
 
 
 def test_variance_escalation_requires_a_reason_over_threshold(client, auth_headers):
-    """Decision step 1: the +/-Rs100 threshold rule, now enforced server-side
-    instead of being a comment nobody reliably reads."""
+    """Decision step 1: the escalation threshold rule, enforced server-side
+    instead of being a comment nobody reliably reads. The threshold itself is
+    the 'trial_balance_alert_threshold' parameter - Rs 50 since migration 0025.
+    """
     view = client.put(
         f"/daily-trial-balance/{DATE}",
         json={"s54_cash_book_value": 500000},
@@ -233,6 +235,37 @@ def test_variance_within_threshold_needs_no_reason(client, auth_headers):
     )
     assert ok.status_code == 200
     assert ok.json()["variance_amount"] == 21.87
+
+
+def test_threshold_is_fifty_not_the_seeded_hundred(client, auth_headers):
+    """Migration 0025. The seed was Rs 100 and nothing had moved it, so a variance
+    anywhere in the 50-100 band signed off silently. The client's figure has been
+    Rs 50 all along (re-confirmed 2026-09-13), and the two tests above pass under
+    either value - 250 breaches both, 21.87 clears both - so neither pinned it.
+    75 is the case that tells them apart.
+    """
+    view = client.put(
+        f"/daily-trial-balance/{DATE}",
+        json={"s54_cash_book_value": 500000},
+        headers=auth_headers("Manager"),
+    ).json()
+    reported = view["computed"]["section7"]["7_3_total"]
+
+    breach = client.post(
+        f"/daily-trial-balance/{DATE}/finalize",
+        json={"projected_total": reported - 75},
+        headers=auth_headers("Manager"),
+    )
+    assert breach.status_code == 422, "Rs 75 must demand a reason under the Rs 50 rule"
+    assert "50" in breach.json()["detail"], breach.json()["detail"]
+
+    ok = client.post(
+        f"/daily-trial-balance/{DATE}/finalize",
+        json={"projected_total": reported - 75, "reason": "Counted short, recounted next morning"},
+        headers=auth_headers("Manager"),
+    )
+    assert ok.status_code == 200
+    assert ok.json()["variance_amount"] == 75
 
 
 def test_finalize_without_projected_total_skips_the_check(client, auth_headers):

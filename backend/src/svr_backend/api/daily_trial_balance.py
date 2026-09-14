@@ -73,7 +73,8 @@ class FinalizeRequest(BaseModel):
     ``projected_total`` is the legacy sheet's "Today's Projected Trial Balance"
     (Section 7/8-equivalent, still a manual figure pending ADR-1) - when supplied,
     it is compared against this day's computed Reported total and checked against
-    the +-Rs100 `trial_balance_alert_threshold`. When omitted, the check is skipped
+    the `trial_balance_alert_threshold` parameter (Rs 50 since migration 0025).
+    When omitted, the check is skipped
     entirely rather than blocking sign-off: the Projected figure isn't computed
     server-side yet (its inputs - margin, 2T sales, sales-after-expenses - live in
     the still-manual sections), so it isn't always available to compare against.
