@@ -527,11 +527,14 @@ test("Manager enters Section 1, sees computed columns + pulled Section 3, then f
 
   await expect(page.locator("#hs-diff")).toHaveValue("40.00"); // 100 - 60
   await expect(page.locator("#hs-cons")).toHaveValue("50.00"); // pulled from Section 3
-  // 50 - 5: the testing/density deduction is 5 from 2026-09-12 - the client's own
-  // figure, confirmed 2026-09-13 (migration 0024, superseding the 5.5 first read
-  // off the SEP12 tab). It is effective-dated, so Trial Balances before that date
-  // still compute with the seeded 10.0.
-  await expect(page.locator("#hs-dt")).toHaveValue("45.00");
+  // 50 - 10. Testing is 5 litres PER NOZZLE and follows how many pumps ran
+  // (migrations 0026/0027), not a flat per-fuel constant. This spec files both
+  // pumps and neither is in repair, so both are tested: 2 x 5 = 10.
+  //
+  // The flat 5 asserted here before was the ONE-pump case - correct only while a
+  // pump was in the workshop, which nothing in the app recorded until Pump Status
+  // existed. Sales Man Off is still tested: the pump runs and its meter moves.
+  await expect(page.locator("#hs-dt")).toHaveValue("40.00");
   // 6.3 = 6.1 + 6.2. Compared numerically: both cells are formatted to two
   // decimals for display, so a string comparison would be comparing rounding.
   const s72 = Number(await page.locator("#s7-2").inputValue());
