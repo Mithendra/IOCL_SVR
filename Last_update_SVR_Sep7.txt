@@ -1,0 +1,28 @@
+Everything that now needs you or the client — nothing here is code I can write:
+
+1. Build + install the real app (critical path)
+Follow installer/HANDOFF-remote-install.md. On a Windows build PC (Python 3.12 + Node 20 + 7‑Zip):
+
+installer\fetch-tesseract.ps1 -SkipHashCheck → paste the printed SHA‑256 into the script, commit it
+optional: bump 0.1.0 → 0.1.1 (3 files)
+installer\build-all.ps1 → SVR-IOCL-Station-Setup-*.exe
+On the station PC (or a clean VM first):
+
+install as admin (SmartScreen → Run anyway — unsigned by choice)
+svr-backend.exe create-user --role Owner --name "…" --login … (first‑run prints the exact line)
+log in as that Owner → enter the current IOCL Buy/Sell rates in Rate Master (seeded ones are placeholders)
+run the §5.7 uninstall check on this build (deferred earlier; the uninstaller fix only ships in a fresh build) and record the real .exe version + size in HANDOVER.md §5.9
+per‑PC one‑time: set up Windows auto‑logon / passwordless local account so it comes up unattended after a power cut (a Windows account step, not something the app does)
+2. Real‑data UAT (client explicitly asked for this)
+Enter live daily sales for a real stretch of days; cross‑check every figure (Trial Balance, Stock Value, Cash Reconciliation, carry‑forward) against reality and flag anything wrong.
+
+3. Inputs to unblock the last 2 coding gaps
+OCR pipeline — send a real photographed/scanned filled shift sheet
+Bank‑statement reconciliation — which bank, statement format (CSV/PDF/Excel + columns), and the matching rule
+4. Small client decisions still open
+Fleet Card Balance Tracking — keep or remove?
+Phone Pay Settled cut‑off timing ("as of 6:30 AM / as of ___ AM") — confirm the rule
+Excel export fidelity — is the plain data export enough, or must it visually replicate the printed form? (data export is shipped; visual replica deferred pending this)
+5. Optional — my end, needs your OK
+gitignore the 3 stray files (Claude outputs/, files.zip, releases/)?
+fix the stale README line saying TB §6 still needs a workbook cross‑check (CLAUDE.md records it done 2026‑09‑06)?
