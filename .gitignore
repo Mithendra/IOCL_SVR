@@ -50,3 +50,9 @@ Thumbs.db
 
 # MS Office lock/owner files
 ~$*
+
+# Client bank statements - this repo is PUBLIC. These PDFs carry the station's
+# account numbers, IFSC codes, customer name and address. Kept local on purpose
+# (2026-09-13); delete these two lines only with the owner's say-so.
+docs/01-BRD-Requirement-Gathering/ocr-samples/SVR_DSR_13SEP26/Account_Statement_Last_10_transactions-3.pdf
+docs/01-BRD-Requirement-Gathering/ocr-samples/SVR_DSR_13SEP26/AccountStatement-4.pdf
