@@ -92,18 +92,22 @@ class FinalizeRequest(BaseModel):
 def _context(conn: sqlite3.Connection, shift_date: str, row: sqlite3.Row | None) -> dict:
     """Pull Section 3 consumption (Daily Sales Summary), Buy rates, testing deduction."""
     summary = build_summary(conn, shift_date)
-    s3_hs = summary["combined"]["hs_liters"]["combined"] if summary["both_present"] else None
-    s3_ms = summary["combined"]["ms_liters"]["combined"] if summary["both_present"] else None
+    # Whatever was submitted, combined. Two submissions are no longer mandatory
+    # (client, 2026-09-14) - a pump in the workshop reports nothing, and the day
+    # still has to compute off the pump that ran.
+    any_present = summary["any_present"]
+    s3_hs = summary["combined"]["hs_liters"]["combined"] if any_present else None
+    s3_ms = summary["combined"]["ms_liters"]["combined"] if any_present else None
     # Section 1's "2T Sales" column is the day's Oil Sale(s) total, both pumps
     # (SEP12: J4 = 416 = Section 2.1's own total). Pulled, never retyped.
-    oil_total = summary["combined"]["oil_total"]["combined"] if summary["both_present"] else 0.0
+    oil_total = summary["combined"]["oil_total"]["combined"] if any_present else 0.0
     # Section 4.2 is the day's own sales less the Beta/Density/Testing expense.
     # Both halves come from the Daily Sales Entries, so neither is retyped here.
     # `sales_total` stays None when the day has no entry at all - 4.2 then falls
     # back to whatever was typed, rather than computing the day as zero sales.
     gas_combined = summary["combined"]["gas_total"]["combined"]
     oil_combined = summary["combined"]["oil_total"]["combined"]
-    has_entry = bool(summary["office"] or summary["road"])
+    has_entry = any_present
     day_sales_total = round(gas_combined + oil_combined, 4) if has_entry else None
     beta_testing = beta_testing_expense(conn, shift_date)
 
@@ -147,7 +151,7 @@ def _context(conn: sqlite3.Connection, shift_date: str, row: sqlite3.Row | None)
     )
     return {
         "data": data,
-        "s3_source": "daily_sales_summary" if summary["both_present"] else "unavailable",
+        "s3_source": "daily_sales_summary" if any_present else "unavailable",
         "s3_hs_consumption": s3_hs,
         "s3_ms_consumption": s3_ms,
         "oil_total": oil_total,

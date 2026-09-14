@@ -84,34 +84,30 @@ def beta_testing_expense(conn: sqlite3.Connection, shift_date: str) -> float | N
 
 
 def tested_pump_count(conn: sqlite3.Connection, shift_date: str) -> int | None:
-    """How many pumps were tested on this shift.
+    """How many pumps were tested = how many pumps submitted a form.
 
-    Testing is 5 litres per nozzle and mandatory. Client, 2026-09-14: "if there
-    is no salesman and the pump works, they'll submit it, because they do the
-    testing and there will be a reading change" - so Sales Man Off is tested like
-    any other day. "If the pump is under repair, nothing needs to be done."
+    Client, 2026-09-14, and this is the entire rule:
 
-    So only 'repair' is excused:
+        "each pump HS five litre testing, MS five litre testing... whatever we
+         submit you just take it, that's all. Don't make it based on the status.
+         If the pump is in repair you don't have any reading; in all other cases
+         you will have a reading."
 
-        both pumps       2 x 5 = 10 litres per fuel
-        one in repair    1 x 5 =  5 litres per fuel
+    So: count submissions. The status dropdown is NOT consulted - it exists to
+    say why a pump is absent, not to change arithmetic.
 
-    which is what the station's own Section 9 ledger has recorded all along -
-    10/10.5 while both pumps ran to 6 September, 5/5.5 from the 7th when one
-    went into the workshop.
+        both pumps submit   5 off diesel + 5 off petrol, each = 20 litres
+        one pump submits    5 off diesel + 5 off petrol      = 10 litres
 
-    None when the day has no entries at all; the caller then falls back to the
-    flat `testing_density_deduction` parameter rather than deducting nothing.
+    None when nothing was submitted, so the caller falls back rather than
+    deducting zero.
     """
     rows = conn.execute(
-        "SELECT pump_serial, pump_status FROM daily_sales_entry WHERE shift_date = ?",
+        "SELECT DISTINCT pump_serial FROM daily_sales_entry WHERE shift_date = ?",
         (shift_date,),
     ).fetchall()
-    if not rows:
-        return None
-    # One pump can have several submissions (a correction, or both a Sales and a
-    # Manager row); it is still one pump and one set of nozzles.
-    return len({r["pump_serial"] for r in rows if r["pump_status"] != "repair"})
+    return len(rows) or None
+
 
 def classify_pump(pump_serial: str) -> str | None:
     """'office' | 'road' | None, from the station's fixed two pump serials."""
@@ -233,8 +229,18 @@ def build_summary(conn: sqlite3.Connection, shift_date: str) -> dict:
         ),
     }
 
+    # Two submissions are NO LONGER MANDATORY (client, 2026-09-14): "you are not
+    # going to have two serial number readings every day... if it is under repair
+    # maybe we don't enter it. Remove that two pump readings are mandatory."
+    #
+    # A pump in the workshop has no meter movement to report, so the day proceeds
+    # on whatever came in. `both_present` stays in the payload because the screen
+    # still says which side is absent, but it no longer gates anything.
     both_present = office.present and road.present
-    both_verified = office.verified and road.verified
+    any_present = office.present or road.present
+    both_verified = all(
+        side.verified for side in (office, road) if side.present
+    ) and (office.present or road.present)
     status = row["status"] if row is not None else "draft"
 
     return {
@@ -244,8 +250,9 @@ def build_summary(conn: sqlite3.Connection, shift_date: str) -> dict:
         "road": _side_dict(road),
         "combined": combined,
         "both_present": both_present,
+        "any_present": any_present,
         "both_verified": both_verified,
-        "can_upload": both_present and both_verified and status != "uploaded",
+        "can_upload": any_present and both_verified and status != "uploaded",
         "prepared_by": row["prepared_by"] if row is not None else None,
         "verified_by": row["verified_by"] if row is not None else None,
         "uploaded_by": row["uploaded_by"] if row is not None else None,

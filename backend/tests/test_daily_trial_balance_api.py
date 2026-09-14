@@ -538,44 +538,56 @@ def test_sales_can_export_and_list(client, auth_headers):
     assert client.get(f"/daily-trial-balance/{DATE}/export-excel", headers=h).status_code == 200
 
 
-def test_testing_deduction_counts_the_pumps_that_actually_ran(client, auth_headers, conn):
-    """Migrations 0026/0027. 5 litres a nozzle, and only a pump in the workshop
-    is excused - "if there is no salesman and the pump works, they'll submit it,
-    because they do the testing and there will be a reading change" (client,
-    2026-09-14).
+def test_testing_deduction_counts_the_forms_submitted(client, auth_headers, conn):
+    """Migrations 0026/0027, client 2026-09-14.
 
-    This is the whole explanation for a figure this project chased for days: the
-    station's ledger deducted 10/10.5 while both pumps ran to 6 September and
-    5/5.5 from the 7th, and nothing in the app recorded that one pump was in the
-    workshop.
+    Each pump draws 5 litres of diesel and 5 of petrol for testing. That fuel is
+    pumped BACK into the tank afterwards, so the pump counted it but the site
+    never lost it - which is why Section 1 takes it off when reconciling pump
+    consumption against the IOCL tank reading. The money side is separate and
+    lives on the DSR as an expense; Section 2 stays raw, deducting nothing.
+
+    The count is SUBMISSIONS, not statuses: "whatever we submit you just take it,
+    that's all. Don't make it based on the status. If the pump is in repair you
+    don't have any reading; in all other cases you will have a reading."
     """
     day = "2026-10-20"
     h = auth_headers("Manager")
 
-    def deduction(statuses):
+    def pulled(serials):
         conn.execute("DELETE FROM daily_sales_entry WHERE shift_date = ?", (day,))
         conn.commit()
-        for serial, status in statuses:
+        for serial in serials:
             client.post("/daily-sales-entry", json={
-                "pump_serial": serial, "shift_date": day, "pump_status": status,
+                "pump_serial": serial, "shift_date": day,
                 "hs": {"current": "8000000"}, "ms": {"current": "8000000"},
             }, headers=h)
-        view = client.get(f"/daily-trial-balance/{day}", headers=h).json()
-        return view["pulled"]
+        return client.get(f"/daily-trial-balance/{day}", headers=h).json()["pulled"]
 
-    both = deduction([("12BC4523V-RD", "online"), ("11CC2012V-OFF", "online")])
-    assert both["testing_deduction"] == 10.0
+    both = pulled(["12BC4523V-RD", "11CC2012V-OFF"])
+    assert both["testing_deduction"] == 10.0      # 5 + 5 off each fuel = 20 litres
     assert both["testing_pumps_tested"] == 2
     assert both["testing_basis"] == "derived"
 
-    # Sales Man Off is tested like any other day - the pump runs.
-    off = deduction([("12BC4523V-RD", "online"), ("11CC2012V-OFF", "salesman_off")])
-    assert off["testing_deduction"] == 10.0, "a working pump is tested even with nobody on it"
+    one = pulled(["12BC4523V-RD"])
+    assert one["testing_deduction"] == 5.0        # 10 litres
+    assert one["testing_pumps_tested"] == 1
 
-    # Only the workshop is excused.
-    repair = deduction([("12BC4523V-RD", "online"), ("11CC2012V-OFF", "repair")])
-    assert repair["testing_deduction"] == 5.0
-    assert repair["testing_pumps_tested"] == 1
+
+def test_the_status_flag_does_not_change_the_deduction(client, auth_headers, conn):
+    """The dropdown says WHY a pump is absent; it is not an input to arithmetic.
+    A submitted form counts however it is labelled - client was explicit about
+    this on 2026-09-14 after I had wired the status in."""
+    day = "2026-10-21"
+    h = auth_headers("Manager")
+    for serial, status in (("12BC4523V-RD", "online"), ("11CC2012V-OFF", "repair")):
+        client.post("/daily-sales-entry", json={
+            "pump_serial": serial, "shift_date": day, "pump_status": status,
+            "hs": {"current": "8000000"}, "ms": {"current": "8000000"},
+        }, headers=h)
+    pulled = client.get(f"/daily-trial-balance/{day}", headers=h).json()["pulled"]
+    assert pulled["testing_pumps_tested"] == 2, "two forms came in, so two pumps count"
+    assert pulled["testing_deduction"] == 10.0
 
 
 def test_a_day_with_no_entry_falls_back_to_the_flat_parameter(client, auth_headers):

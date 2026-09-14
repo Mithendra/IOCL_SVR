@@ -181,27 +181,25 @@ def test_the_whole_sheet_through_the_api(client, auth_headers, conn):
         "Any Other Expenses",
         "Last Night Cash Hand-off Person's Name-Signature-Amount",
     ]
-    # The office pump is filed as REPAIR. Testing is 5 litres per nozzle and only
-    # a pump in the workshop is excused (migrations 0026/0027), so this is what
-    # makes the tab's own '=E3-5' come out: one pump tested, 1 x 5 = 5. The
-    # client's account of this period is that one pump was in the workshop from
-    # around 7 September, which is also why SEP13 and SEP14 show the office pump
-    # at zero on both nozzles.
+    # BOTH pumps submit on this tab, so the engine's own rule (5 litres of each
+    # fuel per submitted pump) deducts 10 per fuel where the client's SEP12 tab
+    # deducts 5. K4 therefore computes 4,154.84 here against the tab's 4,188.59.
     #
-    # NOT TIDY, AND DELIBERATELY LEFT THAT WAY: this tab's own D8 shows the
-    # office pump moved 17.5 litres of petrol, which a pump in the workshop
-    # should not do, and its D7 shows no diesel movement at all where testing
-    # would have moved it ~5. The two do not reconcile. Asked about it on
-    # 2026-09-14 the client said the last few days' data had several problems and
-    # not to chase them. So: the deduction follows the client's stated rule, the
-    # oddity is recorded here rather than explained away, and nobody should read
-    # this seeding as evidence about what that pump was actually doing.
+    # That divergence is REAL and is left visible rather than tuned away. The
+    # client's rule, given 2026-09-14, is unambiguous - count what is submitted,
+    # ignore the status - and they asked separately that the 11-14 September data
+    # not be chased, having said it carried several problems. Every other figure
+    # on this tab still reconciles exactly, which is what this test is for; the
+    # testing deduction is asserted against the rule, not against the tab.
+    #
+    # If a day is ever found where both pumps submit and 5 per fuel is provably
+    # right, the rule is what needs revisiting - not this test.
     for pump, hs, ms, oils, beta, status in (
         ("12BC4523V-RD", ("1489049.47", "1488457.6"), ("662274.9", "661746.13"),
          [{"qty": "8", "rate": "17", "opening": "29"}, blank, blank, blank, blank,
           {"qty": "2", "rate": "140", "opening": "41"}, blank], "1476.83", "online"),
         ("11CC2012V-OFF", ("267859.1", "267859.1"), ("288904.47", "288886.97"),
-         [blank] * 7, "0", "repair"),
+         [blank] * 7, "0", "online"),
     ):
         client.post("/daily-sales-entry", json={
             "pump_serial": pump, "shift_date": date, "pump_status": status,
@@ -223,7 +221,9 @@ def test_the_whole_sheet_through_the_api(client, auth_headers, conn):
     c = r.json()["computed"]
     d = c["derived"]
 
-    assert round(d["section1"]["total_sale_amt"], 2) == 4188.59   # K4, off real consumption
+    # K4. The tab itself says 4,188.59, computed with 5 per fuel; the engine
+    # deducts 10 because both pumps submitted. See the seeding note above.
+    assert round(d["section1"]["total_sale_amt"], 2) == 4154.84
     assert round(d["section1"]["iocl_profit"], 2) == 2126.35      # M4
     assert c["section6"]["total"] == STOCK_VALUE_TOTAL      # 5.3 Stock Value
     assert c["section7"]["7_3_total"] == NET_WORTH          # 6.3 Net Worth
@@ -246,13 +246,17 @@ def test_the_whole_sheet_through_the_api(client, auth_headers, conn):
     # 4.5 is large here only because Yes Bank returned 8,525.95 that day; 4.10
     # Total Difference is the figure that actually matters on a bank-return day.
     assert round(d["section4"]["total_difference"], 2) == -9.79
-    assert round(d["section7"]["total3"], 4) == round(3293860.8685, 4)   # 7.3
+    # 7.3 = yesterday's TB + K4, so it carries K4's move: 3,293,860.8685 on the
+    # tab, 33.75 lower here. That 33.75 is the margin on the extra 5 litres of
+    # each fuel - 5 x 2.61 + 5 x 4.14 - and nothing else has shifted.
+    assert round(d["section7"]["total3"], 4) == round(3293827.1185, 4)   # 7.3
+    assert round(3293860.8685 - d["section7"]["total3"], 2) == 33.75
     # 7.4 = 6.3 Net Worth - 7.3 Projected. This is the assertion that fails if the
     # wrong total is wired in: it reported -1,986,777.66 against the sheet's
     # 9,202.80 when `section6["total"]` was passed instead of the net worth.
-    assert round(d["section7"]["diff"], 4) == round(9199.421500000171, 4)
+    assert round(d["section7"]["diff"], 4) == round(9233.171500000171, 4)
     assert d["section7"]["total5"] == NET_WORTH                          # 7.5
-    assert round(d["section8"]["mgmt_networth_diff"], 4) == round(9199.421500000171, 4)
+    assert round(d["section8"]["mgmt_networth_diff"], 4) == round(9233.171500000171, 4)
     assert d["section10"]["hs"]["total"] == 9872 and d["section10"]["hs"]["lost"] == 128
 
 
