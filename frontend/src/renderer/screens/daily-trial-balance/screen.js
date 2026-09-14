@@ -1020,23 +1020,6 @@ function render(view) {
         `HS ${view.pulled.s3_hs_consumption ?? "—"} / MS ${view.pulled.s3_ms_consumption ?? "—"} L.`
       : "No Daily Sales Summary for this date yet — Section 1's Actual Consump is unavailable, so the derived columns stay blank.";
 
-  // Say where Section 1's Daily Testing figure came from. 10 litres or 5 is not
-  // a setting - it follows how many pumps were tested, 5 a nozzle, and only a
-  // pump in the workshop is excused. Leaving that invisible is what let the
-  // 5-versus-10 question run for three days.
-  const tb = $("testing-basis");
-  if (tb) {
-    const p = view.pulled;
-    tb.textContent =
-      p.testing_basis === "derived"
-        ? `Daily Testing deducts ${fmt2(p.testing_deduction)} L per fuel — ` +
-          `${p.testing_pumps_tested} pump(s) tested at ${fmt2(p.testing_litres_per_nozzle)} L a nozzle. ` +
-          "A pump in Repair/Offline is not tested."
-        : `Daily Testing deducts ${fmt2(p.testing_deduction)} L per fuel, from the ` +
-          "stored parameter — no Daily Sales Entry for this date to count pumps from.";
-    tb.style.color = p.testing_basis === "derived" ? "" : "var(--io-red, #c00000)";
-  }
-
   // ADR-2: this day's system-generated carry-forward link, and the variance/
   // escalation outcome recorded at Close & Sign Off (blank until finalized).
   const carryParts = [];

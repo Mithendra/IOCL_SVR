@@ -181,30 +181,15 @@ def test_the_whole_sheet_through_the_api(client, auth_headers, conn):
         "Any Other Expenses",
         "Last Night Cash Hand-off Person's Name-Signature-Amount",
     ]
-    # The office pump is filed as REPAIR. Testing is 5 litres per nozzle and only
-    # a pump in the workshop is excused (migrations 0026/0027), so this is what
-    # makes the tab's own '=E3-5' come out: one pump tested, 1 x 5 = 5. The
-    # client's account of this period is that one pump was in the workshop from
-    # around 7 September, which is also why SEP13 and SEP14 show the office pump
-    # at zero on both nozzles.
-    #
-    # NOT TIDY, AND DELIBERATELY LEFT THAT WAY: this tab's own D8 shows the
-    # office pump moved 17.5 litres of petrol, which a pump in the workshop
-    # should not do, and its D7 shows no diesel movement at all where testing
-    # would have moved it ~5. The two do not reconcile. Asked about it on
-    # 2026-09-14 the client said the last few days' data had several problems and
-    # not to chase them. So: the deduction follows the client's stated rule, the
-    # oddity is recorded here rather than explained away, and nobody should read
-    # this seeding as evidence about what that pump was actually doing.
-    for pump, hs, ms, oils, beta, status in (
+    for pump, hs, ms, oils, beta in (
         ("12BC4523V-RD", ("1489049.47", "1488457.6"), ("662274.9", "661746.13"),
          [{"qty": "8", "rate": "17", "opening": "29"}, blank, blank, blank, blank,
-          {"qty": "2", "rate": "140", "opening": "41"}, blank], "1476.83", "online"),
+          {"qty": "2", "rate": "140", "opening": "41"}, blank], "1476.83"),
         ("11CC2012V-OFF", ("267859.1", "267859.1"), ("288904.47", "288886.97"),
-         [blank] * 7, "0", "repair"),
+         [blank] * 7, "0"),
     ):
         client.post("/daily-sales-entry", json={
-            "pump_serial": pump, "shift_date": date, "pump_status": status,
+            "pump_serial": pump, "shift_date": date,
             "hs": {"current": hs[0], "last": hs[1]},
             "ms": {"current": ms[0], "last": ms[1]},
             "oils": oils,

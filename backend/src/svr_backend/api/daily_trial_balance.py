@@ -51,12 +51,7 @@ from svr_backend.excel.trial_balance_section8 import (
 )
 from svr_backend.params import get_param
 from svr_backend.rates import latest_effective_rates
-from svr_backend.summary import (
-    PUMP_SIDE,
-    beta_testing_expense,
-    build_summary,
-    tested_pump_count,
-)
+from svr_backend.summary import PUMP_SIDE, beta_testing_expense, build_summary
 
 router = APIRouter(prefix="/daily-trial-balance", tags=["daily-trial-balance"])
 
@@ -112,19 +107,7 @@ def _context(conn: sqlite3.Connection, shift_date: str, row: sqlite3.Row | None)
     buy_ms = rates["MS"]["buy_rate"] if "MS" in rates else None
     sell_hs = rates["HS"]["sell_rate"] if "HS" in rates else None
     sell_ms = rates["MS"]["sell_rate"] if "MS" in rates else None
-    # Testing is 5 litres per nozzle and follows how many pumps ran (migrations
-    # 0026/0027): two pumps is 10 per fuel, one in repair is 5 - which is what the
-    # station's own ledger has recorded all along. Only 'repair' is excused; a
-    # pump whose salesman is off is still tested, and its meter still moves. The
-    # flat parameter survives as the fallback for a day with no entry to count.
-    per_nozzle = get_param(conn, "testing_litres_per_nozzle", 5.0, as_of=shift_date)
-    pumps_tested = tested_pump_count(conn, shift_date)
-    if pumps_tested is None:
-        testing = get_param(conn, "testing_density_deduction", 10.0, as_of=shift_date)
-        testing_basis = "parameter"
-    else:
-        testing = round(per_nozzle * pumps_tested, 4)
-        testing_basis = "derived"
+    testing = get_param(conn, "testing_density_deduction", 10.0, as_of=shift_date)
     # Per-litre margin (commission) rates and the daily-expenses deduction, from
     # the SEP12 formulas (migration 0022).
     margin_hs = get_param(conn, "margin_rate_hs", 0.0, as_of=shift_date)
@@ -156,9 +139,6 @@ def _context(conn: sqlite3.Connection, shift_date: str, row: sqlite3.Row | None)
         "sell_rate_hs": sell_hs,
         "sell_rate_ms": sell_ms,
         "testing_deduction": testing,
-        "testing_basis": testing_basis,
-        "testing_pumps_tested": pumps_tested,
-        "testing_litres_per_nozzle": per_nozzle,
         "margin_rate_hs": margin_hs,
         "margin_rate_ms": margin_ms,
         "daily_expenses_deduction": daily_expenses,
@@ -315,11 +295,6 @@ def _view(conn: sqlite3.Connection, shift_date: str) -> dict:
             "sell_rate_hs": ctx["sell_rate_hs"],
             "sell_rate_ms": ctx["sell_rate_ms"],
             "testing_deduction": ctx["testing_deduction"],
-            # Say WHERE the deduction came from, so 10 vs 5 is never a mystery
-            # again: how many pumps were tested, and at how many litres a nozzle.
-            "testing_basis": ctx["testing_basis"],
-            "testing_pumps_tested": ctx["testing_pumps_tested"],
-            "testing_litres_per_nozzle": ctx["testing_litres_per_nozzle"],
         },
         "computed": result,
         "finalized_by": row["finalized_by"] if row else None,
