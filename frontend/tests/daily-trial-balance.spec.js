@@ -527,9 +527,11 @@ test("Manager enters Section 1, sees computed columns + pulled Section 3, then f
 
   await expect(page.locator("#hs-diff")).toHaveValue("40.00"); // 100 - 60
   await expect(page.locator("#hs-cons")).toHaveValue("50.00"); // pulled from Section 3
-  // 50 - 5.5: the testing/density deduction is 5.5 from 2026-09-12 (SEP12 tab),
-  // effective-dated, so earlier Trial Balances still compute with the old 10.0.
-  await expect(page.locator("#hs-dt")).toHaveValue("44.50");
+  // 50 - 5: the testing/density deduction is 5 from 2026-09-12 - the client's own
+  // figure, confirmed 2026-09-13 (migration 0024, superseding the 5.5 first read
+  // off the SEP12 tab). It is effective-dated, so Trial Balances before that date
+  // still compute with the seeded 10.0.
+  await expect(page.locator("#hs-dt")).toHaveValue("45.00");
   // 6.3 = 6.1 + 6.2. Compared numerically: both cells are formatted to two
   // decimals for display, so a string comparison would be comparing rounding.
   const s72 = Number(await page.locator("#s7-2").inputValue());
@@ -567,6 +569,34 @@ test("Section 8 can be exported on its own and sent to management", async ({ pag
   await expect(page.locator("#s8-whatsapp")).toHaveCount(0);
   await expect(page.locator("#s8-whatsapp-btn")).toHaveCount(0);
 });
+
+test("every line carries its section number, none left blank", async ({ page }) => {
+  // Client, 2026-09-14: "All Sections especially must be numbered in Daily Trial
+  // Balance". The eleven section headings always were; eleven LINES inside
+  // sections 4 and 8 rendered with an empty number cell - the Difference
+  // reconciliation panel (workbook E54:F56) and the Management Summary (D95:D102).
+  await login(page, "mmanager");
+  await page.goto(SCREEN);
+  await expect(page.locator("#body")).toBeVisible();
+  await page.fill("#tb-date", DATE);
+  await page.click("#load-btn");
+  await expect(page.locator("#s3-src")).toContainText("Daily Sales Summary");
+
+  const body = page.locator("#body");
+  // Section 4's side panel continues 4.1-4.7 rather than restarting.
+  for (const n of ["4.8", "4.9", "4.10"]) {
+    await expect(body).toContainText(n);
+  }
+  // Section 8's Management Summary, one number per line, workbook order.
+  for (const n of ["8.8", "8.9", "8.10", "8.11", "8.12", "8.13", "8.14", "8.15"]) {
+    await expect(body).toContainText(n);
+  }
+  // The block titles gave their numbers up to the lines beneath, so nothing is
+  // numbered twice.
+  await expect(body).not.toContainText("4.8 Difference reconciliation");
+  await expect(body).not.toContainText("8.8 Management Summary");
+});
+
 
 test("every figure on the form reads to two decimals, never more", async ({ page }) => {
   // 1530.425699999684 was reaching the screen raw (client, 2026-09-12).
@@ -615,7 +645,7 @@ test("Section 8 snapshot says plainly it needs the installed app", async ({ page
   const snap = page.locator("#s8-snapshot-view");
   await expect(snap).toContainText("8. Daily Management Reporting");
   await expect(snap).toContainText("8.5 Difference — Actual Reported Minus Projected");
-  await expect(snap).toContainText("#OK Anything Above Rs 100 Call/inform mgmt immediately");
+  await expect(snap).toContainText("#OK Anything Above Rs 50 Call/inform mgmt immediately");
   await expect(snap).toContainText("Cash Value Difference");
   await expect(snap).toContainText("Sent to SVR and Bank Statement to Group Email BY");
   await expect(snap.locator("table.snap-panel")).toHaveCount(2);

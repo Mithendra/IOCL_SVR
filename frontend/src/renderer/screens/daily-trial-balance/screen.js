@@ -689,7 +689,7 @@ function buildSnapshot(view) {
   const d = ((view.computed || {}).derived || {}).section8 || {};
   const d4 = ((view.computed || {}).derived || {}).section4 || {};
 
-  const OVER100 = "#OK Anything Above Rs 100 Call/inform mgmt immediately";
+  const OVER_LIMIT = "#OK Anything Above Rs 50 Call/inform mgmt immediately";
   // "SEPT 12, 12:00 PM IST" - the date it covers plus the time it went out,
   // which is how management reads it. IST explicitly, never the host timezone.
   const day = new Date(`${view.shift_date}T00:00:00`)
@@ -718,7 +718,7 @@ function buildSnapshot(view) {
   rows += snapLine("8.3 Projected SVR Cash/Book Value", inr(d.f3),
     "# Duplicate Section for mgmt Reporting 4.Cash Reconcilation");
   rows += snapLine("8.4 Actual Reported SVR Cash/Book Value", inr(s8.f4));
-  rows += snapLine("8.5 Difference — Actual Reported Minus Projected", inr(d.f5), OVER100);
+  rows += snapLine("8.5 Difference — Actual Reported Minus Projected", inr(d.f5), OVER_LIMIT);
 
   rows += snapLine("Regular Expenses", "", "", { band: true });
   for (const r of s8.regular_expenses || []) {
@@ -732,8 +732,8 @@ function buildSnapshot(view) {
   }
 
   rows += snapLine(
-    "Cash Value Difference — Escalate if Absolute Difference Exceeds ₹100",
-    inr(d.f5), OVER100, { redLabel: true }
+    "Cash Value Difference — Escalate if Absolute Difference Exceeds ₹50",
+    inr(d.f5), OVER_LIMIT, { redLabel: true }
   );
   rows += snapLine("Today's Actual Reported Trial Balance / SVR Net Worth",
     inr(d.mgmt_actual_networth));
