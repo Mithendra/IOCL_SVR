@@ -91,6 +91,7 @@ def classify_pump(pump_serial: str) -> str | None:
 class PumpSide:
     entry_id: int | None = None
     pump_serial: str | None = None
+    pump_status: str = "online"
     submitted_by: str | None = None
     entry_mode: str | None = None
     verified: bool = False
@@ -132,6 +133,7 @@ def _side_from_entry(
     result = json.loads(row["result"] or "{}")
     side.entry_id = row["id"]
     side.pump_serial = row["pump_serial"]
+    side.pump_status = row["pump_status"]
     side.submitted_by = row["submitted_by"]
     side.entry_mode = row["entry_mode"]
     side.hs_amount = (result.get("hs") or {}).get("amount") or 0.0
@@ -270,6 +272,7 @@ def _side_dict(side: PumpSide) -> dict:
         "verified": side.verified,
         "verified_note": side.verified_note,
         "present": side.present,
+        "pump_status": side.pump_status,
         "hs_amount": round(side.hs_amount, 4),
         "ms_amount": round(side.ms_amount, 4),
         "oil_amounts": [round(x, 4) for x in side.oil_amounts],

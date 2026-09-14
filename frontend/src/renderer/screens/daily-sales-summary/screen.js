@@ -94,6 +94,23 @@ function render(s) {
     ? `Pump Serial# mismatch — ${serialIssues.join(" ")}`
     : "Pump Serial# check: Office = 11CC2012V-OFF, Road = 12BC4523V-RD.";
 
+  // A pump in the workshop still files - one dropdown and Save, with no readings
+  // (migration 0026). But its submission is all zeros and looks identical to a
+  // pump that simply sold nothing, so say which it is rather than leaving the
+  // reader to guess (client, 2026-09-14).
+  const STATUS_TEXT = {
+    repair: "Repair / Offline — no readings expected",
+    salesman_off: "Sales Man Off — pump worked, nobody on it",
+  };
+  for (const side of ["off", "road"]) {
+    const el = $(`${side}-status`);
+    if (!el) continue;
+    const data = side === "off" ? s.office : s.road;
+    const txt = data.present ? STATUS_TEXT[data.pump_status] || "" : "";
+    el.textContent = txt;
+    el.style.color = data.pump_status === "repair" ? "var(--io-red, #c00000)" : "";
+  }
+
   const gate = $("gate-status");
   if (!s.both_present) {
     // Every day needs both pumps' Daily Sales Entry, full stop - even a
@@ -103,10 +120,13 @@ function render(s) {
     const missing = [];
     if (!s.office.present) missing.push("Office pump");
     if (!s.road.present) missing.push("Road pump");
+    // A pump out of service still has to say so - set Pump Status to
+    // Repair/Offline and Save. That is the submission; no readings are needed.
     gate.className = "status-line err";
     gate.textContent =
-      `Missing the Daily Sales Entry for: ${missing.join(" and ")}. Both pump ` +
-      "submissions are required before the Daily Sales Summary can be prepared.";
+      `Missing the Daily Sales Entry for: ${missing.join(" and ")}. Both pumps ` +
+      "must file, including one that is out of service — set its Pump Status to " +
+      "Repair/Offline and Save, which needs no readings.";
   } else if (!s.both_verified) {
     gate.className = "status-line err";
     gate.textContent = "Both pumps must be verified before upload.";

@@ -94,16 +94,31 @@ test("names which pump's Daily Sales Entry is missing", async ({ page }) => {
       data: { login_name: "gsales", password: "demo1234" },
     })).json()
   ).token;
-  await ctx.post(`${apiBase}/daily-sales-entry`, {
+  // Assert the setup landed. Without this the test silently proceeds on a failed
+  // POST and then blames the screen for showing "no submission".
+  const made = await ctx.post(`${apiBase}/daily-sales-entry`, {
     headers: { Authorization: `Bearer ${token}` },
-    data: { pump_serial: OFF, shift_date: DATE2, hs: { current: "500" } },
+    // Above every other spec's reading on purpose. Last Shift Reading carries
+    // forward from the most recent entry for this pump REGARDLESS of date, so a
+    // low hard-coded figure here 422s ("a pump meter cannot run backwards") the
+    // moment another spec has already filed a bigger one. That ordering
+    // dependence is what made this test flaky.
+    data: { pump_serial: OFF, shift_date: DATE2, hs: { current: "9000000" } },
   });
+  expect(made.status(), await made.text()).toBe(201);
   await ctx.dispose();
 
   await loginManager(page);
   await page.goto(SCREEN);
   await page.fill("#shift-date", DATE2);
   await page.locator("#shift-date").dispatchEvent("change");
+
+  // Wait for the day to actually load before reading the gate. "Road pump" is
+  // true of the empty pre-load state too (nothing has arrived, so BOTH sides
+  // read as missing), so asserting it first proves nothing and lets the
+  // not-contains assertion race the fetch. The Office serial landing in its own
+  // box is the signal that this date's data is on screen.
+  await expect(page.locator("#off-serial")).toHaveValue(OFF);
 
   await expect(page.locator("#gate-status")).toContainText("Road pump");
   await expect(page.locator("#gate-status")).not.toContainText("Office pump");
