@@ -247,3 +247,59 @@ def test_a_meter_cannot_run_backwards(client, auth_headers):
     }, headers=h)
     assert ok.status_code == 201, ok.text
     assert ok.json()["result"]["hs"]["cons"] == 0
+
+
+# --- pump status (client, 2026-09-14) ----------------------------------------
+
+
+def test_pump_status_defaults_to_online_and_round_trips(client, auth_headers):
+    """Three states, the client's own list. Only Repair/Offline excuses a
+    submission; a pump whose salesman is off still files Current = Last."""
+    h = auth_headers("Sales")
+    r = client.post("/daily-sales-entry", json={
+        "pump_serial": "12BC4523V-RD", "shift_date": "2026-11-01",
+        "hs": {"current": "100"}, "ms": {"current": "50"},
+    }, headers=h)
+    assert r.status_code == 201
+    assert r.json()["pump_status"] == "online", "an entry made before the dropdown existed"
+
+    r = client.post("/daily-sales-entry", json={
+        "pump_serial": "11CC2012V-OFF", "shift_date": "2026-11-01",
+        "pump_status": "salesman_off",
+        "hs": {"current": "10"}, "ms": {"current": "5"},
+    }, headers=h)
+    assert r.status_code == 201
+    assert r.json()["pump_status"] == "salesman_off"
+
+
+def test_a_pump_in_repair_files_without_readings(client, auth_headers):
+    """'we can avoid that pump data Entry only when the pump is 2.Repair/Offline'."""
+    r = client.post("/daily-sales-entry", json={
+        "pump_serial": "12BC4523V-RD", "shift_date": "2026-11-02",
+        "pump_status": "repair",
+    }, headers=auth_headers("Sales"))
+    assert r.status_code == 201, r.text
+    assert r.json()["pump_status"] == "repair"
+    assert not r.json()["gas_total"]
+
+
+def test_an_unknown_pump_status_is_refused(client, auth_headers):
+    r = client.post("/daily-sales-entry", json={
+        "pump_serial": "12BC4523V-RD", "shift_date": "2026-11-03",
+        "pump_status": "on holiday", "hs": {"current": "1"},
+    }, headers=auth_headers("Sales"))
+    assert r.status_code == 422
+
+
+def test_status_survives_an_edit(client, auth_headers):
+    h = auth_headers("Sales")
+    made = client.post("/daily-sales-entry", json={
+        "pump_serial": "12BC4523V-RD", "shift_date": "2026-11-04",
+        "pump_status": "repair",
+    }, headers=h).json()
+    fixed = client.put(f"/daily-sales-entry/{made['id']}", json={
+        "pump_serial": "12BC4523V-RD", "shift_date": "2026-11-04",
+        "pump_status": "online", "hs": {"current": "7"}, "ms": {"current": "3"},
+    }, headers=h)
+    assert fixed.status_code == 200, fixed.text
+    assert fixed.json()["pump_status"] == "online", "the pump came back from the workshop"

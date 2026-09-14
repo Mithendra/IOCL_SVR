@@ -15,7 +15,7 @@ import sqlite3
 from datetime import date
 
 from fastapi import APIRouter, Depends, File, HTTPException, Response, UploadFile, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from svr_backend import oil_items
 from svr_backend.calc.daily_sales_entry import compute_payload
@@ -66,15 +66,30 @@ class CalcRequest(BaseModel):
     # the value is simply dropped rather than 422-ing the save.
 
 
+# Client, 2026-09-14. Only 'repair' excuses a submission; a pump whose salesman
+# is off still files (Current = Last on both nozzles). The state also decides the
+# day's testing deduction - a pump in the workshop is not tested.
+PUMP_STATUSES = ("online", "salesman_off", "repair")
+
+
 class EntryCreate(CalcRequest):
     shift_date: str | None = None  # defaults to today
     pump_serial: str
+    pump_status: str = "online"
+
+    @field_validator("pump_status")
+    @classmethod
+    def _known_status(cls, v: str) -> str:
+        if v not in PUMP_STATUSES:
+            raise ValueError(f"pump_status must be one of {', '.join(PUMP_STATUSES)}")
+        return v
 
 
 class EntryOut(BaseModel):
     id: int
     shift_date: str
     pump_serial: str
+    pump_status: str = "online"
     submitted_by: str
     entry_mode: str
     summary_note: str | None = None  # set on a PUT that re-opened the day's Summary
@@ -112,6 +127,7 @@ def _row_to_out(row: sqlite3.Row) -> EntryOut:
         id=row["id"],
         shift_date=row["shift_date"],
         pump_serial=row["pump_serial"],
+        pump_status=row["pump_status"],
         submitted_by=row["submitted_by"],
         entry_mode=row["entry_mode"],
         sell_rate_hs=row["sell_rate_hs"],
@@ -375,7 +391,8 @@ def create_entry(
     raw = body.model_dump(exclude={"shift_date", "pump_serial"})
     payload, meta = _apply_locked_context(conn, raw, shift_date, body.pump_serial)
     result = compute_payload(payload)
-    _reject_backwards_readings(result, payload)
+    if body.pump_status != "repair":
+        _reject_backwards_readings(result, payload)
 
     with transaction(conn):
         cur = conn.execute(
@@ -385,8 +402,8 @@ def create_entry(
                 hs_current, ms_current, hs_last, ms_last,
                 sell_rate_hs, sell_rate_ms, oil_rates_json,
                 gas_total, oil_total, expenses_total, net_bal_hand_off,
-                payload, result, last_updated_by
-            ) VALUES (?, ?, ?, 'manual', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                payload, result, last_updated_by, pump_status
+            ) VALUES (?, ?, ?, 'manual', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 shift_date,
@@ -406,6 +423,7 @@ def create_entry(
                 json.dumps(payload),
                 json.dumps(result),
                 principal.login_name,
+                body.pump_status,
             ),
         )
         entry_id = cur.lastrowid
@@ -445,7 +463,8 @@ def update_entry(
     raw = body.model_dump(exclude={"shift_date", "pump_serial"})
     payload, meta = _apply_locked_context(conn, raw, shift_date, body.pump_serial)
     result = compute_payload(payload)
-    _reject_backwards_readings(result, payload)
+    if body.pump_status != "repair":
+        _reject_backwards_readings(result, payload)
     old_snapshot = {
         "net_bal_hand_off": row["net_bal_hand_off"],
         "payload": json.loads(row["payload"]),
@@ -459,7 +478,7 @@ def update_entry(
                 hs_current = ?, ms_current = ?, hs_last = ?, ms_last = ?,
                 sell_rate_hs = ?, sell_rate_ms = ?, oil_rates_json = ?,
                 gas_total = ?, oil_total = ?, expenses_total = ?, net_bal_hand_off = ?,
-                payload = ?, result = ?,
+                payload = ?, result = ?, pump_status = ?,
                 last_updated_by = ?, last_updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
             WHERE id = ?
             """,
@@ -479,6 +498,7 @@ def update_entry(
                 result["net_bal_hand_off"],
                 json.dumps(payload),
                 json.dumps(result),
+                body.pump_status,
                 principal.login_name,
                 entry_id,
             ),

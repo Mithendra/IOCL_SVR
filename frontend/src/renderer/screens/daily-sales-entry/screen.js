@@ -270,6 +270,7 @@ function readForm() {
   }));
   return {
     pump_serial: val("pump-serial"),
+    pump_status: val("pump-status") || "online",
     shift_date: val("shift-date"),
     hs: { current: val("hs-current"), last: val("hs-last"), rate: val("hs-rate") },
     ms: { current: val("ms-current"), last: val("ms-last"), rate: val("ms-rate") },
@@ -365,9 +366,43 @@ function refresh() {
   }, 250);
 }
 
+
+// Client, 2026-09-14: "we can avoid that pump data Entry only when the pump is
+// 2.Repair/Offline. In other two cases, there will be data entry." So Sales Man
+// Off still files a report - Current = Last on both nozzles, which is exactly
+// how 11CC2012V-OFF was filed on 13 and 14 September.
+//
+// The state is not cosmetic: testing is 5 litres per nozzle and mandatory, but a
+// pump in the workshop is not tested. Two pumps running is 10 litres per fuel,
+// one in repair is 5 - the figure this project chased for three days.
+const GAS_INPUTS = ["hs-current", "hs-last", "ms-current", "ms-last"];
+
+function applyPumpStatus() {
+  const status = val("pump-status") || "online";
+  const offline = status === "repair";
+  const note = $("pump-status-note");
+  for (const id of GAS_INPUTS) {
+    const el = $(id);
+    if (!el) continue;
+    // Never fight loadPrefill(), which owns whether Last Shift Reading is
+    // editable; only the Current Reading cells are ours to lock.
+    if (id.endsWith("-current")) el.disabled = offline;
+  }
+  for (const el of document.querySelectorAll(".oil-qty, .exp")) el.disabled = offline;
+  if (note) {
+    note.textContent = offline
+      ? "Pump out of service - no readings needed for this pump today"
+      : status === "salesman_off"
+        ? "Pump works, nobody on it - still file the report, Current = Last"
+        : "";
+    note.style.color = offline ? "var(--io-red, #c00000)" : "var(--io-blue-dark)";
+  }
+}
+
 async function loadPrefill() {
   const pump = val("pump-serial");
   $("pump-side-label").textContent = PUMP_LABELS[pump] ? `(${PUMP_LABELS[pump]})` : "";
+  applyPumpStatus();
   const params = new URLSearchParams({
     pump_serial: pump,
     shift_date: val("shift-date"),
@@ -436,6 +471,11 @@ async function loadExisting({ populate = false } = {}) {
   }
   entryId = row.id;
   if (populate) {
+    // pump_status is a column, not part of the payload blob, so it restores here
+    // rather than in populateInputs().
+    const sel = $("pump-status");
+    if (sel) sel.value = row.pump_status || "online";
+    applyPumpStatus();
     populateInputs(row.payload);
     applyResult(row.result);
   }
@@ -938,6 +978,7 @@ async function init() {
     await loadExisting({ populate: true }); // open the saved entry for this pump+date, if any
   };
   $("pump-serial").addEventListener("change", reload);
+  $("pump-status").addEventListener("change", applyPumpStatus);
   $("shift-date").addEventListener("change", reload);
   document.querySelectorAll("[data-add]").forEach((btn) => {
     btn.addEventListener("click", () => {

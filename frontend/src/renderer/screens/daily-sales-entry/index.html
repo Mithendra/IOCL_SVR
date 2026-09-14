@@ -49,6 +49,20 @@
             <span id="pump-side-label" style="font-size:11px;color:var(--io-blue-dark);display:block"></span>
           </div>
           <div class="field">
+            <!-- Client, 2026-09-14. Only Repair/Offline excuses a submission; a
+                 pump whose salesman is off still files (Current = Last on both
+                 nozzles). The state also decides the day's testing deduction -
+                 testing is 5 litres per nozzle and mandatory, but a pump in the
+                 workshop is not tested. -->
+            <label for="pump-status">Pump Status <span class="req" title="Mandatory">*</span></label>
+            <select id="pump-status">
+              <option value="online">Online</option>
+              <option value="salesman_off">Sales Man Off</option>
+              <option value="repair">Repair / Offline</option>
+            </select>
+            <span id="pump-status-note" style="font-size:11px;color:var(--io-blue-dark);display:block"></span>
+          </div>
+          <div class="field">
             <!-- Retrieve a previously saved day for the selected Shift Date +
                  Pump Serial. The form auto-loads a saved entry on open, but the
                  button makes retrieval explicit and always reports what it
