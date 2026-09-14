@@ -160,6 +160,7 @@ def derive_manual(
     net_worth: float,
     oil_total: Number,
     s1: dict | None = None,
+    day_sales: dict | None = None,
 ) -> dict:
     """Derived figures for the operator-entered sections. Inputs in, totals out.
 
@@ -207,8 +208,30 @@ def derive_manual(
     s3_new_credits = _rows_total(s3.get("new_credits"))
     s3_total15 = round4(s3_total13 + s3_new_credits)
 
+    # --- Section 4.2, "Total Today Sale Amount After Expenses (Beta, Testing and
+    # Density)". The client's sheet leaves this hand-typed, and it is the only
+    # opinion in a chain of facts: 4.1 carries forward, 4.4 is counted cash and
+    # bank, 4.3 and 4.5 calculate. On SEP14 it was keyed as 100,436.251 where the
+    # day's own figures give 100,432.781, and 4.5 read -3.48 - a difference the
+    # station would otherwise go looking for in the till.
+    #
+    # So compute it: the day's total sales less the Beta/Density/Testing expense,
+    # both read back from that day's Daily Sales Entries. The typed value is kept
+    # as the fallback for a day with no entries (an imported or historical record)
+    # and returned alongside, so the screen can show when the two disagree rather
+    # than silently overriding what someone entered - ADR-5.
+    ds = day_sales or {}
+    sales_total = ds.get("sales_total")
+    s4_todaysale_typed = _n(s4.get("todaysale"))
+    s4_todaysale_computed = None
+    if sales_total is not None:
+        s4_todaysale_computed = round4(_n(sales_total) - _n(ds.get("beta_testing")))
+    s4_todaysale = (
+        s4_todaysale_computed if s4_todaysale_computed is not None else s4_todaysale_typed
+    )
+
     # --- Section 4: Projected = Yesterday + Today's sale; Diff = Reported - Projected.
-    s4_total3 = round4(_n(s4.get("yesterday")) + _n(s4.get("todaysale")))
+    s4_total3 = round4(_n(s4.get("yesterday")) + s4_todaysale)
     s4_diff = round4(_n(s4.get("reported")) - s4_total3)
 
     # --- Section 7: Projected = Yesterday's TB + Today's profit; the Actual
@@ -248,6 +271,10 @@ def derive_manual(
             "total15": s3_total15,
         },
         "section4": {
+            "todaysale": s4_todaysale,
+            "todaysale_computed": s4_todaysale_computed,
+            "todaysale_typed": s4_todaysale_typed,
+            "todaysale_source": "computed" if s4_todaysale_computed is not None else "typed",
             "total3": s4_total3,
             "diff": s4_diff,
             "expenses_total": _rows_total(s4.get("expenses")),

@@ -115,7 +115,8 @@ export const SECTIONS = [
         fields: [
           ["4.1", "Yesterday SVR Cash/Book Value", "yesterday"],
           ["4.2", "Total Today Sale Amount After Expenses (Beta, Testing and Density)",
-            "todaysale"],
+            { derived: "section4.todaysale" },
+            "Computed from the day's Daily Sales Entries: sales less Beta/Density/Testing"],
           ["4.3", "Total - Projected", { derived: "section4.total3" }],
           ["4.4", "Today SVR Cash/Book Value Reported", "reported",
             "Carry this forward as tomorrow's 4.1"],

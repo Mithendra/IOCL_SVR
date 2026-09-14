@@ -172,18 +172,29 @@ def test_the_whole_sheet_through_the_api(client, auth_headers, conn):
     # consumption, so the chain has to be real: both pumps' Daily Sales Entries ->
     # Daily Sales Summary -> Trial Balance. These are SEP12 section 2's readings.
     blank = {"qty": "", "rate": "", "opening": ""}
-    for pump, hs, ms, oils in (
+    # Section 4.2 is computed from these same entries - the day's sales less the
+    # Beta/Density/Testing expense - so that row has to be here too, or 4.2
+    # subtracts nothing. SEP12's own D50 (125,594.5722) is 1,476.83 below its E27
+    # (127,071.402), and that is the figure the Road pump's DSR carries.
+    EXP_LABELS = [
+        "Daily Diesel(5L) & Petrol(5L) + Density Testing + Beta",
+        "Any Other Expenses",
+        "Last Night Cash Hand-off Person's Name-Signature-Amount",
+    ]
+    for pump, hs, ms, oils, beta in (
         ("12BC4523V-RD", ("1489049.47", "1488457.6"), ("662274.9", "661746.13"),
          [{"qty": "8", "rate": "17", "opening": "29"}, blank, blank, blank, blank,
-          {"qty": "2", "rate": "140", "opening": "41"}, blank]),
+          {"qty": "2", "rate": "140", "opening": "41"}, blank], "1476.83"),
         ("11CC2012V-OFF", ("267859.1", "267859.1"), ("288904.47", "288886.97"),
-         [blank] * 7),
+         [blank] * 7, "0"),
     ):
         client.post("/daily-sales-entry", json={
             "pump_serial": pump, "shift_date": date,
             "hs": {"current": hs[0], "last": hs[1]},
             "ms": {"current": ms[0], "last": ms[1]},
             "oils": oils,
+            "expenses": [beta, "", ""],
+            "expense_labels": EXP_LABELS,
         }, headers=h)
 
     body = {
@@ -202,8 +213,24 @@ def test_the_whole_sheet_through_the_api(client, auth_headers, conn):
     assert c["section6"]["total"] == STOCK_VALUE_TOTAL      # 5.3 Stock Value
     assert c["section7"]["7_3_total"] == NET_WORTH          # 6.3 Net Worth
     assert d["section3"]["total15"] == CASH_BOOK_VALUE      # 3.15
-    assert round(d["section4"]["total3"], 4) == round(1987464.3122, 4)   # 4.3
-    assert round(d["section4"]["diff"], 4) == round(8516.147799999919, 4)  # 4.5
+    # 4.2 is no longer the typed 125,594.5722 - it is computed from this day's own
+    # entries, as the day's sales less the Beta/Density/Testing expense. It lands
+    # 1.2 paise under the sheet, because the engine truncates each row at paise
+    # and the workbook sums untruncated. That convention is not incidental: it is
+    # what made all three client files reconcile exactly on 2026-09-11 (Net Bal
+    # 23,298.77 / 38,993.84 / 1,601.20), where rounding failed 2 of 4 sampled rows.
+    SHEET_4_2 = 125594.5722          # SEP12!D50, as the station typed it
+    assert abs(d["section4"]["todaysale"] - SHEET_4_2) < 0.02, d["section4"]
+    assert d["section4"]["todaysale_source"] == "computed"
+    assert d["section4"]["todaysale_typed"] == SHEET_4_2   # still returned, ADR-5
+
+    # 4.3 and 4.5 follow, carrying the same 1.2 paise. The sheet's own figures are
+    # 1,987,464.3122 and 8,516.1478.
+    assert round(d["section4"]["total3"], 2) == 1987464.30               # 4.3
+    assert round(d["section4"]["diff"], 2) == 8516.16                    # 4.5
+    # 4.5 is large here only because Yes Bank returned 8,525.95 that day; 4.10
+    # Total Difference is the figure that actually matters on a bank-return day.
+    assert round(d["section4"]["total_difference"], 2) == -9.79
     assert round(d["section7"]["total3"], 4) == round(3293860.8685, 4)   # 7.3
     # 7.4 = 6.3 Net Worth - 7.3 Projected. This is the assertion that fails if the
     # wrong total is wired in: it reported -1,986,777.66 against the sheet's

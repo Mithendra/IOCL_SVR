@@ -404,6 +404,38 @@ function fillDerived(derived) {
   document.querySelectorAll("[data-derived]").forEach((el) => {
     el.value = fmt2(dig(el.dataset.derived));
   });
+  markTodaysaleSource(derived);
+}
+
+// 4.2 used to be the one typed line in a chain of facts, and the one that could
+// silently put 4.5 out (SEP14: keyed 100,436.251, the day's own figures give
+// 100,432.781, 4.5 read -3.48). It is computed now - but a day with no Daily
+// Sales Entry has nothing to compute from, so the backend falls back to whatever
+// was stored. Say which happened, and never hide a disagreement (ADR-5).
+function markTodaysaleSource(derived) {
+  const el = document.querySelector('[data-derived="section4.todaysale"]');
+  if (!el) return;
+  const s4 = (derived || {}).section4 || {};
+  const row = el.closest("tr");
+  const note = row && row.querySelector(".tb-src-note");
+  if (note) note.remove();
+  if (!row) return;
+  const tag = document.createElement("div");
+  tag.className = "tb-src-note";
+  if (s4.todaysale_source === "computed") {
+    const typed = s4.todaysale_typed;
+    const drift = typed ? Math.abs(typed - s4.todaysale_computed) : 0;
+    tag.textContent =
+      drift > 0.01
+        ? `computed from the day's entries — ${fmt2(typed)} was entered by hand`
+        : "computed from the day's entries";
+    tag.style.color = drift > 0.01 ? "var(--io-red, #c00000)" : "var(--io-blue-dark)";
+  } else {
+    tag.textContent = "no Daily Sales Entry for this day — showing the stored figure";
+    tag.style.color = "var(--io-red, #c00000)";
+  }
+  tag.style.fontSize = "10px";
+  el.parentElement.appendChild(tag);
 }
 
 function readManual() {

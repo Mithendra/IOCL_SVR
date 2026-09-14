@@ -51,7 +51,7 @@ from svr_backend.excel.trial_balance_section8 import (
 )
 from svr_backend.params import get_param
 from svr_backend.rates import latest_effective_rates
-from svr_backend.summary import PUMP_SIDE, build_summary
+from svr_backend.summary import PUMP_SIDE, beta_testing_expense, build_summary
 
 router = APIRouter(prefix="/daily-trial-balance", tags=["daily-trial-balance"])
 
@@ -92,6 +92,15 @@ def _context(conn: sqlite3.Connection, shift_date: str, row: sqlite3.Row | None)
     # Section 1's "2T Sales" column is the day's Oil Sale(s) total, both pumps
     # (SEP12: J4 = 416 = Section 2.1's own total). Pulled, never retyped.
     oil_total = summary["combined"]["oil_total"]["combined"] if summary["both_present"] else 0.0
+    # Section 4.2 is the day's own sales less the Beta/Density/Testing expense.
+    # Both halves come from the Daily Sales Entries, so neither is retyped here.
+    # `sales_total` stays None when the day has no entry at all - 4.2 then falls
+    # back to whatever was typed, rather than computing the day as zero sales.
+    gas_combined = summary["combined"]["gas_total"]["combined"]
+    oil_combined = summary["combined"]["oil_total"]["combined"]
+    has_entry = bool(summary["office"] or summary["road"])
+    day_sales_total = round(gas_combined + oil_combined, 4) if has_entry else None
+    beta_testing = beta_testing_expense(conn, shift_date)
 
     rates = latest_effective_rates(conn, shift_date)
     buy_hs = rates["HS"]["buy_rate"] if "HS" in rates else None
@@ -134,6 +143,8 @@ def _context(conn: sqlite3.Connection, shift_date: str, row: sqlite3.Row | None)
         "margin_rate_ms": margin_ms,
         "daily_expenses_deduction": daily_expenses,
         "summary_status": summary["status"],
+        "day_sales_total": day_sales_total,
+        "beta_testing_expense": beta_testing,
     }
 
 
@@ -258,6 +269,10 @@ def _view(conn: sqlite3.Connection, shift_date: str) -> dict:
             "buy_rate_hs": ctx["buy_rate_hs"],
             "buy_rate_ms": ctx["buy_rate_ms"],
             "daily_expenses": ctx["daily_expenses_deduction"],
+        },
+        {
+            "sales_total": ctx["day_sales_total"],
+            "beta_testing": ctx["beta_testing_expense"],
         },
     )
     return {

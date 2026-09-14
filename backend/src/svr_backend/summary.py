@@ -9,10 +9,12 @@ one record. The combined per-line totals are computed here from each entry's cac
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 from dataclasses import dataclass, field
 
 from svr_backend import oil_items
+from svr_backend.calc.amounts import is_blank, parse_amt
 
 # Explicit serial -> side map (client-confirmed 2026-09-11), not a substring guess.
 # A previous version inferred the side from "OFF"/"RDF" inside the serial itself,
@@ -23,6 +25,62 @@ PUMP_SIDE: dict[str, str] = {
     "11CC2012V-OFF": "office",
 }
 
+
+
+# --- Section 4.2's other half -------------------------------------------------
+#
+# The Trial Balance's "Total Today Sale Amount After Expenses (Beta, Testing and
+# Density)" is the day's own sales less ONE expense row - the first line of the
+# Daily Sales Entry Expenses block, "Daily Diesel(5L) & Petrol(5L) + Density
+# Testing + Beta". That row lives on the DSR and nowhere on the Trial Balance, so
+# it has to be read back from the day's entries.
+#
+# Matched by LABEL, not by position. `expenses` is a bare list aligned by index
+# with `expense_labels`, and reading index 0 is exactly the fragility that broke
+# every stored oil row when the client reordered them on 2026-09-12. Position is
+# the fallback, never the first choice.
+
+_BETA_PUNCT = re.compile(r"[^a-z0-9]+")
+
+
+def _norm_label(v: object) -> str:
+    return _BETA_PUNCT.sub(" ", str(v or "").lower()).strip()
+
+
+def _is_beta_testing(label: str) -> bool:
+    n = _norm_label(label)
+    if not n:
+        return False
+    # The station's own wording carries all three words; tolerate any two of
+    # them so a retyped or shortened label still matches.
+    hits = sum(w in n for w in ("density", "testing", "beta"))
+    return hits >= 2
+
+
+def beta_testing_expense(conn: sqlite3.Connection, shift_date: str) -> float | None:
+    """The day's Beta/Density/Testing expense, summed across both pumps.
+
+    None when the day has no Daily Sales Entry at all - the caller must not treat
+    that as zero, because "no expense recorded" and "no form submitted" mean very
+    different things to Section 4.2.
+    """
+    found = False
+    total = 0.0
+    for row in conn.execute(
+        "SELECT payload FROM daily_sales_entry WHERE shift_date = ?", (shift_date,)
+    ):
+        payload = json.loads(row["payload"] or "{}")
+        amounts = payload.get("expenses") or []
+        labels = payload.get("expense_labels") or []
+        found = True
+        idx = next(
+            (i for i, lab in enumerate(labels) if _is_beta_testing(lab)),
+            0 if amounts else None,
+        )
+        if idx is None or idx >= len(amounts):
+            continue
+        total += parse_amt(amounts[idx]) if not is_blank(amounts[idx]) else 0.0
+    return round(total, 4) if found else None
 
 def classify_pump(pump_serial: str) -> str | None:
     """'office' | 'road' | None, from the station's fixed two pump serials."""
