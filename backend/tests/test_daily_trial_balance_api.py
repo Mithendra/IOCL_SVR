@@ -52,13 +52,15 @@ def test_section1_formulas_and_section3_pull(client, auth_headers):
     # benefit_loss = consumption + computer_pump_diff (2026-09-06: corrected against
     # AUG11/AUG12 real workbooks - was `cons + diff`, which matched neither tab).
     assert hs["benefit_loss"] == 60          # 50 + 10
-    # 50 - 5. The testing/density deduction is a versioned system_parameter: 10.0
-    # from the seed (matches AUG11/AUG12), then 5 from 2026-09-12 - the client's own
-    # figure ("every pump HS-5 Lts and MS-5 Lts"), confirmed 2026-09-13 and carried
-    # as the live formula '=E3-5' on both the SEP12 and SEP13 tabs. It was briefly
-    # 5.5, read off the SEP12 tab as first supplied, before the client restated it.
-    # DATE here is 2026-10-05, so the newer figure applies.
-    assert hs["deduct_testing"] == 45.0
+    # 50 - 10. Testing is 5 litres PER NOZZLE and follows how many pumps ran
+    # (migrations 0026/0027), not a flat per-fuel constant. _seed_summary files
+    # BOTH pumps and neither is in repair, so both are tested: 2 x 5 = 10.
+    #
+    # This is the figure the station's own Section 9 ledger carried while both
+    # pumps were running (10 / 10.5 to 6 September). The flat 5 that used to be
+    # asserted here was the ONE-pump case - correct only because one pump was in
+    # the workshop from the 7th, which nothing in the app recorded until now.
+    assert hs["deduct_testing"] == 40.0
     # stock_ltrs = today's current reading, verbatim (2026-09-06: corrected against
     # AUG11/AUG12/SEP05/SEP06 real workbooks, SEP06 client-validated - was
     # `diff - consumption`, which produced negative litres against real data).
@@ -534,3 +536,53 @@ def test_sales_can_export_and_list(client, auth_headers):
     h = auth_headers("Sales")
     assert client.get("/daily-trial-balance", headers=h).status_code == 200
     assert client.get(f"/daily-trial-balance/{DATE}/export-excel", headers=h).status_code == 200
+
+
+def test_testing_deduction_counts_the_pumps_that_actually_ran(client, auth_headers, conn):
+    """Migrations 0026/0027. 5 litres a nozzle, and only a pump in the workshop
+    is excused - "if there is no salesman and the pump works, they'll submit it,
+    because they do the testing and there will be a reading change" (client,
+    2026-09-14).
+
+    This is the whole explanation for a figure this project chased for days: the
+    station's ledger deducted 10/10.5 while both pumps ran to 6 September and
+    5/5.5 from the 7th, and nothing in the app recorded that one pump was in the
+    workshop.
+    """
+    day = "2026-10-20"
+    h = auth_headers("Manager")
+
+    def deduction(statuses):
+        conn.execute("DELETE FROM daily_sales_entry WHERE shift_date = ?", (day,))
+        conn.commit()
+        for serial, status in statuses:
+            client.post("/daily-sales-entry", json={
+                "pump_serial": serial, "shift_date": day, "pump_status": status,
+                "hs": {"current": "8000000"}, "ms": {"current": "8000000"},
+            }, headers=h)
+        view = client.get(f"/daily-trial-balance/{day}", headers=h).json()
+        return view["pulled"]
+
+    both = deduction([("12BC4523V-RD", "online"), ("11CC2012V-OFF", "online")])
+    assert both["testing_deduction"] == 10.0
+    assert both["testing_pumps_tested"] == 2
+    assert both["testing_basis"] == "derived"
+
+    # Sales Man Off is tested like any other day - the pump runs.
+    off = deduction([("12BC4523V-RD", "online"), ("11CC2012V-OFF", "salesman_off")])
+    assert off["testing_deduction"] == 10.0, "a working pump is tested even with nobody on it"
+
+    # Only the workshop is excused.
+    repair = deduction([("12BC4523V-RD", "online"), ("11CC2012V-OFF", "repair")])
+    assert repair["testing_deduction"] == 5.0
+    assert repair["testing_pumps_tested"] == 1
+
+
+def test_a_day_with_no_entry_falls_back_to_the_flat_parameter(client, auth_headers):
+    """Nothing to count is not the same as nothing tested. An imported or
+    historical record must keep the parameter it was computed under rather than
+    silently deducting zero."""
+    view = client.get("/daily-trial-balance/2098-03-03", headers=auth_headers("Manager")).json()
+    assert view["pulled"]["testing_basis"] == "parameter"
+    assert view["pulled"]["testing_pumps_tested"] is None
+    assert view["pulled"]["testing_deduction"] > 0

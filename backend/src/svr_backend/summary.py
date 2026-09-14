@@ -82,6 +82,37 @@ def beta_testing_expense(conn: sqlite3.Connection, shift_date: str) -> float | N
         total += parse_amt(amounts[idx]) if not is_blank(amounts[idx]) else 0.0
     return round(total, 4) if found else None
 
+
+def tested_pump_count(conn: sqlite3.Connection, shift_date: str) -> int | None:
+    """How many pumps were tested on this shift.
+
+    Testing is 5 litres per nozzle and mandatory. Client, 2026-09-14: "if there
+    is no salesman and the pump works, they'll submit it, because they do the
+    testing and there will be a reading change" - so Sales Man Off is tested like
+    any other day. "If the pump is under repair, nothing needs to be done."
+
+    So only 'repair' is excused:
+
+        both pumps       2 x 5 = 10 litres per fuel
+        one in repair    1 x 5 =  5 litres per fuel
+
+    which is what the station's own Section 9 ledger has recorded all along -
+    10/10.5 while both pumps ran to 6 September, 5/5.5 from the 7th when one
+    went into the workshop.
+
+    None when the day has no entries at all; the caller then falls back to the
+    flat `testing_density_deduction` parameter rather than deducting nothing.
+    """
+    rows = conn.execute(
+        "SELECT pump_serial, pump_status FROM daily_sales_entry WHERE shift_date = ?",
+        (shift_date,),
+    ).fetchall()
+    if not rows:
+        return None
+    # One pump can have several submissions (a correction, or both a Sales and a
+    # Manager row); it is still one pump and one set of nozzles.
+    return len({r["pump_serial"] for r in rows if r["pump_status"] != "repair"})
+
 def classify_pump(pump_serial: str) -> str | None:
     """'office' | 'road' | None, from the station's fixed two pump serials."""
     return PUMP_SIDE.get((pump_serial or "").strip())
