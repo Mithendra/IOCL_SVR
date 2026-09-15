@@ -53,3 +53,23 @@ def test_migrate_is_idempotent(db_path):
         assert "0002_daily_sales_entry.sql" in applied_versions(c)
     finally:
         c.close()
+
+
+def test_no_two_migrations_share_a_number():
+    """Two files numbered 0027 shipped on 2026-09-14: a rename during a
+    revert/re-apply left both the old and the new name in the tree, and both ran.
+    The orphan inserted a `testing_litres_per_pump` parameter nothing reads.
+
+    Ordering between same-numbered files is then decided by the rest of the
+    filename, which is not something anyone should have to reason about.
+    """
+    from svr_backend.migrations.runner import _discover
+
+    seen: dict[str, str] = {}
+    clashes = []
+    for name, _ in _discover():
+        number = name.split("_", 1)[0]
+        if number in seen:
+            clashes.append(f"{number}: {seen[number]} and {name}")
+        seen[number] = name
+    assert not clashes, "duplicate migration numbers: " + "; ".join(clashes)
