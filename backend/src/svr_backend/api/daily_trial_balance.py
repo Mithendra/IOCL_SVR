@@ -33,7 +33,7 @@ from datetime import UTC, date, datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from pydantic import BaseModel
 
-from svr_backend import oil_items
+from svr_backend import oil_items, posting
 from svr_backend.calc.daily_trial_balance import (
     Section1Input,
     TrialBalanceInput,
@@ -616,11 +616,69 @@ def upsert_trial_balance(
         rid = conn.execute(
             f"SELECT id FROM {TABLE} WHERE shift_date = ?", (shift_date,)
         ).fetchone()["id"]
+        # Keep the posting rows in step with the form. A line still unposted
+        # simply follows what was typed; once posted it is left alone, because a
+        # master form already holds it.
+        posting.sync_lines(conn, shift_date, manual, principal.login_name)
         record_write(
             conn, table=TABLE, record_id=rid, action="update", actor=principal.login_name,
             new={"shift_date": shift_date, "s7_3_total": result["section7"]["7_3_total"]},
         )
     return _view(conn, shift_date)
+
+
+@router.post("/{shift_date}/post")
+def post_to_masters(
+    shift_date: str,
+    principal: Principal = Depends(require("Manager", "Owner")),
+    conn: sqlite3.Connection = Depends(get_db),
+) -> dict:
+    """Post the day's expense, credit and remittance lines to the master forms.
+
+    Client, 2026-09-14: expenses go to Monthly Expenses, credits and remittances
+    to Credit / Remittance Master, and Close & Sign Off is refused until this has
+    run. Posting copies the lines OUT for reporting - they are already counted in
+    this day's own arithmetic and never feed back into a total or into
+    carry-forward.
+    """
+    row = conn.execute(f"SELECT * FROM {TABLE} WHERE shift_date = ?", (shift_date,)).fetchone()
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No Trial Balance for this date yet")
+    with transaction(conn):
+        out = posting.post_day(conn, shift_date, principal.login_name)
+    return {"shift_date": shift_date, **out, "lines": posting.open_lines(conn)}
+
+
+@router.get("/postings/open")
+def open_postings(
+    month: str | None = None,
+    principal: Principal = Depends(require("Sales", "Manager", "Owner")),
+    conn: sqlite3.Connection = Depends(get_db),
+) -> dict:
+    """The running view - every line not yet cleared, newest day first.
+
+    Deliberately spans days: an expense posted on the 3rd is still here on the
+    20th, and an unpaid credit stays in front of the operator until a remittance
+    settles it. `month` narrows to a YYYY-MM prefix.
+    """
+    return {"lines": posting.open_lines(conn, month)}
+
+
+class ClearRequest(BaseModel):
+    ids: list[int] = []
+
+
+@router.post("/postings/clear")
+def clear_postings(
+    body: ClearRequest,
+    principal: Principal = Depends(require("Manager", "Owner")),
+    conn: sqlite3.Connection = Depends(get_db),
+) -> dict:
+    """Month-end tidy-up. Only a posted expense or a PAID credit can go: an
+    unpaid credit is exactly what the operator needs to keep seeing."""
+    with transaction(conn):
+        cleared = posting.clear_lines(conn, body.ids, principal.login_name)
+    return {"cleared": cleared, "lines": posting.open_lines(conn)}
 
 
 @router.post("/{shift_date}/finalize")
@@ -636,6 +694,21 @@ def finalize_trial_balance(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No Trial Balance for this date yet")
     if row["status"] == "finalized":
         raise HTTPException(status.HTTP_409_CONFLICT, "Already finalized")
+
+    # Client, 2026-09-14: "unless posted, do not allow Close & Sign Off." The
+    # expense, credit and remittance lines have to reach their master forms
+    # before the day can be closed - otherwise they exist only inside a signed
+    # day nobody reads again.
+    pending = posting.unposted(conn, shift_date)
+    if pending:
+        names = ", ".join(f"{p['label']} ({p['amount']:,.2f})" for p in pending[:6])
+        more = f" and {len(pending) - 6} more" if len(pending) > 6 else ""
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            f"{len(pending)} line(s) are not posted yet: {names}{more}. "
+            "Post them to Monthly Expenses and Credit / Remittance Master before "
+            "Close & Sign Off.",
+        )
 
     # ADR-2 Decision step 1: re-run the variance/escalation check server-side. Only
     # possible when a Projected total was supplied - it isn't computed server-side
