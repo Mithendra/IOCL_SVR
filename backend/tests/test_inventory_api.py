@@ -18,9 +18,13 @@ def test_stock_levels_seeded(client, auth_headers):
     # keys - and so their tracked stock - rather than being renumbered.
     assert keys == {"oil1", "oil2", "oil3", "oil4", "oil5", "oil6", "oil7"}
     oil1 = next(r for r in rows if r["item_key"] == "oil1")
-    assert oil1["opening_stock"] == 40
-    assert oil1["closing_stock"] == 40  # no restock, no sales yet
-    assert oil1["status"] == "ok"
+    # Stock is the station's own count since migration 0031 (SEP15 tab D19:D25);
+    # migration 0004's placeholders were never real figures.
+    assert oil1["opening_stock"] == 0
+    assert oil1["closing_stock"] == 0  # no restock, no sales yet
+    # 0 against a reorder level of 12 is genuinely low - the placeholder 40 was
+    # the only reason this ever read "ok".
+    assert oil1["status"] == "low"
 
 
 def test_restock_shows_as_received_today_without_moving_opening(client, auth_headers, conn):
@@ -33,9 +37,9 @@ def test_restock_shows_as_received_today_without_moving_opening(client, auth_hea
 
     rows = client.get(f"/inventory?as_of={DATE}", headers=auth_headers("Manager")).json()
     oil3 = next(x for x in rows if x["item_key"] == "oil3")
-    assert oil3["opening_stock"] == 60  # unchanged
+    assert oil3["opening_stock"] == 64  # unchanged
     assert oil3["received_today"] == 15
-    assert oil3["closing_stock"] == 75  # 60 + 15 - 0
+    assert oil3["closing_stock"] == 79  # 64 + 15 - 0
 
     audit = conn.execute(
         "SELECT COUNT(*) c FROM audit_log WHERE table_name = 'restock_entry'"
@@ -99,9 +103,9 @@ def test_daily_sales_entry_opening_stock_comes_from_inventory(client, auth_heade
               "oils": [{"qty": "2"}, {}, {}, {}, {}]},
         headers=auth_headers("Sales"),
     ).json()
-    # oil1 seed on_hand is 40; opening pulled from inventory, closing = 40 - 2.
-    assert created["payload"]["oils"][0]["opening"] == 40
-    assert created["result"]["oils"][0]["closing"] == 38
+    # oil1 counted stock is 0; opening pulled from inventory, closing = 0 - 2.
+    assert created["payload"]["oils"][0]["opening"] == 0
+    assert created["result"]["oils"][0]["closing"] == -2  # 0 counted, 2 sold
 
 
 # --------------------------------------------------- Print & Sync (2026-09-11)
@@ -117,7 +121,9 @@ def test_sync_inventory_requires_manager_or_owner(client, auth_headers):
 
 
 def test_sync_inventory_sets_on_hand_from_the_real_prior_closing(client, auth_headers, conn):
-    # oil1 seed on_hand is 40. A real sale of 2 on 2026-08-19 closes it at 38.
+    # oil1 counted stock is 0. A real sale of 2 on 2026-08-19 closes it at -2,
+    # which is what the day's own record says happened - sync copies the real
+    # closing figure rather than second-guessing it.
     client.post(
         "/daily-sales-entry",
         json={"pump_serial": "12BC4523V-RD", "shift_date": "2026-08-19",
@@ -130,11 +136,11 @@ def test_sync_inventory_sets_on_hand_from_the_real_prior_closing(client, auth_he
     )
     assert resp.status_code == 200
     body = resp.json()
-    assert body["oil1"] == {"from": 40, "to": 38, "source_date": "2026-08-19"}
+    assert body["oil1"] == {"from": 0, "to": -2, "source_date": "2026-08-19"}
 
     rows = client.get("/inventory", headers=auth_headers("Manager")).json()
     oil1 = next(r for r in rows if r["item_key"] == "oil1")
-    assert oil1["opening_stock"] == 38
+    assert oil1["opening_stock"] == -2
 
     audit = conn.execute(
         "SELECT COUNT(*) c FROM audit_log WHERE table_name = 'inventory_item' AND action = 'update'"
@@ -162,7 +168,7 @@ def test_sync_inventory_skips_a_blank_day_for_that_item(client, auth_headers):
         "/daily-sales-entry/sync-inventory?shift_date=2026-08-20",
         headers=auth_headers("Manager"),
     ).json()
-    assert body["oil2"] == {"from": 30, "to": 27, "source_date": "2026-08-18"}
+    assert body["oil2"] == {"from": 10, "to": 7, "source_date": "2026-08-18"}
 
 
 def test_sync_inventory_is_idempotent(client, auth_headers):
@@ -180,8 +186,8 @@ def test_sync_inventory_is_idempotent(client, auth_headers):
         "/daily-sales-entry/sync-inventory?shift_date=2026-08-20",
         headers=auth_headers("Manager"),
     ).json()
-    assert first["oil1"]["to"] == second["oil1"]["to"] == 38
-    assert second["oil1"]["from"] == 38  # already synced last time - no further change
+    assert first["oil1"]["to"] == second["oil1"]["to"] == -2
+    assert second["oil1"]["from"] == -2  # already synced last time - no further change
 
 
 def test_sync_inventory_nothing_to_sync_returns_empty(client, auth_headers):

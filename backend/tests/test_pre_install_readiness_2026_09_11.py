@@ -179,6 +179,6 @@ def test_workflow_3_inventory_tracking_accepts_real_data_from_sep_10(client, aut
 
     rows = client.get("/inventory?as_of=2026-09-10", headers=hm).json()
     oil1 = next(x for x in rows if x["item_key"] == "oil1")
-    assert oil1["opening_stock"] == 40  # seed on_hand, untouched by a restock
+    assert oil1["opening_stock"] == 0  # counted stock (migration 0031), untouched by a restock
     assert oil1["received_today"] == 10
-    assert oil1["closing_stock"] == 50  # 40 + 10 - 0
+    assert oil1["closing_stock"] == 10  # 0 + 10 - 0

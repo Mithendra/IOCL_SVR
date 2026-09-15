@@ -1,0 +1,53 @@
+-- The station's settled oil rates (client, 2026-09-15).
+--
+-- "We have sorted out all the oil rates as well as the inventory... because two
+--  different sets of people were selling at two different rates. That also has
+--  been corrected."
+--
+-- Taken from BOTH SEP15 DSRs, which agree on all seven values, column J:
+--
+--     SVR_DSR_EMPTY_11CC2012V-OFF_15Sept2026.xlsx   J11:J17
+--     SVR_DSR_EMPTY_12BC4523V-RD_15Sept2026.xlsx    J11:J17
+--
+--     2T/1.50 ML Total#                 15
+--     2T/2.40 ML Total#                 17
+--     Acid Water Total 1 Lts            30
+--     Battery Water Total 1 Lts         20
+--     Battery Water Total 5 Lts        120
+--     20/40 Engine Total in 05. Lts    130
+--     20/40 Engine Total in 1 Lts      270
+--
+-- Only two differ from what the app holds, and both were wrong in a way that
+-- would have overcharged:
+--
+--     oil1  2T/1.50 ML              17 -> 15    17 was a GUESS. Migration 0019
+--                                              set it because the SEP12 tab left
+--                                              the cell blank; its own comment
+--                                              says "carried the 2T/1.20 rate".
+--                                              The item has never been sold, so
+--                                              nothing was mispriced by it.
+--
+--     oil7  20/40 Engine 05. Lts   140 -> 130   140 came off the SEP12 tab and
+--                                              was correct then - that tab sold
+--                                              2 at 140. SEP13 then sold 1 at
+--                                              130 (SEP13!B24/C24/F24), so the
+--                                              price had already moved and the
+--                                              app never followed.
+--
+-- The other five already match and are not restated.
+--
+-- Battery Water 5 Lts stays 120, and this is the one worth recording: SEP13 sold
+-- one at 110 (SEP13!F23 = 110) and the SEP15 tab still carries 110 at C23, but
+-- BOTH freshly-issued SEP15 DSRs say 120. The DSRs are the source document and
+-- are the ones reissued after the rate cleanup, so 120 stands and the tab's C23
+-- is a leftover. FLAGGED to the client rather than treated as settled.
+--
+-- Effective 2026-09-15, the date the client settled them. rate_master is
+-- append-only by effective_date and latest_effective_rates() resolves the rate
+-- in force on a given day, so every earlier day keeps the rate it was actually
+-- sold at - including SEP12's 140.
+
+INSERT INTO rate_master (item_key, item_label, buy_rate, sell_rate, effective_date, updated_by)
+VALUES
+    ('oil1', '2T/1.50 ML Total#',             NULL,  15.00, '2026-09-15', 'client-settled-2026-09-15'),
+    ('oil7', '20/40 Engine Total in 05. Lts', NULL, 130.00, '2026-09-15', 'client-settled-2026-09-15');
