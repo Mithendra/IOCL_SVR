@@ -174,17 +174,23 @@ test("the SEP12 dropdown lists are on the form, and a new value can be added", a
   await page.goto(SCREEN);
   await expect(page.locator("#body")).toBeVisible();
 
+  // Migration 0028, the client's restated lists. Credits are the three regular
+  // customers only: the salary advances moved to Expenses (an advance to staff
+  // is an expense, not fuel on credit) and "Anil New Credit" folded into
+  // "Anil/Nani New Credit", Anil and Nani being one person.
   const creditor = page.locator('[data-rows="section3.new_credits"] tr').first().locator("select");
   await expect(creditor.locator("option")).toContainText([
-    "— select —", "Anil/Nani New Credit", "Anil New Credit", "AirTel Hari New Credit",
-    "Salary Advance Viaj", "Salary Advance Ashok", "Salary Advance Sriharsha",
-    "Salary Advance Ravindra", "Sajja Function Hall - New Credit",
+    "— select —", "Anil/Nani New Credit", "AirTel Hari New Credit",
+    "Sajja Function Hall - New Credit",
   ]);
 
   const expense = page.locator('[data-rows="section4.expenses"] tr').first().locator("select");
   await expect(expense.locator("option")).toContainText([
-    "— select —", "Salaries Mid/End of Month - Total", "Power Bill", "Unload Beta",
-    "Salary Advances Total",
+    "— select —",
+    "Salaries Middle of the Month - Total", "Salaries End of the Month Total",
+    "Power Bill", "Unload Beta",
+    "Salary Advances Vijay", "Salary Advances Ravindra", "Salary Advances Ashok",
+    "Other - If Any",
   ]);
 
   await expect(
@@ -195,7 +201,7 @@ test("the SEP12 dropdown lists are on the form, and a new value can be added", a
   ).toContainText(["Power Bill"]);
   await expect(
     page.locator('[data-rows="section8.old_credit_collections"] tr').first().locator("select option")
-  ).toContainText(["Anil Old Credit Remitted"]);
+  ).toContainText(["Anil/Nani Old Credit Remitted Amt"]);
 
   // 8.9 sign-off: Prepared by / Verified by / Sent to, each a staff dropdown.
   for (const key of ["verified_by", "sent_by"]) {

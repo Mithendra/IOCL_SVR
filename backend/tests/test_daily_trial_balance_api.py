@@ -288,13 +288,32 @@ def test_option_lists_come_from_the_database(client, auth_headers):
     than hard-coded in the renderer so the station can extend them itself."""
     lists = client.get("/daily-trial-balance/options", headers=auth_headers("Sales")).json()
     assert "Anil/Nani New Credit" in lists["creditors"]
-    assert "Anil New Credit" in lists["creditors"]        # the sheet carries both spellings
+    # "Anil New Credit" is gone from the OFFER as of migration 0028: the client
+    # confirmed on 2026-09-14 that Anil and Nani are one person, and two
+    # spellings of one creditor is how a balance ends up split in two. Records
+    # already saved under the old label keep it - the screen renders a value that
+    # is no longer listed rather than blanking the cell.
+    assert "Anil New Credit" not in lists["creditors"]
+    # Salary advances moved to the expenses list, named per person.
+    assert not any(v.startswith("Salary Advance ") for v in lists["creditors"])
+    assert "Salary Advances Ravindra" in lists["expenses"]
+    assert "Other - If Any" in lists["expenses"]
     assert lists["expenses"] == [
-        "Salaries Mid/End of Month - Total", "Power Bill", "Unload Beta",
-        "Salary Advances Total",
+        "Salaries Middle of the Month - Total",
+        "Salaries End of the Month Total",
+        "Power Bill",
+        "Unload Beta",
+        "Salary Advances Vijay",
+        "Salary Advances Ravindra",
+        "Salary Advances Ashok",
+        "Other - If Any",
     ]
     assert "Sajja Old Credit Remitted Amt" in lists["remittance"]
-    assert "Anil Old Credit Remitted" in lists["old_credit"]
+    # 8.7 Old Credit Collections is aligned to the Remittance wording. The sheet
+    # spelled the same creditor two ways ("Anil Old Credit Remitted" here,
+    # "Anil/Nani Old Credit Remitted Amt" in 4.7), which is how one balance ends
+    # up recorded as two. FLAGGED to the client, not assumed settled.
+    assert lists["old_credit"] == lists["remittance"]
     assert "Gopi" in lists["staff"]
 
 

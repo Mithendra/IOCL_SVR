@@ -66,7 +66,13 @@ function money(v) {
 }
 
 function optionMarkup(key, selected) {
-  return ["", ...listValues(key)]
+  // A saved record keeps the LABEL it was entered with, so a value retired from
+  // the list must still render - otherwise the select shows blank, and the next
+  // Save writes that blank over a real figure's description. Same discipline as
+  // the retired Oil Sale(s) rows.
+  const values = listValues(key);
+  const extra = selected && !values.includes(selected) ? [selected] : [];
+  return ["", ...values, ...extra]
     .map(
       (o) =>
         `<option value="${esc(o)}"${o === selected ? " selected" : ""}>` +
