@@ -225,6 +225,26 @@
           </div>
           <p id="save-status" class="status-line"></p>
 
+          <!-- Posting, and the running list of what has been posted. Sits
+               directly above Close & Sign Off because the sign-off is refused
+               until everything here is posted (client, 2026-09-14). -->
+          <div id="posting-block" class="section-title">
+            Post to Monthly Expenses &amp; Credit / Remittance Master
+            <span style="font-weight:400;font-size:11px">[required before Close &amp; Sign Off]</span>
+          </div>
+          <div class="export-bar">
+            <button type="button" class="export-btn" id="post-btn">Post this day&#39;s lines</button>
+            <button type="button" class="export-btn secondary" id="clear-posted-btn">Clear settled lines</button>
+          </div>
+          <p id="post-status" class="status-line"></p>
+          <table class="tb-rows" id="posting-table">
+            <tr>
+              <th style="width:1%"><input type="checkbox" id="post-check-all" title="Select all clearable" /></th>
+              <th>Date</th><th>Category</th><th>Line</th><th>Amount</th><th>Status</th>
+            </tr>
+            <tbody id="posting-rows"></tbody>
+          </table>
+
           <div id="finalize-block" class="section-title">Close &amp; Sign Off (Manager / Owner)</div>
           <div id="finalize-fields" class="meta-grid">
             <div class="field">

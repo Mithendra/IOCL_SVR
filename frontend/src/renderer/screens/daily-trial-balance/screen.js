@@ -1117,9 +1117,122 @@ async function save() {
     render(await api.put(`/daily-trial-balance/${$("tb-date").value}`, payload()));
     st.className = "status-line ok";
     st.textContent = `${wasOnFile ? "Updated" : "Saved"}; formulas recalculated.`;
+    // The backend keeps the posting rows in step on every save, so the running
+    // list has to be redrawn - otherwise a line just typed shows as absent until
+    // the screen is reloaded, and the operator cannot see what is blocking
+    // Close & Sign Off.
+    loadPostings();
   } catch (err) {
     st.className = "status-line err";
     st.textContent = `Save failed — ${err.message || err}`;
+  }
+}
+
+
+// ------------------------------------------------------------------ posting
+//
+// Client, 2026-09-14: the day's expense, credit and remittance lines are posted
+// out to Monthly Expenses and Credit / Remittance Master, and Close & Sign Off
+// is refused until that has happened.
+//
+// The list deliberately SPANS DAYS. A posted line does not disappear - an unpaid
+// credit taken on Tuesday has to still be in front of the operator on Thursday.
+// Expenses can be cleared the moment they are posted; a credit only once a
+// remittance has settled it.
+
+const STATUS_TEXT = {
+  not_posted: "Not Posted",
+  posted: "Posted",
+  paid: "Paid",
+};
+const STATUS_COLOUR = {
+  not_posted: "var(--io-red, #c00000)",
+  posted: "var(--io-blue-dark)",
+  paid: "var(--io-green, #1f7a3d)",
+};
+
+function clearable(line) {
+  // An unpaid credit is exactly what must keep showing; an unposted line has
+  // not reached a master form at all.
+  return line.status === "paid" || (line.status === "posted" && line.category === "expense");
+}
+
+function renderPostings(lines) {
+  const body = $("posting-rows");
+  if (!body) return;
+  body.innerHTML = "";
+  if (!lines.length) {
+    body.innerHTML =
+      '<tr><td colspan="6" style="color:var(--io-blue-dark)">' +
+      "Nothing outstanding — every line has been posted and cleared.</td></tr>";
+    return;
+  }
+  for (const line of lines) {
+    const tr = document.createElement("tr");
+    const tick = clearable(line)
+      ? `<input type="checkbox" class="post-pick" value="${line.id}">`
+      : "";
+    tr.innerHTML =
+      `<td>${tick}</td><td>${esc(line.shift_date)}</td>` +
+      `<td>${esc(line.category)}</td><td>${esc(line.label)}</td>` +
+      `<td style="text-align:right">${fmt2(line.amount)}</td>` +
+      `<td style="color:${STATUS_COLOUR[line.status] || ""};font-weight:600">` +
+      `${STATUS_TEXT[line.status] || line.status}</td>`;
+    body.appendChild(tr);
+  }
+}
+
+async function loadPostings() {
+  try {
+    const out = await api.get("/daily-trial-balance/postings/open");
+    renderPostings(out.lines || []);
+  } catch {
+    // The list is a view onto work already recorded; failing to draw it must
+    // not take the rest of the screen down with it.
+  }
+}
+
+async function postDay() {
+  const date = val("tb-date");
+  const status = $("post-status");
+  if (!date) {
+    status.className = "status-line err";
+    status.textContent = "Pick a Shift Date first.";
+    return;
+  }
+  status.className = "status-line";
+  status.textContent = "Posting…";
+  try {
+    const out = await api.post(`/daily-trial-balance/${date}/post`, {});
+    status.className = "status-line ok";
+    status.textContent =
+      out.posted === 0
+        ? "Nothing left to post for this day."
+        : `Posted ${out.posted} line(s)` +
+          (out.settled ? `, and ${out.settled} credit(s) marked Paid.` : ".");
+    renderPostings(out.lines || []);
+  } catch (e) {
+    status.className = "status-line err";
+    status.textContent = e.message || "Could not post.";
+  }
+}
+
+async function clearPosted() {
+  const ids = [...document.querySelectorAll(".post-pick:checked")].map((c) => Number(c.value));
+  const status = $("post-status");
+  if (!ids.length) {
+    status.className = "status-line err";
+    status.textContent = "Tick the settled lines you want to clear.";
+    return;
+  }
+  try {
+    const out = await api.post("/daily-trial-balance/postings/clear", { ids });
+    status.className = "status-line ok";
+    status.textContent = `Cleared ${out.cleared} line(s).`;
+    renderPostings(out.lines || []);
+  } catch (e) {
+    status.className = "status-line err";
+    status.textContent = e.message || "Could not clear.";
   }
 }
 
@@ -1173,7 +1286,20 @@ async function init() {
   } else {
     $("role-tag").textContent = "Checker — can Close & Sign Off";
     $("finalize-btn").addEventListener("click", finalize);
+    $("post-btn").addEventListener("click", postDay);
+    $("clear-posted-btn").addEventListener("click", clearPosted);
+    $("post-check-all").addEventListener("change", (e) => {
+      for (const c of document.querySelectorAll(".post-pick")) c.checked = e.target.checked;
+    });
   }
+  // Sales sees the list - an unpaid credit is theirs to chase too - but only a
+  // checker posts or clears.
+  if (!canFinalize()) {
+    $("post-btn").style.display = "none";
+    $("clear-posted-btn").style.display = "none";
+    $("post-check-all").style.display = "none";
+  }
+  loadPostings();
 
   $("load-btn").addEventListener("click", load);
   $("tb-date").addEventListener("change", load);

@@ -918,3 +918,55 @@ test("the whole sheet can be snapshotted for WhatsApp", async ({ page }) => {
   await expect(page.locator("#s8-send-status")).toContainText("installed SVR app");
   await expect(page.locator("#s8-send-status")).toContainText("Export Trial Balance to Excel");
 });
+
+
+test("posting gates Close & Sign Off, and the list carries days forward", async ({ page }) => {
+  // Client, 2026-09-14: "unless posted, do not allow Close & Sign Off." The
+  // list deliberately spans days - an unpaid credit taken on Tuesday has to
+  // still be in front of the operator on Thursday - so every assertion below is
+  // scoped to THIS day's rows. Other specs leave their own lines in the view,
+  // and that is correct behaviour, not interference.
+  //
+  // The date is earlier than every other in this file on purpose: ADR-2 refuses
+  // to start a Trial Balance while any earlier one is still open.
+  const DAY = "2026-01-02";
+  const mine = page.locator(`#posting-rows tr:has-text("${DAY}")`);
+
+  await login(page, "mmanager");
+  await page.goto(SCREEN);
+  await expect(page.locator("#body")).toBeVisible();
+  await openDate(page, DAY);
+
+  const exp = page.locator('[data-rows="section4.expenses"] tr').first();
+  await exp.locator("select").selectOption("Power Bill");
+  await exp.locator('[data-col="amount"]').fill("8525.95");
+  const cred = page.locator('[data-rows="section3.new_credits"] tr').first();
+  await cred.locator("select").selectOption("AirTel Hari New Credit");
+  await cred.locator('[data-col="amount"]').fill("11674");
+  await saveOrUpdate(page);
+  await expect(page.locator("#save-status")).toContainText("recalculated");
+
+  // Both of this day's lines show as Not Posted, and sign-off is refused.
+  // Close & Sign Off confirms first, and Playwright dismisses dialogs unless
+  // told otherwise - an unaccepted confirm returns early and leaves the status
+  // line blank.
+  await expect(mine).toHaveCount(2);
+  await expect(mine.first()).toContainText("Not Posted");
+  page.once("dialog", (d) => d.accept());
+  await page.click("#finalize-btn");
+  await expect(page.locator("#finalize-status")).toContainText("not posted");
+
+  // Post them, and sign-off goes through.
+  await page.click("#post-btn");
+  await expect(page.locator("#post-status")).toContainText("Posted 2 line(s)");
+  await expect(mine.filter({ hasText: "Not Posted" })).toHaveCount(0);
+  await expect(mine.filter({ hasText: "Posted" })).toHaveCount(2);
+  page.once("dialog", (d) => d.accept());
+  await page.click("#finalize-btn");
+  await expect(page.locator("#finalize-status")).toContainText(/Closed|Signed/i);
+
+  // The posted expense can be cleared straight away (client: "if they post it to
+  // expenses you can clear off those right away on the same day"); the unpaid
+  // credit cannot, so it carries no tick box at all.
+  await expect(mine.locator(".post-pick")).toHaveCount(1);
+});
