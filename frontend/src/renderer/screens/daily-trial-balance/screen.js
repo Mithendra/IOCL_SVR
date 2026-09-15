@@ -1029,11 +1029,13 @@ function render(view) {
     const p = view.pulled;
     tb.textContent =
       p.testing_basis === "derived"
-        ? `Daily Testing deducts ${fmt2(p.testing_deduction)} L per fuel — ` +
-          `${p.testing_pumps_tested} pump(s) tested at ${fmt2(p.testing_litres_per_nozzle)} L a nozzle. ` +
-          "A pump in Repair/Offline is not tested."
+        ? `Daily Testing — ${p.testing_nozzles_hs} diesel nozzle(s) and ` +
+          `${p.testing_nozzles_ms} petrol nozzle(s) ran, 5 L each: ` +
+          `${fmt2(p.testing_deduction_hs)} L off diesel, ${fmt2(p.testing_deduction_ms)} L off petrol ` +
+          `(${fmt2(p.testing_deduction_hs + p.testing_deduction_ms)} L total). ` +
+          "A nozzle whose reading did not move was not tested."
         : `Daily Testing deducts ${fmt2(p.testing_deduction)} L per fuel, from the ` +
-          "stored parameter — no Daily Sales Entry for this date to count pumps from.";
+          "stored parameter — no Daily Sales Entry for this date to read the nozzles from.";
     tb.style.color = p.testing_basis === "derived" ? "" : "var(--io-red, #c00000)";
   }
 

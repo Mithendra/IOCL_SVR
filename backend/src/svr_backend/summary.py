@@ -83,30 +83,46 @@ def beta_testing_expense(conn: sqlite3.Connection, shift_date: str) -> float | N
     return round(total, 4) if found else None
 
 
-def tested_pump_count(conn: sqlite3.Connection, shift_date: str) -> int | None:
-    """How many pumps were tested = how many pumps submitted a form.
+def nozzles_tested(conn: sqlite3.Connection, shift_date: str) -> dict[str, int] | None:
+    """How many nozzles of each fuel actually ran, off the day's own readings.
 
-    Client, 2026-09-14, and this is the entire rule:
+    Client, 2026-09-14, and this is the rule in full:
 
-        "each pump HS five litre testing, MS five litre testing... whatever we
-         submit you just take it, that's all. Don't make it based on the status.
-         If the pump is in repair you don't have any reading; in all other cases
-         you will have a reading."
+        "Section 2 has four readings. When last reading and current reading
+         becomes zero for that pump we do not deduct anything - for HS, and for
+         MS also. That means there could be a pump repair, that is the best we
+         can think of. When the difference is not zero, we deduct 5 litres for
+         each pump."
 
-    So: count submissions. The status dropdown is NOT consulted - it exists to
-    say why a pump is absent, not to change arithmetic.
+    So each nozzle that moved draws 5 litres and each nozzle at zero draws
+    nothing. No dropdown, no status, no counting of submissions - just the four
+    readings, which is the only evidence that cannot be mis-keyed into meaning
+    something else.
 
-        both pumps submit   5 off diesel + 5 off petrol, each = 20 litres
-        one pump submits    5 off diesel + 5 off petrol      = 10 litres
+    The tested fuel goes BACK into the tank, which is why Section 1 subtracts it
+    when reconciling pump consumption against the IOCL tank reading. The money
+    side is separate and lives on the DSR as an expense.
 
-    None when nothing was submitted, so the caller falls back rather than
-    deducting zero.
+    Reproduces the client's SEP13 and SEP14 tabs exactly: only the road pump's
+    nozzles moved, so 5 off diesel and 5 off petrol, which is their '=E3-5' and
+    '=E4-5'.
+
+    Returns None when the day has no entry at all, so the caller can fall back
+    rather than deduct zero.
     """
     rows = conn.execute(
-        "SELECT DISTINCT pump_serial FROM daily_sales_entry WHERE shift_date = ?",
-        (shift_date,),
+        "SELECT result FROM daily_sales_entry WHERE shift_date = ?", (shift_date,)
     ).fetchall()
-    return len(rows) or None
+    if not rows:
+        return None
+    counts = {"hs": 0, "ms": 0}
+    for row in rows:
+        result = json.loads(row["result"] or "{}")
+        for fuel in ("hs", "ms"):
+            cons = (result.get(fuel) or {}).get("cons")
+            if cons is not None and round(float(cons), 4) != 0:
+                counts[fuel] += 1
+    return counts
 
 
 def classify_pump(pump_serial: str) -> str | None:

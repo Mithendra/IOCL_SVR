@@ -39,6 +39,11 @@ class TrialBalanceInput:
     buy_rate_ms: Number = None
     # Section 1 density-testing deduction, per fuel, from system_parameter (=10).
     testing_deduction: float = 10.0
+    # Per-fuel, because a nozzle that did not move was not tested. When either is
+    # None the flat `testing_deduction` above is used for that fuel, which keeps
+    # every existing caller and every closed day computing exactly as before.
+    testing_deduction_hs: float | None = None
+    testing_deduction_ms: float | None = None
     # Section 5.4 -> 7.1: "Today's Actual Reported SVR Cash / Book Value".
     cash_book_value: Number = None
 
@@ -309,10 +314,18 @@ def derive_manual(
 
 def compute(data: TrialBalanceInput) -> TrialBalanceResult:
     r = TrialBalanceResult()
+    hs_testing = (
+        data.testing_deduction if data.testing_deduction_hs is None
+        else data.testing_deduction_hs
+    )
+    ms_testing = (
+        data.testing_deduction if data.testing_deduction_ms is None
+        else data.testing_deduction_ms
+    )
     r.hs = _fuel(data.s1.hs_yesterday, data.s1.hs_current, data.s3_hs_consumption,
-                 data.buy_rate_hs, data.testing_deduction)
+                 data.buy_rate_hs, hs_testing)
     r.ms = _fuel(data.s1.ms_yesterday, data.s1.ms_current, data.s3_ms_consumption,
-                 data.buy_rate_ms, data.testing_deduction)
+                 data.buy_rate_ms, ms_testing)
 
     r.stock_value_total = round4((r.hs.stock_amount or 0.0) + (r.ms.stock_amount or 0.0))
     r.trial_balance_7_1 = round4(parse_amt(data.cash_book_value))

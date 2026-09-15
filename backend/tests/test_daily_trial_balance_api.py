@@ -538,56 +538,74 @@ def test_sales_can_export_and_list(client, auth_headers):
     assert client.get(f"/daily-trial-balance/{DATE}/export-excel", headers=h).status_code == 200
 
 
-def test_testing_deduction_counts_the_forms_submitted(client, auth_headers, conn):
-    """Migrations 0026/0027, client 2026-09-14.
+def test_testing_deducts_five_for_every_nozzle_that_moved(client, auth_headers):
+    """Client, 2026-09-14, the rule in full:
 
-    Each pump draws 5 litres of diesel and 5 of petrol for testing. That fuel is
-    pumped BACK into the tank afterwards, so the pump counted it but the site
-    never lost it - which is why Section 1 takes it off when reconciling pump
-    consumption against the IOCL tank reading. The money side is separate and
-    lives on the DSR as an expense; Section 2 stays raw, deducting nothing.
+        "Section 2 has four readings. When last reading and current reading
+         becomes zero for that pump we do not deduct anything - for HS, and for
+         MS also... When the difference is not zero, we deduct 5 litres."
 
-    The count is SUBMISSIONS, not statuses: "whatever we submit you just take it,
-    that's all. Don't make it based on the status. If the pump is in repair you
-    don't have any reading; in all other cases you will have a reading."
+    The tested fuel is pumped BACK into the tank, so the pump counted it but the
+    site never lost it - which is why Section 1 subtracts it when reconciling
+    pump consumption against the IOCL tank reading. The money side is separate
+    and lives on the DSR as an expense the salesman takes off his own hand-off.
+
+    Read straight off the four readings: no dropdown, no status, no counting of
+    submissions.
     """
-    day = "2026-10-20"
     h = auth_headers("Manager")
 
-    def pulled(serials):
-        conn.execute("DELETE FROM daily_sales_entry WHERE shift_date = ?", (day,))
-        conn.commit()
-        for serial in serials:
+    def pulled(day, pumps):
+        for serial, hs, ms in pumps:
             client.post("/daily-sales-entry", json={
                 "pump_serial": serial, "shift_date": day,
-                "hs": {"current": "8000000"}, "ms": {"current": "8000000"},
+                "hs": {"current": hs[0], "last": hs[1]},
+                "ms": {"current": ms[0], "last": ms[1]},
             }, headers=h)
         return client.get(f"/daily-trial-balance/{day}", headers=h).json()["pulled"]
 
-    both = pulled(["12BC4523V-RD", "11CC2012V-OFF"])
-    assert both["testing_deduction"] == 10.0      # 5 + 5 off each fuel = 20 litres
-    assert both["testing_pumps_tested"] == 2
-    assert both["testing_basis"] == "derived"
+    both = pulled("2026-10-20", [
+        ("12BC4523V-RD", ("9000500", "9000000"), ("9000600", "9000000")),
+        ("11CC2012V-OFF", ("9000700", "9000000"), ("9000800", "9000000")),
+    ])
+    assert both["testing_nozzles_hs"] == 2 and both["testing_nozzles_ms"] == 2
+    assert both["testing_deduction_hs"] == 10.0
+    assert both["testing_deduction_ms"] == 10.0
 
-    one = pulled(["12BC4523V-RD"])
-    assert one["testing_deduction"] == 5.0        # 10 litres
-    assert one["testing_pumps_tested"] == 1
+    # One pump idle. Last Shift Reading is backend-owned and carries from that
+    # pump's own previous entry, so "idle" means repeating yesterday's Current
+    # Reading - 9000700 / 9000800 from the day above - not an arbitrary figure.
+    one = pulled("2026-10-21", [
+        ("12BC4523V-RD", ("9001000", "9000500"), ("9001100", "9000600")),
+        ("11CC2012V-OFF", ("9000700", "9000700"), ("9000800", "9000800")),
+    ])
+    assert one["testing_nozzles_hs"] == 1 and one["testing_nozzles_ms"] == 1
+    assert one["testing_deduction_hs"] == 5.0
+    assert one["testing_deduction_ms"] == 5.0
 
 
-def test_the_status_flag_does_not_change_the_deduction(client, auth_headers, conn):
-    """The dropdown says WHY a pump is absent; it is not an input to arithmetic.
-    A submitted form counts however it is labelled - client was explicit about
-    this on 2026-09-14 after I had wired the status in."""
-    day = "2026-10-21"
+def test_a_nozzle_can_be_tested_while_its_partner_is_not(client, auth_headers):
+    """The fuels are counted separately, so a pump with one working nozzle
+    deducts for that nozzle only. This is the SEP12 shape: the office pump's
+    petrol moved 17.5 litres while its diesel never moved at all."""
     h = auth_headers("Manager")
-    for serial, status in (("12BC4523V-RD", "online"), ("11CC2012V-OFF", "repair")):
+    day = "2026-10-22"
+    # Same carry-forward rule: the office pump's diesel repeats 9000700 (idle),
+    # while its petrol moves 17.5 from the 9000800 it carried.
+    for serial, hs, ms in (
+        ("12BC4523V-RD", ("9001500", "9001000"), ("9001600", "9001100")),
+        ("11CC2012V-OFF", ("9000700", "9000700"), ("9000817.5", "9000800")),
+    ):
         client.post("/daily-sales-entry", json={
-            "pump_serial": serial, "shift_date": day, "pump_status": status,
-            "hs": {"current": "8000000"}, "ms": {"current": "8000000"},
+            "pump_serial": serial, "shift_date": day,
+            "hs": {"current": hs[0], "last": hs[1]},
+            "ms": {"current": ms[0], "last": ms[1]},
         }, headers=h)
-    pulled = client.get(f"/daily-trial-balance/{day}", headers=h).json()["pulled"]
-    assert pulled["testing_pumps_tested"] == 2, "two forms came in, so two pumps count"
-    assert pulled["testing_deduction"] == 10.0
+    p = client.get(f"/daily-trial-balance/{day}", headers=h).json()["pulled"]
+    assert p["testing_nozzles_hs"] == 1, "only the road pump's diesel ran"
+    assert p["testing_nozzles_ms"] == 2, "both petrol nozzles ran"
+    assert p["testing_deduction_hs"] == 5.0
+    assert p["testing_deduction_ms"] == 10.0
 
 
 def test_a_day_with_no_entry_falls_back_to_the_flat_parameter(client, auth_headers):
@@ -596,5 +614,5 @@ def test_a_day_with_no_entry_falls_back_to_the_flat_parameter(client, auth_heade
     silently deducting zero."""
     view = client.get("/daily-trial-balance/2098-03-03", headers=auth_headers("Manager")).json()
     assert view["pulled"]["testing_basis"] == "parameter"
-    assert view["pulled"]["testing_pumps_tested"] is None
+    assert view["pulled"]["testing_nozzles_hs"] is None
     assert view["pulled"]["testing_deduction"] > 0
