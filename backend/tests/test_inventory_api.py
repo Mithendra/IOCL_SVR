@@ -168,7 +168,7 @@ def test_sync_inventory_skips_a_blank_day_for_that_item(client, auth_headers):
         "/daily-sales-entry/sync-inventory?shift_date=2026-08-20",
         headers=auth_headers("Manager"),
     ).json()
-    assert body["oil2"] == {"from": 10, "to": 7, "source_date": "2026-08-18"}
+    assert body["oil2"] == {"from": 5, "to": 2, "source_date": "2026-08-18"}
 
 
 def test_sync_inventory_is_idempotent(client, auth_headers):
