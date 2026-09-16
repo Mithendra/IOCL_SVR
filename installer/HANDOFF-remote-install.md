@@ -47,10 +47,20 @@ build is needed at all, rather than nice-to-haves:
    that actually balances inside the Rs 50 limit. Section 4 gained **4.9a Staff
    Salaries**, **4.9b RTGS / Bank Charges**, **4.9c Other Adjustment**, and 4.10
    switches on whenever any of them is filled.
-2. **8.10 Before Close & Sign Off** — the two rows the client asked for, sitting
+2. **8.17 Before Close & Sign Off** — the two rows the client asked for, sitting
    directly above Close & Sign Off: *Density Reports updated?* (Yes / No / N/A)
    and *Off Load Testing MS & HS performed by* (Sarath, Gopi, Sriharsha, Girish,
    with **+ New Name** to add a tester permanently). Migration `0034`.
+
+   Two defects in this were found and fixed on 2026-09-16, after the client
+   asked whether it was really done. The **+** button returned
+   `400 Unknown list 'offload_testers'` — the names were seeded but writes go
+   through a separate allow-list that had not been updated, so the "add more
+   names" half never worked. And three rows on the form were numbered 8.10:
+   this block, *Send to Management*, and the Management Summary's *Yesterday's
+   Actual Reported Trial Balance*. The client's workbook owns 8.8–8.15, so the
+   app-side blocks are now **8.16 Sign-off**, **8.17 Before Close & Sign Off**
+   and **8.18 Send to Management**.
 3. **Section 9 keeps 7 days** — a purge button that deletes ledger rows older
    than 7 days, measured from the shift date on screen.
 4. **Bank names, balances only.** The three banks were already named text with a
@@ -70,11 +80,62 @@ rates and inventory.
 
 ---
 
+## 1a. Where things stand (2026-09-16, end of day)
+
+This session is starting cold, so here is the state you are inheriting. There is
+no way to resume the build PC's conversation here — a Claude Code transcript is
+local to its machine — so this section and the rest of this file *are* the
+handover.
+
+**Done and pushed to `main`:** the two pre-close rows and their fixes; the
+escalation reading 4.10 rather than the raw 4.5; the Section 9 seven-day purge;
+bank names as text with a test barring account numbers, IFSC codes, UPI handles
+and PANs from the app; 4.1 now carrying forward at sign-off; and a rehearsal
+(`backend/tests/test_sep15_sep16_rehearsal.py`) that walks SEP15 and SEP16 end
+to end on a clean database — upload, Summary, Inventory, Trial Balance, post,
+Close & Sign Off, postings checked on the master forms. Both days pass.
+
+Backend **288 passed / 1 skipped**, ruff clean. Frontend **83 passed**, eslint
+clean. Build **0.1.5**, SHA256 begins `5F48F5BB`.
+
+**Two questions are open with the client. Do not decide either one here:**
+
+1. **SEP16's 4.2.** The road DSR prints `O22` = **1,485.30**; the tab's
+   hand-typed `D50` of 171,762.2496 implies **1,476.83**. The app follows the
+   DSR, so 4.10 reads **-12.16** where the tab says -20.64. Both are inside the
+   Rs 50 limit and the day closes either way. The client has been asked which
+   figure should stand and has not answered.
+2. **The SEP14/15/16 workbooks are not in the repo.** Pushing them was stopped
+   because one Road DSR's credit-customer dropdown carries an Xtra Power fleet
+   card number — a third party's account. It is already public via
+   `SVR_DSR_13SEP26/SVR-DSR-12BC4523V-RD_12SEP26.xlsx`, so the client is
+   deciding between pushing as-is, redacting that cell, or scrubbing history.
+   **Until they say so, do not add those workbooks and do not force-push.**
+
+**Known and not defects:** the SEP15→SEP16 oil stock jump (2T/2.40 closes at 5,
+opens at 80) is a restock the client told us to ignore; Acid Water 64 → 0 is the
+write-off they instructed; and sign-off refusing until expenses and credits are
+posted is the gate they called mandatory.
+
+---
+
 ## 2. Install
 
 1. `git pull` this repo so the session has the current scripts and docs.
 2. Right-click `SVR-IOCL-Station-Setup-0.1.5.exe` → **Run as administrator**.
    SmartScreen → *More info* → *Run anyway* (unsigned, expected).
+
+   If it says **"SVR IOCL Station cannot be closed, please close it manually"**,
+   leave the dialog open and, in an elevated PowerShell:
+
+   ```powershell
+   Stop-Process -Name "SVR IOCL Station" -Force; Stop-Service SVR-IOCL-Backend,SVR-IOCL-Scheduler
+   ```
+
+   then click **Retry**. Electron runs several processes under that one name, so
+   closing the window is not enough. **Never click Ignore** — the install then
+   proceeds over files still in use and leaves a half-updated app, which looks
+   exactly like "the new build didn't work".
 3. Accept the defaults. On the last page `installer.nsh` runs `first-run.ps1`
    elevated — idempotent: re-applies config, runs the outstanding migrations,
    restarts both services. A message box means it hit a problem; note the exit
@@ -93,8 +154,10 @@ Invoke-RestMethod http://127.0.0.1:8756/health       # {status: ok, ...}
 ```
 
 And confirm the new code is really on the box — open **Daily Trial Balance** and
-look for **8.10 Before Close & Sign Off** above the Close & Sign Off block. If
-it isn't there, the app didn't restart; go back to step 5.
+look for **8.17 Before Close & Sign Off** above the Close & Sign Off block. If
+it reads 8.10, or isn't there at all, the app didn't restart — go back to
+step 5. Press **+ New Name** too: it should open a box and accept a name. A
+`400 Unknown list` there means the backend is still the old build.
 
 ---
 
@@ -210,7 +273,7 @@ compare against their tab. The figures that matter:
 **(d) Post, then close.** Before Close & Sign Off, hit **Post** — expenses go to
 Monthly Expenses, credits and remittances to the Credit/Remittance Master. The
 app will not let the day close until they are posted; that is deliberate and
-client-mandated, not a bug. Answer the two 8.10 rows. Then Close & Sign Off, and
+client-mandated, not a bug. Answer the two 8.17 rows. Then Close & Sign Off, and
 confirm the next day's draft was created with the carry-forward line.
 
 **(e) Check the postings landed.** Open Monthly Expenses and Credit/Remittance
@@ -292,7 +355,7 @@ against.
 |---|---|---|
 | `first-run.ps1` message box, non-zero exit | a service failed to install/start | `HANDOVER.md` §6; run `installer\smoke-services.ps1` elevated to isolate the service machinery, or `installer\first-run.ps1` by hand as admin for full output |
 | Services won't start / backend uses a dev path | machine `SVR_*` env not inherited by the SCM | `HANDOVER.md` §6 items 1–2 |
-| **8.10 rows missing from Trial Balance** | app not fully quit before relaunch, or migrations didn't run | quit via Task Manager and relaunch; then check `svr-backend.exe migrate` ran — the log is under `C:\ProgramData\SVR-IOCL\logs\` |
+| **8.17 rows missing from Trial Balance** | app not fully quit before relaunch, or migrations didn't run | quit via Task Manager and relaunch; then check `svr-backend.exe migrate` ran — the log is under `C:\ProgramData\SVR-IOCL\logs\` |
 | Close & Sign Off refuses, citing unposted lines | **working as designed** — post the expenses and credits first | use the **Post** button; it lists exactly what is unposted |
 | Close & Sign Off demands a reason for a large difference | check 4.9a/4.9b/4.9c are filled in — 4.10 is what's tested | if 4.10 is genuinely over Rs 50, that is a real discrepancy, not a UI problem |
 | Win10 `DLL load failed` / missing `VCRUNTIME140` | frozen on Win11 | install the VC++ 2015–2022 x64 redist on the target |
