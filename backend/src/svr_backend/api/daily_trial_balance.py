@@ -900,16 +900,34 @@ def finalize_trial_balance(
             f"SELECT id FROM {TABLE} WHERE shift_date = ?", (next_date,)
         ).fetchone()
         if existing_next is None:
+            # 4.1 "Yesterday SVR Cash/Book Value" is today's 4.4 Reported. On the
+            # station's sheet that is a formula - SEP16!D49 = 'SEP15'!D52 - and
+            # until 2026-09-16 this app made the operator retype it every single
+            # day. That is the exact hand-typed cross-day reference ADR-2 was
+            # written to abolish, and it went unnoticed because every earlier
+            # reconciliation supplied 4.1 by hand, so no test ever asked where it
+            # came from. Found by rehearsing the client's own two-day test.
+            #
+            # Seeded only when today actually has a 4.4; a day closed without one
+            # leaves tomorrow blank rather than carrying a confident zero.
+            todays_manual = json.loads(row["manual_json"] or "{}")
+            todays_reported = (todays_manual.get("section4") or {}).get("reported")
+            next_manual = (
+                json.dumps({"section4": {"yesterday": todays_reported}})
+                if todays_reported not in (None, "")
+                else "{}"
+            )
             conn.execute(
                 f"""
                 INSERT INTO {TABLE} (
                     shift_date, s1_hs_yesterday, s1_ms_yesterday, s54_cash_book_value,
-                    prev_trial_balance_id, last_updated_by
-                ) VALUES (?, ?, ?, ?, ?, ?)
+                    manual_json, prev_trial_balance_id, last_updated_by
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     next_date, row["s1_hs_current"], row["s1_ms_current"],
-                    row["s54_cash_book_value"], row["id"], principal.login_name,
+                    row["s54_cash_book_value"], next_manual, row["id"],
+                    principal.login_name,
                 ),
             )
             new_id = conn.execute(
