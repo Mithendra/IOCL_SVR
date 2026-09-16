@@ -37,9 +37,9 @@ def test_restock_shows_as_received_today_without_moving_opening(client, auth_hea
 
     rows = client.get(f"/inventory?as_of={DATE}", headers=auth_headers("Manager")).json()
     oil3 = next(x for x in rows if x["item_key"] == "oil3")
-    assert oil3["opening_stock"] == 64  # unchanged
+    assert oil3["opening_stock"] == 0   # written off 2026-09-15 (expired), migration 0033
     assert oil3["received_today"] == 15
-    assert oil3["closing_stock"] == 79  # 64 + 15 - 0
+    assert oil3["closing_stock"] == 15  # 0 + 15 - 0
 
     audit = conn.execute(
         "SELECT COUNT(*) c FROM audit_log WHERE table_name = 'restock_entry'"
