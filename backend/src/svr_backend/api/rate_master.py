@@ -106,7 +106,7 @@ def update_rates(
             if label is None:
                 existing = conn.execute(
                     "SELECT item_label FROM rate_master WHERE item_key = ? "
-                    "ORDER BY effective_date DESC LIMIT 1",
+                    "ORDER BY effective_date DESC, id DESC LIMIT 1",
                     (u.item_key,),
                 ).fetchone()
                 label = existing["item_label"] if existing else u.item_key
