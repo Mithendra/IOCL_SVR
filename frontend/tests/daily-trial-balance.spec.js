@@ -1006,3 +1006,54 @@ test("Section 9 keeps 7 days — older ledger rows can be deleted in one go", as
     (els) => els.map((e) => e.value).filter(Boolean));
   expect(dates).toEqual(["2026-01-02"]);
 });
+
+test("the two pre-close checks are on the form, with a + to add a tester", async ({ page }) => {
+  // Client, 2026-09-16: "two rows above Close & Sign Off - 1. Density Reports
+  // updated? 2. Off Load Testing MS & HS performed by, list of values Sarath,
+  // Gopi, Sriharsha & Girish, also give + symbol to add more names."
+  //
+  // Asserted by LABEL, not by section number. The only existing test that
+  // mentioned "8.10" was matching Section 8's Management Summary line of the
+  // same number - which is how these two rows shipped numbered 8.10 as well,
+  // colliding with it, and nothing failed. They are 8.16 and 8.17 now.
+  await login(page, "mmanager");
+  await page.goto(SCREEN);
+  await expect(page.locator("#body")).toBeVisible();
+  await page.fill("#tb-date", DATE);
+  await page.click("#load-btn");
+
+  const body = page.locator("#body");
+  await expect(body).toContainText("Before Close & Sign Off");
+  await expect(body).toContainText("Density Reports updated?");
+  await expect(body).toContainText("Off Load Testing MS & HS performed by");
+
+  // Both rows are dropdowns, each bound to its own list.
+  const density = body.locator('select[data-manual="section8.density_reports_updated"]');
+  const tester = body.locator('select[data-manual="section8.offload_tested_by"]');
+  await expect(density).toHaveCount(1);
+  await expect(tester).toHaveCount(1);
+  await expect(density.locator("option")).toContainText(["Yes", "No", "N/A"]);
+  for (const name of ["Sarath", "Gopi", "Sriharsha", "Girish"]) {
+    await expect(tester.locator("option")).toContainText([name]);
+  }
+
+  // No number is used twice on the form - that is the whole point of numbering.
+  const numbers = await body.locator(".tb-block-title, .tb-fields td:first-child")
+    .allTextContents();
+  const seen = new Map();
+  for (const raw of numbers) {
+    const m = /^(\d+\.\d+[a-z]?)\b/.exec(raw.trim());
+    if (!m) continue;
+    seen.set(m[1], (seen.get(m[1]) || 0) + 1);
+  }
+  const dupes = [...seen.entries()].filter(([, n]) => n > 1).map(([k]) => k);
+  expect(dupes, `these numbers appear more than once: ${dupes.join(", ")}`)
+    .toEqual([]);
+
+  // The "+" writes to the tester list, not to staff.
+  await body.locator('button[data-add-option="offload_testers"]').click();
+  const box = body.locator('[data-newopt="offload_testers"]');
+  await box.locator("[data-newopt-input]").fill("Ramesh");
+  await box.locator("[data-newopt-save]").click();
+  await expect(tester.locator("option")).toContainText(["Ramesh"]);
+});

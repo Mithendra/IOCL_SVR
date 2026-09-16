@@ -258,7 +258,7 @@ export const SECTIONS = [
       },
       {
         type: "signoff",
-        title: "8.9 Sign-off",
+        title: "8.16 Sign-off",
         rows: [
           ["prepared_by", "Prepared by"],
           ["verified_by", "Verified by"],
@@ -271,12 +271,19 @@ export const SECTIONS = [
         // Section 8 renders above the posting block and the sign-off controls,
         // so this is the last thing on the form before them.
         //
+        // Numbered 8.17, not 8.10. The Management Summary above owns 8.8-8.15
+        // from the client's own workbook, so both sign-off blocks sit after it.
+        // This block first shipped as "8.10" and collided with 8.10 Yesterday's
+        // Actual Reported Trial Balance - two different rows, same number, on a
+        // form whose whole purpose is that every figure has one address. The
+        // block below it had been colliding with 8.9 since before that.
+        //
         // "Off Load Testing performed by" has its own list, not `staff`: staff
         // is who prepares and verifies the trial balance, which is a different
         // question with different people - Sarath is on this one and not that.
         // The "+ New Name" button writes to that list, as asked.
         type: "signoff",
-        title: "8.10 Before Close & Sign Off",
+        title: "8.17 Before Close & Sign Off",
         rows: [
           ["density_reports_updated", "Density Reports updated?", "yes_no"],
           ["offload_tested_by", "Off Load Testing MS & HS performed by",

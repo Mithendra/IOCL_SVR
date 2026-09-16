@@ -117,3 +117,36 @@ def test_the_three_banks_are_seeded_as_names_only():
     # The seed inserts three values and no numeric columns beyond sort_order.
     assert ACCOUNT.search(sql) is None
     assert IFSC.search(sql) is None
+
+
+def test_every_seeded_dropdown_list_can_also_be_added_to():
+    """A list you can see but cannot extend is a dead "+" button.
+
+    The client asked for the tester list and the "+" to add names in one
+    sentence. Migration 0034 seeded the names and the dropdown showed them, but
+    POST /daily-trial-balance/options rejected 'offload_testers' as an unknown
+    list, so the button returned 400. Seeding a list and permitting writes to it
+    are two different places in the code; only one had been changed.
+
+    This compares the two directly, so the next list that is seeded without
+    being allowed fails here instead of on the station's screen.
+    """
+    import re as _re
+
+    from svr_backend.api.daily_trial_balance import OPTION_LISTS
+
+    migrations = (REPO / "backend/src/svr_backend/migrations").glob("*.sql")
+    seeded: set[str] = set()
+    pattern = _re.compile(r"\(\s*'([a-z_]+)'\s*,\s*'[^']*'\s*,\s*\d+\s*,", _re.I)
+    for path in migrations:
+        text = path.read_text(encoding="utf-8")
+        if "trial_balance_option" not in text:
+            continue
+        seeded.update(pattern.findall(text))
+
+    assert seeded, "no seeded option lists found - has the seed format changed?"
+    missing = sorted(seeded - set(OPTION_LISTS))
+    assert not missing, (
+        "these lists are seeded into trial_balance_option but are not in "
+        f"OPTION_LISTS, so their '+' button will return 400: {missing}"
+    )

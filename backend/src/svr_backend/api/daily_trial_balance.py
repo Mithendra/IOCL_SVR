@@ -357,7 +357,25 @@ def _view(conn: sqlite3.Connection, shift_date: str) -> dict:
     }
 
 
-OPTION_LISTS = ("creditors", "expenses", "remittance", "old_credit", "staff")
+# Every dropdown list the form can read or extend. This is an allow-list, so a
+# list missing from it is seeded and visible but CANNOT be added to - the "+"
+# button comes back 400 "Unknown list". That is exactly what happened to
+# offload_testers: migration 0034 seeded the four names, the dropdown rendered
+# them, and the "+ New Name" the client asked for in the same sentence was dead
+# on arrival, because adding a list in a migration and allowing writes to it are
+# two separate places and only one of them was changed.
+#
+# Anything seeded into trial_balance_option belongs here too.
+OPTION_LISTS = (
+    "creditors",
+    "expenses",
+    "remittance",
+    "old_credit",
+    "staff",
+    "offload_testers",  # 0034 - who performed the off-load testing
+    "yes_no",           # 0034 - Density Reports updated?
+    "banks",            # 0035 - Indian Bank / Yes Bank / IOCL Spana, names only
+)
 
 
 class OptionCreate(BaseModel):
