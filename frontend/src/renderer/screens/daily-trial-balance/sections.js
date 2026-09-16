@@ -154,8 +154,14 @@ export const SECTIONS = [
         fields: [
           ["4.8", "Difference Amount", { derived: "section4.diff" }],
           ["4.9", "Yes Bank Return Amount", "yesbank_return"],
+          // Added 2026-09-16 from the client's own SEP16 panel. Each is money
+          // that left the business but has not landed in the counted cash or
+          // bank balance yet, so each one adds back.
+          ["4.9a", "SVR Staff Salaries", "staff_salaries"],
+          ["4.9b", "RTGS / Bank Charges", "rtgs_charges"],
+          ["4.9c", "Other Adjustment", "other_adjustment"],
           ["4.10", "Total Difference", { derived: "section4.total_difference" },
-            "On a day the bank returned money, THIS is the real difference - not 4.5"],
+            "THIS is the real difference, not 4.5 - it is what Close & Sign Off checks"],
         ],
       },
     ],
@@ -257,6 +263,24 @@ export const SECTIONS = [
           ["sent_by", "Sent to SVR and Bank Statement to Group Email"],
         ],
         optionList: "staff",
+      },
+      {
+        // Client, 2026-09-16: two checks answered before Close & Sign Off.
+        // Section 8 renders above the posting block and the sign-off controls,
+        // so this is the last thing on the form before them.
+        //
+        // "Off Load Testing performed by" has its own list, not `staff`: staff
+        // is who prepares and verifies the trial balance, which is a different
+        // question with different people - Sarath is on this one and not that.
+        // The "+ New Name" button writes to that list, as asked.
+        type: "signoff",
+        title: "8.10 Before Close & Sign Off",
+        rows: [
+          ["density_reports_updated", "Density Reports updated?", "yes_no"],
+          ["offload_tested_by", "Off Load Testing MS & HS performed by",
+            "offload_testers"],
+        ],
+        optionList: "offload_testers",
       },
     ],
   },

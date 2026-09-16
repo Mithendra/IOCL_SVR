@@ -221,13 +221,17 @@ function gridBlock(sectionKey, block) {
 }
 
 function signoffBlock(sectionKey, block) {
+  // A row may name its own list. "Density Reports updated?" is a yes/no while
+  // the row under it is a list of people, and both live in the same block.
   const rows = block.rows
-    .map(
-      ([key, label]) =>
+    .map(([key, label, listKey]) => {
+      const list = listKey || block.optionList;
+      return (
         `<tr><td>${label}</td><td>` +
-        `<select data-manual="${esc(`${sectionKey}.${key}`)}" data-list="${esc(block.optionList)}">` +
-        `${optionMarkup(block.optionList, null)}</select></td></tr>`
-    )
+        `<select data-manual="${esc(`${sectionKey}.${key}`)}" data-list="${esc(list)}">` +
+        `${optionMarkup(list, null)}</select></td></tr>`
+      );
+    })
     .join("");
   return (
     `<div class="tb-block-title">${block.title}</div>` +

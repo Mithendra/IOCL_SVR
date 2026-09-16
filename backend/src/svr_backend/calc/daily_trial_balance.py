@@ -284,9 +284,28 @@ def derive_manual(
             "diff": s4_diff,
             "expenses_total": _rows_total(s4.get("expenses")),
             "remittance_total": _rows_total(s4.get("remittance")),
-            # The sheet's side panel: Difference Amount less the Yes Bank return.
-            # SEP12: 8516.1478 - 8525.95 = -9.8022.
-            "total_difference": round4(s4_diff - _n(s4.get("yesbank_return"))),
+            # The sheet's side panel. It started as Difference less the Yes
+            # Bank return (SEP12: 8516.1478 - 8525.95 = -9.8022) and the client
+            # extended it on SEP16 with two more lines, because the raw
+            # difference had stopped meaning anything on its own:
+            #
+            #   F54  =D53              -37,578.64   the raw difference
+            #   F55  SVR Staff Salaries  37,500.00   paid, not yet counted
+            #   F56  RTGS Charges            58.00   a real bank charge
+            #   F57  =SUM(F54:F56)          -20.64   THE TRUE DIFFERENCE
+            #
+            # Every line here is money that left the business but has not landed
+            # in the counted cash or bank balance yet, so each one ADDS back. The
+            # escalation check reads this figure, never D53 - on SEP16 the raw
+            # difference was 37,578.64 against a true 20.64, and demanding a
+            # reason for that would be asking about money that was never missing.
+            "total_difference": round4(
+                s4_diff
+                - _n(s4.get("yesbank_return"))
+                + _n(s4.get("staff_salaries"))
+                + _n(s4.get("rtgs_charges"))
+                + _n(s4.get("other_adjustment"))
+            ),
         },
         "section7": {
             # D77 = K4 - Today's Profit Including 2T Sales is section 1's own

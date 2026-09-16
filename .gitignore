@@ -56,3 +56,10 @@ Thumbs.db
 # (2026-09-13); delete these two lines only with the owner's say-so.
 docs/01-BRD-Requirement-Gathering/ocr-samples/SVR_DSR_13SEP26/Account_Statement_Last_10_transactions-3.pdf
 docs/01-BRD-Requirement-Gathering/ocr-samples/SVR_DSR_13SEP26/AccountStatement-4.pdf
+docs/01-BRD-Requirement-Gathering/ocr-samples/SEP14/AccountStatement-5.pdf
+
+# SEP16 bank statements - confidential, uploaded for read-only review only
+# (client, 2026-09-16). This repo is PUBLIC.
+docs/01-BRD-Requirement-Gathering/ocr-samples/SEP16/Account Statement - SVR INDIANOIL SERVICE STATION.pdf
+docs/01-BRD-Requirement-Gathering/ocr-samples/SEP16/AccountStatement.pdf
+docs/01-BRD-Requirement-Gathering/ocr-samples/SEP16/Account_Statement_Last_10_transactions.pdf

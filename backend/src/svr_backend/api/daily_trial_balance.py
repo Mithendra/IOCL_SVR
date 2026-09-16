@@ -756,9 +756,17 @@ def _cash_book_difference(computed: dict, manual: dict) -> tuple[float | None, s
     # sign-off, which is not what the escalation rule is for.
     if not s4 or is_blank(manual_s4.get("reported")):
         return None, ""
-    returned = manual_s4.get("yesbank_return")
-    if returned not in (None, "", 0):
-        return s4.get("total_difference"), "4.10 Total Difference (after the bank return)"
+    # 4.10 whenever ANY line of the side panel is filled in, not just a bank
+    # return. The client extended that panel on SEP16 with staff salaries and
+    # RTGS charges, and the raw difference read -37,578.64 against a true
+    # -20.64. Reading 4.5 there would demand a reason for money that was never
+    # missing - the same trap as SEP12's bank return, one month wider.
+    adjusted = any(
+        manual_s4.get(k) not in (None, "", 0)
+        for k in ("yesbank_return", "staff_salaries", "rtgs_charges", "other_adjustment")
+    )
+    if adjusted:
+        return s4.get("total_difference"), "4.10 Total Difference (after adjustments)"
     return s4.get("diff"), "4.5 Diff Reported - Projected"
 
 

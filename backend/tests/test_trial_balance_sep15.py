@@ -111,3 +111,51 @@ def test_only_the_nozzles_that_ran_draw_testing():
     assert round(der_one["section1"]["total_sale_amt"], 4) == round(2870.69799999968, 4)
     assert round(der_one["section1"]["total_sale_amt"]
                  - der_two["section1"]["total_sale_amt"], 2) == 33.75
+
+
+# --- SEP16's difference panel -------------------------------------------------
+
+
+def test_sep16_panel_reduces_a_37578_difference_to_2064():
+    """The client's own SEP16 figures. Their side panel grew two lines this
+    month, and the raw difference stopped meaning anything on its own:
+
+        F54  =D53               -37,578.64   the raw difference
+        F55  SVR Staff Salaries  37,500.00   paid, not yet counted
+        F56  RTGS Charges            58.00   confirmed on the Indian Bank
+                                             statement, 15 Sep: "Txn Amt
+                                             16,88,000.00 Charges 58.00 /RTGS/"
+        F57  =SUM(F54:F56)          -20.64   THE TRUE DIFFERENCE
+
+    I read D53, called the day 37,578 out, and argued with the client's own
+    20.64 before finding the panel that already explained it.
+    """
+    from svr_backend.calc.daily_trial_balance import derive_manual
+
+    d = derive_manual(
+        {"section4": {
+            "yesterday": 2305795.0999999996,
+            "todaysale": 171762.2496,
+            "reported": 2439978.7099999995,
+            "staff_salaries": 37500,
+            "rtgs_charges": 58,
+        }},
+        0.0, 102, None, {"sales_total": None},
+    )["section4"]
+    assert round(d["diff"], 2) == -37578.64            # 4.5, the raw figure
+    assert round(d["total_difference"], 2) == -20.64   # 4.10, the truth
+    assert abs(d["total_difference"]) < 50             # inside the escalation limit
+
+
+def test_the_panel_still_handles_a_bank_return_on_its_own():
+    """SEP12's case must keep working: 4.5 read 8,516.15 where the truth was
+    -9.80, because Yes Bank had returned 8,525.95."""
+    from svr_backend.calc.daily_trial_balance import derive_manual
+
+    d = derive_manual(
+        {"section4": {"yesterday": 1861869.74, "todaysale": 125594.5722,
+                      "reported": 1995980.46, "yesbank_return": 8525.95}},
+        0.0, 416, None, {"sales_total": None},
+    )["section4"]
+    assert round(d["diff"], 2) == 8516.15
+    assert round(d["total_difference"], 2) == -9.80
