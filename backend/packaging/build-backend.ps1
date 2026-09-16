@@ -32,7 +32,23 @@ try {
     Write-Host "Installing build dependencies (svr-backend[build,win]) ..."
     & $py -m pip install --upgrade pip
     & $py -m pip install -e ".[build,win]"
+    # pip is a native exe, so a failure here does NOT trip $ErrorActionPreference.
+    # This bit me on the 0.1.2 build: a running dev backend held
+    # .venv\Scripts\svr-backend.exe, so pip uninstalled svr-backend and then
+    # could not reinstall it (WinError 32). The build carried on, PyInstaller's
+    # collect_submodules("svr_backend") found nothing, and the freeze only failed
+    # 3 minutes later at the smoke test with "No module named 'svr_backend'" -
+    # an error that points nowhere near the real cause.
+    if ($LASTEXITCODE -ne 0) {
+      throw "pip install -e .[build,win] failed ($LASTEXITCODE) - the frozen exe would be missing svr_backend. If this is WinError 32, a running svr-backend.exe or python.exe is holding the venv; stop it and re-run."
+    }
   }
+
+  # Prove the package is importable and the module graph is whole BEFORE spending
+  # three minutes freezing it. Same reason: fail where the cause is visible.
+  Write-Host "Checking svr_backend is importable in the build env ..."
+  & $py -c "import svr_backend, svr_backend.app; from PyInstaller.utils.hooks import collect_submodules as c; m = c('svr_backend'); assert len(m) > 40, 'only %d svr_backend submodules collected' % len(m); print('svr_backend OK - %d submodules' % len(m))"
+  if ($LASTEXITCODE -ne 0) { throw "svr_backend is not importable in $py - fix the env before freezing" }
 
   # Clean previous output so a stale exe can never ship.
   foreach ($d in @("build", "dist")) {
