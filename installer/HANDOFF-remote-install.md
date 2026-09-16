@@ -1,4 +1,4 @@
-# HANDOFF — install build 0.1.3 on the remote PC and run the two-day test
+# HANDOFF — install build 0.1.4 on the remote PC and run the two-day test
 
 **Written:** 2026-09-16 · **Repo:** `https://github.com/Mithendra/IOCL_SVR.git` ·
 **Branch:** `main`
@@ -22,14 +22,14 @@ through Daily Sales Summary, and reconcile in Daily Trial Balance — by hand,
 against the station's own tabs, to the paisa. §4 is the actual work.
 
 ```
-C:\Mithendra\SVR\installer\output\SVR-IOCL-Station-Setup-0.1.3.exe
+C:\Mithendra\SVR\installer\output\SVR-IOCL-Station-Setup-0.1.4.exe
 ```
 
 - **Unsigned** — by decision (no cert; SmartScreen → *More info* → *Run anyway*
   once). Same as every build so far.
 - **Not in git** (`installer/output/` is ignored). Transfer it the same way as
   last time (Google Drive).
-- The previously installed build is **0.1.1**. Install 0.1.3 straight over it —
+- The previously installed build is **0.1.1**. Install 0.1.4 straight over it —
   no uninstall needed. The installer leaves the database alone; §3 then replaces
   it deliberately, because this round starts from an empty database.
 
@@ -73,7 +73,7 @@ rates and inventory.
 ## 2. Install
 
 1. `git pull` this repo so the session has the current scripts and docs.
-2. Right-click `SVR-IOCL-Station-Setup-0.1.3.exe` → **Run as administrator**.
+2. Right-click `SVR-IOCL-Station-Setup-0.1.4.exe` → **Run as administrator**.
    SmartScreen → *More info* → *Run anyway* (unsigned, expected).
 3. Accept the defaults. On the last page `installer.nsh` runs `first-run.ps1`
    elevated — idempotent: re-applies config, runs the outstanding migrations,
@@ -164,9 +164,12 @@ rows 19-25. Two of these look wrong and are not:
   the client's instruction (migration `0033`).
 
 **2. The SEP15 opening balance.** With an empty database there is no SEP14 to
-carry forward from, so 4.1 has to be typed: **2,217,954.86** (SEP14's `D52`).
-SEP16's 4.1 should then carry itself across from SEP15's close — check that it
-does, because that is one of the things under test.
+carry forward from, so 4.1 has to be typed once: **2,217,954.86** (SEP14's
+`D52`). SEP16's 4.1 then carries itself across from SEP15's close — 0.1.4 is
+the first build that does this. Until now the operator retyped it every day,
+which is the hand-typed cross-day reference ADR-2 was written to abolish; it was
+found by rehearsing this very test. Check it lands on **2,305,795.10** without
+being typed.
 
 **3. Testing litres.** Both tabs read `=E3-5` and `=E4-5`, so on each day only
 **one nozzle per fuel** drew testing. In the app that happens when the other
@@ -240,6 +243,15 @@ correctly, because on the figures it can see the day is 37,578 out.
 
 SEP15 is the control: it balances to 0.00 with nothing in the panel at all.
 
+**Expect 4.10 to read -12.16 on SEP16, not -20.64, and do not log it as a bug.**
+This was rehearsed here before the build went out. The whole 8.47 sits in 4.2:
+the road DSR prints `O22` = **1,485.30**, while the tab's hand-typed `D50` of
+171,762.2496 implies 1,476.83. The app computes 4.2 from the DSR - the source
+document - so it gets 173,239.0796 - 1,485.30 = **171,753.77** (truncated, as
+the station's sheets truncate). SEP15 has no such gap, so it is one day's
+typing rather than a formula. Both figures are well inside Rs 50 and the day
+closes cleanly either way. Worth asking the client which they want to stand.
+
 ### What counts as a pass
 
 Every headline figure matching the station's own tab, to the paisa, on both
@@ -251,7 +263,7 @@ match, **capture it and report it — don't adjust the app to make it agree.**
 
 ## 5. Record the results
 
-Add `### 5.13 Results (remote PC, 2026-09-16, build 0.1.3)` to `HANDOVER.md`:
+Add `### 5.13 Results (remote PC, 2026-09-16, build 0.1.4)` to `HANDOVER.md`:
 the install checks from §2, then a row per day per figure — what the app gave,
 what the tab says, and whether they match. Commit and push (branch → commit →
 `git checkout main` → `git merge --ff-only` → push → delete branch).
