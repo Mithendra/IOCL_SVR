@@ -19,7 +19,7 @@ The client set the test themselves:
 So this is not an install-and-tick exercise. **The install is step zero.** The
 test is whether two real days go in through the Excel DSR upload, come out
 through Daily Sales Summary, and reconcile in Daily Trial Balance — by hand,
-against the station's own tabs, to the paisa. §3 is the actual work.
+against the station's own tabs, to the paisa. §4 is the actual work.
 
 ```
 C:\Mithendra\SVR\installer\output\SVR-IOCL-Station-Setup-0.1.2.exe
@@ -30,7 +30,8 @@ C:\Mithendra\SVR\installer\output\SVR-IOCL-Station-Setup-0.1.2.exe
 - **Not in git** (`installer/output/` is ignored). Transfer it the same way as
   last time (Google Drive).
 - The previously installed build is **0.1.1**. Install 0.1.2 straight over it —
-  no uninstall, the DB file is untouched and the new migrations are additive.
+  no uninstall needed. The installer leaves the database alone; §3 then replaces
+  it deliberately, because this round starts from an empty database.
 
 ### What changed since 0.1.1
 
@@ -52,7 +53,7 @@ build is needed at all, rather than nice-to-haves:
    with **+ New Name** to add a tester permanently). Migration `0034`.
 3. **Section 9 keeps 7 days** — a purge button that deletes ledger rows older
    than 7 days, measured from the shift date on screen.
-4. **Build-script guards** — see §5. Doesn't affect the station; explains why
+4. **Build-script guards** — see §6. Doesn't affect the station; explains why
    the version jumped.
 
 Everything else carried over from 0.1.1: the posting engine (expenses and
@@ -70,8 +71,9 @@ rates and inventory.
 3. Accept the defaults. On the last page `installer.nsh` runs `first-run.ps1`
    elevated — idempotent: re-applies config, runs the outstanding migrations,
    restarts both services. A message box means it hit a problem; note the exit
-   code and go to §6.
-4. Skip user creation — the existing accounts are already in the DB.
+   code and go to §7.
+4. Skip the installer's user-creation page — §3 resets the database and makes
+   the account; anything created here would be wiped by that reset.
 5. **Fully quit SVR IOCL Station before relaunching** (check Task Manager). If
    you skip this you are still looking at the old Electron files and none of the
    form changes above will appear. This has caught us before.
@@ -89,7 +91,84 @@ it isn't there, the app didn't restart; go back to step 5.
 
 ---
 
-## 3. The test — two days, end to end
+## 3. Start from an empty database
+
+The client asked for this explicitly: the database should hold **SEP15 and SEP16
+and nothing else**, so what is on screen can be compared against the Excel tabs
+without older test data confusing the picture.
+
+A freshly migrated database is already clean. Every transactional table is empty
+— daily sales entries, summaries, trial balances, postings, monthly expenses,
+credit transactions and the audit log all sit at zero. What it does carry is
+reference data that *should* be there: the seven oil items and their rates, the
+seven expense categories, the dropdown lists, and the system parameters
+(testing 5 litres per nozzle, escalation threshold Rs 50).
+
+**The remote PC's existing database is not empty** — it still holds the Sep 9,
+10 and 12 rounds. Replace it, with both services stopped:
+
+```powershell
+Stop-Service SVR-IOCL-Backend, SVR-IOCL-Scheduler
+
+$db  = 'C:\ProgramData\SVR-IOCL\svr.sqlite'
+$exe = 'C:\Program Files\SVR IOCL Station\resources\backend\svr-backend.exe'
+
+Rename-Item $db 'svr.sqlite.before-sep15-test'   # keep it - do not delete
+& $exe migrate --db $db
+& $exe create-user --name owner --role Owner
+
+Start-Service SVR-IOCL-Backend, SVR-IOCL-Scheduler
+```
+
+Rename, never delete. If the test goes sideways that file is the only record of
+the earlier rounds.
+
+The `create-user` line matters: a fresh database has **no users at all**, so
+without it there is nothing to log in with. (Skip the installer's own
+user-creation page in §2 — this reset would wipe whatever it made.)
+
+### Three things to set before keying SEP15
+
+These are the places where a clean database does *not* already match the sheet.
+Each is a number to type, not a bug to report.
+
+**1. Opening stock.** The shipped inventory is seeded at **SEP15's closing**
+(with the Acid Water written off, as the client instructed). Neither day's
+opening matches it, so set the opening on the Inventory screen before each day.
+Manager or Owner can do it, and the field *replaces* rather than adds:
+
+| Oil item | SEP15 opens | SEP16 opens |
+|---|---|---|
+| 2T/1.50 ML | 0 | 0 |
+| **2T/2.40 ML** | **10** | **80** |
+| **Acid Water 1 Lt** | **64** | **0** |
+| Battery Water 1 Lt | 27 | 27 |
+| Battery Water 5 Lts | 18 | 18 |
+| 20/40 Engine 05 Lts | 38 | 38 |
+| 20/40 Engine 1 Lt | 0 | 0 |
+
+Read off the tabs themselves, column D (opening) against column E (closing),
+rows 19-25. Two of these look wrong and are not:
+
+- SEP15 closes 2T/2.40 at **5** but SEP16 opens it at **80**. That is the
+  restock the client flagged — *"there is an Oil Sale(s) inventory gap between
+  SEP15 and SEP16, please ignore it for today"* — not a carry-forward failure.
+- Acid Water goes **64 → 0** because the stock was expired and written off on
+  the client's instruction (migration `0033`).
+
+**2. The SEP15 opening balance.** With an empty database there is no SEP14 to
+carry forward from, so 4.1 has to be typed: **2,217,954.86** (SEP14's `D52`).
+SEP16's 4.1 should then carry itself across from SEP15's close — check that it
+does, because that is one of the things under test.
+
+**3. Testing litres.** Both tabs read `=E3-5` and `=E4-5`, so on each day only
+**one nozzle per fuel** drew testing. In the app that happens when the other
+pump files Current = Last on both its nozzles. File movement on all four and the
+app will deduct 10 per fuel and `K4` will not match — correctly so.
+
+---
+
+## 4. The test — two days, end to end
 
 Source files are in `docs/01-BRD-Requirement-Gathering/ocr-samples/`.
 
@@ -128,6 +207,32 @@ confirm the next day's draft was created with the carry-forward line.
 Master and confirm the rows are there, showing **Posted**. A credit that was
 settled the same day should read **Paid**.
 
+### The figures, both days
+
+Read off the client's own tabs. SEP15 is `SEP15/Trail_balance_15SEP2026.xlsx`;
+SEP16 is `SEP16/Trail_balance_16SEP2026_Revised_oil_Sale(s)_stock.xlsx`.
+
+| Cell | What it is | SEP15 | SEP16 |
+|---|---|---|---|
+| `G3` | HS after testing | 279.48 | 936.76 |
+| `G4` | MS after testing | 496.68 | 622.98 |
+| `K4` | Total Sale Amt | 2,870.6980 | 5,126.0808 |
+| `D49` | 4.1 Yesterday | 2,217,954.86 *(typed)* | 2,305,795.10 *(carried)* |
+| `D50` | 4.2 Today's Sale | 87,840.2488 | 171,762.2496 |
+| `D52` | 4.4 Reported | 2,305,795.10 | 2,439,978.71 |
+| `D53` | 4.5 raw difference | 0.00 | **-37,578.64** |
+| `F57` | **4.10 true difference** | 0.00 | **-20.64** |
+| `D69` | Stock Value | 1,009,926.14 | 846,697.80 |
+| `D74` | Net Worth | 3,315,721.24 | 3,286,676.51 |
+
+SEP16 is the interesting one. 4.5 reads -37,578.64 and 4.10 reads -20.64; the
+difference between them is 37,500.00 of staff salaries (4.9a) and 58.00 of RTGS
+charges (4.9b), the latter confirmed on the Indian Bank statement of 15 Sep.
+Fill 4.9a and 4.9b and the day closes; leave them out and the app will stop you,
+correctly, because on the figures it can see the day is 37,578 out.
+
+SEP15 is the control: it balances to 0.00 with nothing in the panel at all.
+
 ### What counts as a pass
 
 Every headline figure matching the station's own tab, to the paisa, on both
@@ -137,7 +242,7 @@ match, **capture it and report it — don't adjust the app to make it agree.**
 
 ---
 
-## 4. Record the results
+## 5. Record the results
 
 Add `### 5.13 Results (remote PC, 2026-09-16, build 0.1.2)` to `HANDOVER.md`:
 the install checks from §2, then a row per day per figure — what the app gave,
@@ -150,7 +255,7 @@ against.
 
 ---
 
-## 5. Ground rules (CLAUDE.md)
+## 6. Ground rules (CLAUDE.md)
 
 - **Commit/push only when asked.** Branch first if on `main`.
 - Plan Mode for any change touching more than 2–3 files or a shared formula.
@@ -162,7 +267,7 @@ against.
   `docs/01-BRD-Requirement-Gathering/ocr-samples/*/` that is a **bank or IOCL
   statement** — those are gitignored deliberately. **This repo is public.**
 
-## 6. If the install breaks
+## 7. If the install breaks
 
 | Symptom | Cause | Fix |
 |---|---|---|
@@ -173,7 +278,7 @@ against.
 | Close & Sign Off demands a reason for a large difference | check 4.9a/4.9b/4.9c are filled in — 4.10 is what's tested | if 4.10 is genuinely over Rs 50, that is a real discrepancy, not a UI problem |
 | Win10 `DLL load failed` / missing `VCRUNTIME140` | frozen on Win11 | install the VC++ 2015–2022 x64 redist on the target |
 
-## 7. Not in scope for this round
+## 8. Not in scope for this round
 
 Bank-statement reconciliation (not built). The PhonePe settlement identity check
 (*bank credit = today's settled + yesterday's unsettled*) — not built; the

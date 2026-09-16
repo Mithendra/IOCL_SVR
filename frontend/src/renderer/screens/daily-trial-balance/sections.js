@@ -72,7 +72,9 @@ export const SECTIONS = [
             "Included in the Total below (confirmed 2026-08-25, BRD 5.8.5)"],
           ["3.6", "Total", { derived: "section3.total6" }],
           ["3.7", "Old Cash + Current Day Total", { derived: "section3.total7" }],
-          ["3.8", "IOCL Card End Balance (-)", "iocl"],
+          ["3.8", "IOCL Card End Balance (-)", "iocl",
+            "Bank name and statement balance only - never an account number, " +
+            "IFSC, UPI handle or PAN (client, 2026-09-16)"],
           ["3.9", "Indian Bank Statement Ending Balance", "indianbank", "@Fraud pending"],
           ["3.10", "Yes Bank Statement Ending Balance", "yesbank"],
           ["3.11", "Phone Pay UnSettled Amt", "ppunsettled"],
