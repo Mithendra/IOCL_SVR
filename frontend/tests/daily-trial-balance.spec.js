@@ -970,3 +970,39 @@ test("posting gates Close & Sign Off, and the list carries days forward", async 
   // credit cannot, so it carries no tick box at all.
   await expect(mine.locator(".post-pick")).toHaveCount(1);
 });
+
+
+test("Section 9 keeps 7 days — older ledger rows can be deleted in one go", async ({ page }) => {
+  // Client, 2026-09-15: "we will keep max of 7 days; if there is a button to
+  // delete section 9 older than 7 days, that would be great." The ledger gains a
+  // row a day and was never pruned - by SEP15 their own sheet carried three
+  // weeks of them across 26 columns.
+  const DAY = "2026-01-03";
+  await login(page, "mmanager");
+  await page.goto(SCREEN);
+  await expect(page.locator("#body")).toBeVisible();
+  await openDate(page, DAY);
+
+  const rows = page.locator('[data-rows="section9.ledger"] tr');
+  const addRow = page.locator('[data-add-row="section9.ledger"]');
+  // The block already carries a blank row, and a row with no date is one still
+  // being typed - it must survive. Add three dated ones: two well outside the
+  // window, one inside it.
+  const started = await rows.count();
+  for (const d of ["2025-12-01", "2025-12-20", "2026-01-02"]) {
+    await addRow.click();
+    await rows.last().locator('[data-col="date"]').fill(d);
+  }
+  await expect(rows).toHaveCount(started + 3);
+
+  page.once("dialog", (d) => d.accept());
+  await page.locator('[data-purge="section9.ledger"]').click();
+
+  // Measured from the SHIFT DATE on screen, not today - reopening an old day
+  // must not wipe its ledger just because the calendar has moved on.
+  await expect(rows).toHaveCount(started + 1);
+  await expect(page.locator("#save-status")).toContainText("2 ledger row(s) removed");
+  const dates = await rows.locator('[data-col="date"]').evaluateAll(
+    (els) => els.map((e) => e.value).filter(Boolean));
+  expect(dates).toEqual(["2026-01-02"]);
+});

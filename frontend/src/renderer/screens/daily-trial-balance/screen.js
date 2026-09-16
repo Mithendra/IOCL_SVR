@@ -187,6 +187,10 @@ function rowsBlock(sectionKey, block) {
     `<div class="tb-actions">` +
     `<button type="button" class="add-row-btn" data-add-row="${esc(path)}">+ Add row</button>` +
     newOpt +
+    (block.keepDays
+      ? `<button type="button" class="add-row-btn" data-purge="${esc(path)}" ` +
+        `data-keep-days="${block.keepDays}">Delete rows older than ${block.keepDays} days</button>`
+      : "") +
     `</div>` +
     note
   );
@@ -278,6 +282,10 @@ function buildManualSections() {
   stampSection8();
   document.querySelectorAll("[data-add-row]").forEach((btn) => {
     btn.addEventListener("click", () => addRow(btn.dataset.addRow));
+  });
+  document.querySelectorAll("[data-purge]").forEach((btn) => {
+    btn.addEventListener("click", () =>
+      purgeOldLedgerRows(btn.dataset.purge, btn.dataset.keepDays));
   });
   // "+ New ..." reveals the inline box beside it; Add saves; Cancel closes.
   document.querySelectorAll("[data-add-option]").forEach((btn) => {
@@ -1284,6 +1292,45 @@ async function reopen() {
     st.className = "status-line err";
     st.textContent = `Reopen failed — ${err.message || err}`;
   }
+}
+
+
+// Section 9 is a running ledger that grows a row a day and is never pruned - by
+// SEP15 it already carried three weeks. The client keeps 7 days (2026-09-15), so
+// give them a button rather than asking anyone to delete rows by hand across a
+// horizontally-scrolling 26-column table.
+//
+// Measured from the SHIFT DATE on screen, not from today: reopening an old day
+// must not wipe its ledger just because the calendar has moved on.
+function purgeOldLedgerRows(path, keepDays) {
+  const anchor = val("tb-date");
+  if (!anchor) return;
+  const cutoff = new Date(anchor);
+  cutoff.setDate(cutoff.getDate() - Number(keepDays));
+  const body = document.querySelector(`[data-rows="${path}"]`);
+  if (!body) return;
+
+  const doomed = [...body.querySelectorAll("tr")].filter((tr) => {
+    const cell = tr.querySelector('[data-col="date"]');
+    const raw = cell && cell.value && cell.value.trim();
+    if (!raw) return false;           // a blank date is a row still being typed
+    const when = new Date(raw);
+    return !Number.isNaN(when.getTime()) && when < cutoff;
+  });
+  if (!doomed.length) {
+    const st = $("save-status");
+    st.className = "status-line";
+    st.textContent = `No ledger rows older than ${keepDays} days.`;
+    return;
+  }
+  if (!window.confirm(
+    `Delete ${doomed.length} ledger row(s) dated before ` +
+    `${cutoff.toISOString().slice(0, 10)}? Save afterwards to keep the change.`
+  )) return;
+  for (const tr of doomed) tr.remove();
+  const st = $("save-status");
+  st.className = "status-line ok";
+  st.textContent = `${doomed.length} ledger row(s) removed — press Save to keep it.`;
 }
 
 async function init() {

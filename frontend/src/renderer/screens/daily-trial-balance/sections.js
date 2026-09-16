@@ -272,6 +272,10 @@ export const SECTIONS = [
         type: "rows",
         key: "ledger",
         wide: true,
+        // Client, 2026-09-15: keep 7 days. The ledger gains a row a day and was
+        // never pruned - by SEP15 the client's own sheet carried three weeks of
+        // them across 26 columns.
+        keepDays: 7,
         columns: MGR_CALC_COLUMNS.map(([key, label]) => ({ key, label })),
       },
     ],
