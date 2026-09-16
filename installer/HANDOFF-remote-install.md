@@ -1,4 +1,4 @@
-# HANDOFF — install build 0.1.2 on the remote PC and run the two-day test
+# HANDOFF — install build 0.1.3 on the remote PC and run the two-day test
 
 **Written:** 2026-09-16 · **Repo:** `https://github.com/Mithendra/IOCL_SVR.git` ·
 **Branch:** `main`
@@ -22,14 +22,14 @@ through Daily Sales Summary, and reconcile in Daily Trial Balance — by hand,
 against the station's own tabs, to the paisa. §4 is the actual work.
 
 ```
-C:\Mithendra\SVR\installer\output\SVR-IOCL-Station-Setup-0.1.2.exe
+C:\Mithendra\SVR\installer\output\SVR-IOCL-Station-Setup-0.1.3.exe
 ```
 
 - **Unsigned** — by decision (no cert; SmartScreen → *More info* → *Run anyway*
   once). Same as every build so far.
 - **Not in git** (`installer/output/` is ignored). Transfer it the same way as
   last time (Google Drive).
-- The previously installed build is **0.1.1**. Install 0.1.2 straight over it —
+- The previously installed build is **0.1.1**. Install 0.1.3 straight over it —
   no uninstall needed. The installer leaves the database alone; §3 then replaces
   it deliberately, because this round starts from an empty database.
 
@@ -53,8 +53,15 @@ build is needed at all, rather than nice-to-haves:
    with **+ New Name** to add a tester permanently). Migration `0034`.
 3. **Section 9 keeps 7 days** — a purge button that deletes ledger rows older
    than 7 days, measured from the shift date on screen.
-4. **Build-script guards** — see §6. Doesn't affect the station; explains why
-   the version jumped.
+4. **Bank names, balances only.** The three banks were already named text with a
+   statement balance (3.8 IOCL, 3.9 Indian Bank, 3.10 Yes Bank); migration
+   `0035` seeds those names as a list, and a test now fails the build if an
+   account number, IFSC code, UPI handle, PAN or MICR ever reaches a migration,
+   seed or screen. Client, 2026-09-16: *"Do not want expose those details in
+   the application JUST STATEMENT BALANCE ONLY."* Nothing to check during the
+   test beyond: if you ever see an account number on screen, that is a defect.
+5. **Build-script guards** — see §6. Doesn't affect the station; explains why
+   the version jumped twice in one day.
 
 Everything else carried over from 0.1.1: the posting engine (expenses and
 credits post to their master forms at Close & Sign Off, and sign-off is blocked
@@ -66,7 +73,7 @@ rates and inventory.
 ## 2. Install
 
 1. `git pull` this repo so the session has the current scripts and docs.
-2. Right-click `SVR-IOCL-Station-Setup-0.1.2.exe` → **Run as administrator**.
+2. Right-click `SVR-IOCL-Station-Setup-0.1.3.exe` → **Run as administrator**.
    SmartScreen → *More info* → *Run anyway* (unsigned, expected).
 3. Accept the defaults. On the last page `installer.nsh` runs `first-run.ps1`
    elevated — idempotent: re-applies config, runs the outstanding migrations,
@@ -244,7 +251,7 @@ match, **capture it and report it — don't adjust the app to make it agree.**
 
 ## 5. Record the results
 
-Add `### 5.13 Results (remote PC, 2026-09-16, build 0.1.2)` to `HANDOVER.md`:
+Add `### 5.13 Results (remote PC, 2026-09-16, build 0.1.3)` to `HANDOVER.md`:
 the install checks from §2, then a row per day per figure — what the app gave,
 what the tab says, and whether they match. Commit and push (branch → commit →
 `git checkout main` → `git merge --ff-only` → push → delete branch).
