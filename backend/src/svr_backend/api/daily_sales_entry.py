@@ -15,7 +15,7 @@ import sqlite3
 from datetime import date
 
 from fastapi import APIRouter, Depends, File, HTTPException, Response, UploadFile, status
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from svr_backend import oil_items
 from svr_backend.calc.daily_sales_entry import compute_payload
@@ -41,7 +41,26 @@ TABLE = "daily_sales_entry"
 
 
 class CalcRequest(BaseModel):
-    """The section 1-7 form, loosely typed - mirrors the mockup's field graph."""
+    """The section 1-7 form, loosely typed - mirrors the mockup's field graph.
+
+    UNKNOWN FIELDS ARE REFUSED. Pydantic's default is to drop anything it does
+    not recognise, and on a form where every field is money that is a silent
+    data loss: posting `phone_pay_not_settled` instead of `phone_pay_unsettled`
+    returned 201 Created, dropped the 2,525, and Net Bal came back 17,506.77
+    against the correct 14,981.77 - with no error anywhere. Found by making that
+    exact typo against the running app on 2026-09-14.
+
+    A rejected save is recoverable; a wrong figure saved silently is not.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    # Retired 2026-09-12, declared purely so it stays TOLERATED now that unknown
+    # fields are refused. An older client or an older exported workbook may still
+    # send it; the value is ignored rather than 422-ing a save that is otherwise
+    # perfectly good. The money it recorded is carried by the Expenses row "Last
+    # Night Cash Hand-off Person's Name-Signature-Amount".
+    night_cash: object = None
 
     hs: dict = Field(default_factory=dict)
     ms: dict = Field(default_factory=dict)

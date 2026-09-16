@@ -635,3 +635,61 @@ def test_a_day_with_no_entry_falls_back_to_the_flat_parameter(client, auth_heade
     assert view["pulled"]["testing_basis"] == "parameter"
     assert view["pulled"]["testing_nozzles_hs"] is None
     assert view["pulled"]["testing_deduction"] > 0
+
+
+def test_the_cash_book_difference_is_checked_at_sign_off(client, auth_headers):
+    """Section 4's own escalation, which was never checked here at all - only
+    Section 7's projected total was, so a cash/book difference of any size signed
+    off in silence. The sheet carries the rule on its face at E53."""
+    day = "2026-10-28"
+    h = auth_headers("Manager")
+    client.put(f"/daily-trial-balance/{day}", json={
+        "s1_hs_current": 60,
+        "manual": {"section4": {"yesterday": 100000, "todaysale": 5000, "reported": 104250}},
+    }, headers=h)
+    # 104,250 reported against 105,000 projected = -750, well beyond Rs 50.
+    blocked = client.post(f"/daily-trial-balance/{day}/finalize", headers=h)
+    assert blocked.status_code == 422, blocked.text
+    assert "4.5 Diff Reported - Projected" in blocked.json()["detail"]
+
+    ok = client.post(f"/daily-trial-balance/{day}/finalize",
+                     json={"reason": "Counted short, recount in the morning"}, headers=h)
+    assert ok.status_code == 200, ok.text
+
+
+def test_on_a_bank_return_day_it_reads_4_10_not_4_5(client, auth_headers):
+    """SEP12 is the case this exists for: 4.5 read 8,516.15 where the real figure
+    was -9.80, because Yes Bank had returned 8,525.95. Checking 4.5 there would
+    demand a reason for money that was never missing."""
+    day = "2026-10-29"
+    h = auth_headers("Manager")
+    view = client.put(f"/daily-trial-balance/{day}", json={
+        "s1_hs_current": 60,
+        "manual": {"section4": {
+            "yesterday": 100000, "todaysale": 5000, "reported": 113516.15,
+            "yesbank_return": 8525.95,
+        }},
+    }, headers=h).json()
+    s4 = view["computed"]["derived"]["section4"]
+    assert round(s4["diff"], 2) == 8516.15          # 4.5 - looks alarming
+    assert round(s4["total_difference"], 2) == -9.80  # 4.10 - the truth
+
+    # 4.10 is inside the limit, so sign-off goes through with no reason asked.
+    ok = client.post(f"/daily-trial-balance/{day}/finalize", headers=h)
+    assert ok.status_code == 200, ok.text
+
+
+def test_closing_without_a_verified_summary_warns_but_is_allowed(client, auth_headers):
+    """Hard-gating sign-off on the Summary was raised with the client twice and
+    never decided, so it is NOT imposed - and their own fallback is that a
+    Manager may close a day when the maker is off. What was wrong was that
+    `summary_status` had been returned since this endpoint was built and nothing
+    ever looked at it, so a day could close on unverified figures in silence."""
+    day = "2026-10-30"
+    h = auth_headers("Manager")
+    client.put(f"/daily-trial-balance/{day}", json={"s1_hs_current": 60}, headers=h)
+    out = client.post(f"/daily-trial-balance/{day}/finalize", headers=h)
+    assert out.status_code == 200, "a warning, never a refusal"
+    note = out.json().get("summary_note", "")
+    assert "No Daily Sales Entry" in note
+    assert "Closed anyway, which is allowed" in note

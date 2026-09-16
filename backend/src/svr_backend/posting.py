@@ -284,3 +284,42 @@ def clear_lines(conn: sqlite3.Connection, ids: list[int], actor: str) -> int:
         [actor, now, actor, now, *ids],
     )
     return cur.rowcount
+
+
+def unpost_day(conn: sqlite3.Connection, shift_date: str, actor: str) -> dict:
+    """Undo a day's postings, so a signed-off day can be corrected.
+
+    Deletes the rows this day put into the master forms and returns its lines to
+    'not_posted'. Without this, the first correction to a closed day would leave
+    a duplicate expense in Monthly Expenses and a creditor's balance counted
+    twice - the reverse-and-reapply rule the client approved for the Inventory
+    sync, applied here.
+
+    A credit already marked PAID is NOT touched. Its remittance came in on some
+    other day, which is not the day being corrected, and silently un-settling it
+    would resurrect a debt the creditor has already cleared.
+    """
+    rows = conn.execute(
+        f"SELECT * FROM {TABLE} WHERE shift_date = ? AND status = 'posted'", (shift_date,)
+    ).fetchall()
+    removed = 0
+    for row in rows:
+        if row["target_table"] and row["target_id"]:
+            cur = conn.execute(
+                f"DELETE FROM {row['target_table']} WHERE id = ?", (row["target_id"],)
+            )
+            removed += cur.rowcount
+            record_write(conn, table=row["target_table"], record_id=row["target_id"],
+                         action="delete", actor=actor,
+                         old={"amount": row["amount"], "from": "daily-trial-balance"})
+        conn.execute(
+            f"UPDATE {TABLE} SET status = 'not_posted', target_table = NULL, "
+            "target_id = NULL, posted_by = NULL, posted_at = NULL, "
+            "last_updated_by = ?, last_updated_at = ? WHERE id = ?",
+            (actor, _now(), row["id"]),
+        )
+    kept = conn.execute(
+        f"SELECT COUNT(*) c FROM {TABLE} WHERE shift_date = ? AND status = 'paid'",
+        (shift_date,),
+    ).fetchone()["c"]
+    return {"unposted": len(rows), "removed_from_masters": removed, "left_paid": kept}

@@ -1249,12 +1249,40 @@ async function finalize() {
     render(await api.post(`/daily-trial-balance/${$("tb-date").value}/finalize`, body));
     st.className = "status-line ok";
     st.textContent = "Closed & Signed Off. Tomorrow's entry has been created and seeded.";
+    loadPostings();
   } catch (err) {
     st.className = "status-line err";
     // A 422 here means the +/-Rs100 threshold was breached with no reason entered
     // (ADR-2 Decision step 1) - err.message already carries the backend's exact
     // variance figure, so the maker/checker can read it and fill in Reason above.
     st.textContent = `Close & Sign Off failed — ${err.message || err}`;
+  }
+}
+
+
+// Reopen a signed-off day. Owner only, and the server enforces that - this is
+// only about not showing a button that cannot work. Reopening UN-POSTS the day,
+// so the rows it put into Monthly Expenses and Credit / Remittance Master are
+// removed and the correction re-posts cleanly instead of duplicating.
+async function reopen() {
+  const st = $("finalize-status");
+  const date = val("tb-date");
+  if (!window.confirm(
+    `Reopen ${date}? Its posted lines will be taken back out of Monthly Expenses ` +
+    "and Credit / Remittance Master so they can be posted again after the correction."
+  )) return;
+  try {
+    const out = await api.post(`/daily-trial-balance/${date}/reopen`, {});
+    st.className = "status-line ok";
+    st.textContent =
+      `Reopened. ${out.unposted} line(s) un-posted, ` +
+      `${out.removed_from_masters} row(s) removed from the master forms` +
+      (out.left_paid ? `, ${out.left_paid} already-paid credit(s) left alone.` : ".");
+    await load();
+    loadPostings();
+  } catch (err) {
+    st.className = "status-line err";
+    st.textContent = `Reopen failed — ${err.message || err}`;
   }
 }
 
@@ -1283,10 +1311,17 @@ async function init() {
     $("finalize-block").style.display = "none";
     $("finalize-fields").style.display = "none";
     $("finalize-btn").style.display = "none";
+    $("reopen-btn").style.display = "none";
   } else {
     $("role-tag").textContent = "Checker — can Close & Sign Off";
     $("finalize-btn").addEventListener("click", finalize);
     $("post-btn").addEventListener("click", postDay);
+    // Reopen is Owner-only; the server refuses anyone else regardless.
+    if (me && me.role === "Owner") {
+      $("reopen-btn").addEventListener("click", reopen);
+    } else {
+      $("reopen-btn").style.display = "none";
+    }
     $("clear-posted-btn").addEventListener("click", clearPosted);
     $("post-check-all").addEventListener("change", (e) => {
       for (const c of document.querySelectorAll(".post-pick")) c.checked = e.target.checked;

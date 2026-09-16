@@ -34,6 +34,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response, status
 from pydantic import BaseModel
 
 from svr_backend import oil_items, posting
+from svr_backend.calc.amounts import is_blank
 from svr_backend.calc.daily_trial_balance import (
     Section1Input,
     TrialBalanceInput,
@@ -49,6 +50,7 @@ from svr_backend.excel.trial_balance_section8 import (
     build_section8_workbook,
     section8_message,
 )
+from svr_backend.inventory import sync_from_daily_sales
 from svr_backend.params import get_param
 from svr_backend.rates import latest_effective_rates
 from svr_backend.summary import (
@@ -649,6 +651,56 @@ def post_to_masters(
     return {"shift_date": shift_date, **out, "lines": posting.open_lines(conn)}
 
 
+@router.post("/{shift_date}/reopen")
+def reopen_trial_balance(
+    shift_date: str,
+    principal: Principal = Depends(require("Owner")),
+    conn: sqlite3.Connection = Depends(get_db),
+) -> dict:
+    """Reopen a signed-off day so it can be corrected.
+
+    Until now a finalized day was locked forever with no way back, which is fine
+    until someone signs off a wrong figure - and during live testing that will
+    happen. Owner only, and audited.
+
+    Reopening UN-POSTS the day: the rows it put into Monthly Expenses and Credit
+    / Remittance Master are removed and its lines return to Not Posted, so the
+    correction re-posts cleanly instead of duplicating. A credit already marked
+    Paid is left alone - its remittance came in on another day.
+
+    Refused while a LATER day is already closed. ADR-2's whole point is that a
+    day is built on the one before it; reopening underneath a closed day would
+    leave that day's carried figures pointing at something that no longer exists.
+    """
+    row = conn.execute(f"SELECT * FROM {TABLE} WHERE shift_date = ?", (shift_date,)).fetchone()
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No Trial Balance for this date")
+    if row["status"] != "finalized":
+        raise HTTPException(status.HTTP_409_CONFLICT, "That day is not closed - nothing to reopen")
+    later = conn.execute(
+        f"SELECT shift_date FROM {TABLE} WHERE shift_date > ? AND status = 'finalized' "
+        "ORDER BY shift_date LIMIT 1", (shift_date,)
+    ).fetchone()
+    if later is not None:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            f"{later['shift_date']} is already closed and is built on this day. "
+            f"Reopen {later['shift_date']} first, in reverse order.",
+        )
+    with transaction(conn):
+        out = posting.unpost_day(conn, shift_date, principal.login_name)
+        conn.execute(
+            f"UPDATE {TABLE} SET status = 'draft', finalized_by = NULL, finalized_at = NULL, "
+            "last_updated_by = ?, last_updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') "
+            "WHERE shift_date = ?",
+            (principal.login_name, shift_date),
+        )
+        record_write(conn, table=TABLE, record_id=row["id"], action="update",
+                     actor=principal.login_name,
+                     old={"status": "finalized"}, new={"status": "draft", **out})
+    return {"shift_date": shift_date, "status": "draft", **out}
+
+
 @router.get("/postings/open")
 def open_postings(
     month: str | None = None,
@@ -679,6 +731,35 @@ def clear_postings(
     with transaction(conn):
         cleared = posting.clear_lines(conn, body.ids, principal.login_name)
     return {"cleared": cleared, "lines": posting.open_lines(conn)}
+
+
+
+def _cash_book_difference(computed: dict, manual: dict) -> tuple[float | None, str]:
+    """Section 4's difference, and which line it came from.
+
+    4.10 Total Difference when the bank returned money that day, 4.5 otherwise.
+    Returns (None, "") when Section 4 has not been filled in - a day with no cash
+    reconciliation yet is not a day with a zero difference.
+
+    `manual` is passed separately because the two live in different columns:
+    the computed figures in result_json, the operator's own entries in
+    manual_json. Reading `yesbank_return` off the wrong one silently made every
+    day look like a non-return day.
+    """
+    s4 = ((computed or {}).get("derived") or {}).get("section4") or {}
+    manual_s4 = (manual or {}).get("section4") or {}
+    # 4.4 "Today SVR Cash/Book Value Reported" is what the difference is measured
+    # against, so without it there is no reconciliation to check. Section 4's
+    # derived block always exists - 4.2 is computed from the day's own entries
+    # now - so its mere presence proves nothing about whether anyone counted the
+    # cash. Testing that instead made a day with no Section 4 at all fail
+    # sign-off, which is not what the escalation rule is for.
+    if not s4 or is_blank(manual_s4.get("reported")):
+        return None, ""
+    returned = manual_s4.get("yesbank_return")
+    if returned not in (None, "", 0):
+        return s4.get("total_difference"), "4.10 Total Difference (after the bank return)"
+    return s4.get("diff"), "4.5 Diff Reported - Projected"
 
 
 @router.post("/{shift_date}/finalize")
@@ -716,6 +797,7 @@ def finalize_trial_balance(
     # best-effort check, not a hard requirement, until that figure is wired up.
     result = json.loads(row["result_json"]) if row["result_json"] else {}
     reported_total = result.get("section7", {}).get("7_3_total")
+    ctx_for_finalize = _context(conn, shift_date, row)
     threshold = get_param(conn, "trial_balance_alert_threshold", 100.0, as_of=shift_date)
     variance = None
     if body.projected_total is not None and reported_total is not None:
@@ -728,9 +810,67 @@ def finalize_trial_balance(
                 "Enter a reason to sign off anyway.",
             )
 
+    # The day's own source data has to be signed off before the day built on it
+    # is. `summary_status` has been returned by this endpoint since it was built
+    # and nothing ever looked at it, so a Trial Balance could be closed on
+    # figures nobody had checked.
+    #
+    # A WARNING, NEVER A REFUSAL. Hard-gating sign-off on the Summary was raised
+    # with the client twice and never decided, so it is not imposed here - and
+    # their own stated fallback is that a Manager may enter and close a day when
+    # the maker is off. Refusing would strand exactly that case.
+    #
+    # What was wrong was saying nothing at all. The state is reported on the way
+    # out so it is on the record and on the screen.
+    summary_status = ctx_for_finalize["summary_status"]
+    s3_source = ctx_for_finalize["s3_source"]
+
+    # Section 4's own escalation, which was never checked here at all. The sheet
+    # carries the rule on its face at E53 - "Anything Above Rs 100 Call/inform
+    # mgmt immediately" - and until now only Section 7's projected total was
+    # tested, so a cash/book difference of any size signed off in silence.
+    #
+    # ON A BANK-RETURN DAY, 4.5 IS THE WRONG LINE TO READ. When the bank sends
+    # money back, 4.5 carries the whole return and 4.10 (4.5 less the return) is
+    # the real difference. SEP12 is the case: 4.5 read 8,516.15 where the true
+    # figure was -9.80. Checking 4.5 there would demand a reason for money that
+    # was never missing.
+    # Recomputed, not read back from result_json - the derived block is built for
+    # the response and has never been stored, so reading it from the row returned
+    # an empty dict and this check silently never fired. Recomputing is the right
+    # behaviour regardless: sign-off must test what the figures ARE now, not what
+    # they were when someone last pressed Save (ADR-5).
+    fresh = _view(conn, shift_date)
+    cash_diff, cash_line = _cash_book_difference(
+        fresh.get("computed") or {}, fresh.get("manual") or {}
+    )
+    if (
+        cash_diff is not None
+        and abs(cash_diff) > threshold
+        and not (body.reason and body.reason.strip())
+    ):
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            f"{cash_line} is {cash_diff:+.2f}, beyond the +/-{threshold:.0f} "
+            "threshold. Enter a reason to sign off anyway.",
+        )
+
     now = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
     next_date = (date.fromisoformat(shift_date) + timedelta(days=1)).isoformat()
     with transaction(conn):
+        # Carry the day's oil stock into Inventory Master. Agreed in principle a
+        # while back and never built, which is why every figure there was still
+        # migration 0004's placeholder until the client's own count arrived on
+        # 2026-09-15 - six of seven wrong, and nobody could see it.
+        #
+        # Sign-off is the right moment: the day's figures are final, and it is a
+        # SET from the day's real Closing Stock rather than an increment, so
+        # running it twice, or an Owner correcting a count by hand afterwards, is
+        # always safe. Shares the mechanism Print & Sync already uses.
+        next_day = (date.fromisoformat(shift_date) + timedelta(days=1)).isoformat()
+        stock_moved = sync_from_daily_sales(
+            conn, next_day, principal.login_name, own_transaction=False
+        )
         conn.execute(
             f"UPDATE {TABLE} SET status = 'finalized', finalized_by = ?, finalized_at = ?, "
             f"last_updated_by = ?, variance_amount = ?, variance_reason = ? WHERE shift_date = ?",
@@ -772,6 +912,22 @@ def finalize_trial_balance(
                 new={"shift_date": next_date, "prev_trial_balance_id": row["id"],
                      "carried_from": shift_date},
             )
-    # NOTE: Section 9's historical ledger row and the Inventory stock decrement are
-    # still deferred with the remaining ADR-1 sections.
-    return _view(conn, shift_date)
+    # NOTE: Section 9's historical ledger row is still a manual cross-check, by
+    # the client's own description. Inventory is no longer deferred - it is
+    # carried above, at sign-off.
+    out = _view(conn, shift_date)
+    out["stock_synced"] = stock_moved
+    notes = []
+    if s3_source == "unavailable":
+        notes.append(
+            "No Daily Sales Entry for this date, so Section 1's consumption and "
+            "Section 3 computed from nothing."
+        )
+    if summary_status != "uploaded":
+        notes.append(
+            f"The Daily Sales Summary is still '{summary_status}' - the figures "
+            "behind this day have not been verified by the pump side."
+        )
+    if notes:
+        out["summary_note"] = " ".join(notes) + " Closed anyway, which is allowed."
+    return out

@@ -12,6 +12,7 @@ real stock decrement is applied at Daily Trial Balance finalization).
 
 from __future__ import annotations
 
+import contextlib
 import json
 import sqlite3
 
@@ -82,7 +83,7 @@ def on_hand_map(conn: sqlite3.Connection) -> dict[str, float]:
 
 
 def sync_from_daily_sales(
-    conn: sqlite3.Connection, before_date: str, actor: str
+    conn: sqlite3.Connection, before_date: str, actor: str, *, own_transaction: bool = True
 ) -> dict[str, dict]:
     """Set each oil item's tracked on_hand to the most recent real Closing Stock
     recorded for it, from any Daily Sales Entry before ``before_date`` (2026-09-11
@@ -133,7 +134,12 @@ def sync_from_daily_sales(
         return {}
 
     summary: dict[str, dict] = {}
-    with transaction(conn):
+    # Trial Balance sign-off calls this from INSIDE its own transaction, so that
+    # the stock move and the close commit together or not at all - sqlite cannot
+    # nest one BEGIN inside another. Print & Sync still calls it standalone and
+    # wants its own.
+    ctx = transaction(conn) if own_transaction else contextlib.nullcontext(conn)
+    with ctx:
         for key, info in found.items():
             old = conn.execute(
                 "SELECT on_hand FROM inventory_item WHERE item_key = ?", (key,)

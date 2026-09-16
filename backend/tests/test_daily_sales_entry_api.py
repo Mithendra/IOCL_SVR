@@ -303,3 +303,40 @@ def test_status_survives_an_edit(client, auth_headers):
     }, headers=h)
     assert fixed.status_code == 200, fixed.text
     assert fixed.json()["pump_status"] == "online", "the pump came back from the workshop"
+
+
+def test_a_mistyped_field_name_is_refused_not_dropped(client, auth_headers):
+    """Found by making this exact typo against the running app on 2026-09-14.
+
+    `phone_pay_not_settled` instead of `phone_pay_unsettled` returned 201
+    Created, silently dropped the 2,525, and Net Bal came back 17,506.77 against
+    the correct 14,981.77 - with no error anywhere. On a form where every field
+    is money, a rejected save is recoverable; a wrong figure saved quietly is not.
+    """
+    bad = client.post("/daily-sales-entry", json={
+        "pump_serial": "12BC4523V-RD", "shift_date": "2026-12-01",
+        "hs": {"current": "9500000"}, "ms": {"current": "9500000"},
+        "phone_pay_not_settled": "2525",          # the typo
+    }, headers=auth_headers("Sales"))
+    assert bad.status_code == 422, "an unknown field must not be accepted"
+    assert "phone_pay_not_settled" in bad.text
+
+    good = client.post("/daily-sales-entry", json={
+        "pump_serial": "12BC4523V-RD", "shift_date": "2026-12-01",
+        "hs": {"current": "9500000"}, "ms": {"current": "9500000"},
+        "phone_pay_unsettled": "2525",
+    }, headers=auth_headers("Sales"))
+    assert good.status_code == 201
+
+
+def test_the_retired_night_cash_field_is_still_tolerated(client, auth_headers):
+    """Removed from the form 2026-09-12, but an older client or an older exported
+    workbook may still send it. It is ignored, not rejected - refusing unknown
+    fields must not break a save that is otherwise perfectly good."""
+    r = client.post("/daily-sales-entry", json={
+        "pump_serial": "11CC2012V-OFF", "shift_date": "2026-12-02",
+        "hs": {"current": "9600000"}, "ms": {"current": "9600000"},
+        "night_cash": "40000",
+    }, headers=auth_headers("Sales"))
+    assert r.status_code == 201, r.text
+    assert "night_cash" not in r.json()["result"]

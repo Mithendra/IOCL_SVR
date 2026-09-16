@@ -258,6 +258,10 @@
           </div>
           <div class="export-bar">
             <button type="button" class="export-btn secondary" id="finalize-btn">Close &amp; Sign Off</button>
+            <!-- Owner only. A closed day was locked forever with no way back,
+                 which is fine until someone signs off a wrong figure. Reopening
+                 un-posts the day so the correction re-posts cleanly. -->
+            <button type="button" class="export-btn secondary" id="reopen-btn">Reopen (Owner)</button>
           </div>
           <p id="finalize-status" class="status-line"></p>
         </div>

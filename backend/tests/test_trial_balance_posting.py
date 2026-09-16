@@ -215,3 +215,124 @@ def test_posting_never_changes_the_days_own_figures(client, auth_headers):
     after = client.get(f"/daily-trial-balance/{date}", headers=auth_headers("Manager")).json()
     assert after["computed"] == before["computed"]
     assert after["derived"] == before["derived"] if "derived" in after else True
+
+
+# --- reopening a signed-off day ----------------------------------------------
+
+
+def test_reopening_a_day_takes_its_postings_back_out(client, auth_headers, conn):
+    """Until now a closed day was locked forever with no way back - fine until
+    someone signs off a wrong figure, which during live testing will happen.
+
+    Reopening must UN-POST, or the correction leaves a duplicate expense in
+    Monthly Expenses and a creditor's balance counted twice.
+    """
+    date = "2026-11-25"
+    _day(client, auth_headers, date,
+         expenses=[("Power Bill", 8525.95)], credits_=[("AirTel Hari New Credit", 11674)])
+    client.post(f"/daily-trial-balance/{date}/post", headers=auth_headers("Manager"))
+    client.post(f"/daily-trial-balance/{date}/finalize", headers=auth_headers("Manager"))
+
+    assert conn.execute("SELECT COUNT(*) c FROM monthly_expense").fetchone()["c"] == 1
+    assert conn.execute("SELECT COUNT(*) c FROM credit_transaction").fetchone()["c"] == 1
+
+    out = client.post(f"/daily-trial-balance/{date}/reopen", headers=auth_headers("Owner"))
+    assert out.status_code == 200, out.text
+    assert out.json()["status"] == "draft"
+    assert out.json()["unposted"] == 2
+
+    # The master forms are clean again - nothing stranded.
+    assert conn.execute("SELECT COUNT(*) c FROM monthly_expense").fetchone()["c"] == 0
+    assert conn.execute("SELECT COUNT(*) c FROM credit_transaction").fetchone()["c"] == 0
+    assert conn.execute(
+        "SELECT COUNT(*) c FROM trial_balance_posting WHERE status = 'not_posted'"
+    ).fetchone()["c"] == 2
+
+    # And it re-posts cleanly rather than duplicating.
+    client.post(f"/daily-trial-balance/{date}/post", headers=auth_headers("Manager"))
+    assert conn.execute("SELECT COUNT(*) c FROM monthly_expense").fetchone()["c"] == 1
+
+
+def test_only_an_owner_can_reopen(client, auth_headers):
+    date = "2026-11-26"
+    _day(client, auth_headers, date, expenses=[("Power Bill", 100)])
+    client.post(f"/daily-trial-balance/{date}/post", headers=auth_headers("Manager"))
+    client.post(f"/daily-trial-balance/{date}/finalize", headers=auth_headers("Manager"))
+    for role in ("Sales", "Manager"):
+        assert client.post(f"/daily-trial-balance/{date}/reopen",
+                           headers=auth_headers(role)).status_code == 403
+
+
+def test_a_day_underneath_a_closed_one_cannot_be_reopened(client, auth_headers):
+    """ADR-2's whole point is that a day is built on the one before it. Reopening
+    underneath a closed day would leave that day's carried figures pointing at
+    something that no longer exists."""
+    for d in ("2026-11-27", "2026-11-28"):
+        _day(client, auth_headers, d, expenses=[("Power Bill", 50)])
+        client.post(f"/daily-trial-balance/{d}/post", headers=auth_headers("Manager"))
+        client.post(f"/daily-trial-balance/{d}/finalize", headers=auth_headers("Manager"))
+
+    blocked = client.post("/daily-trial-balance/2026-11-27/reopen", headers=auth_headers("Owner"))
+    assert blocked.status_code == 409
+    assert "2026-11-28" in blocked.json()["detail"]
+    assert "reverse order" in blocked.json()["detail"]
+
+    # In the right order it works.
+    assert client.post("/daily-trial-balance/2026-11-28/reopen",
+                       headers=auth_headers("Owner")).status_code == 200
+    assert client.post("/daily-trial-balance/2026-11-27/reopen",
+                       headers=auth_headers("Owner")).status_code == 200
+
+
+def test_a_paid_credit_is_not_un_settled_by_reopening(client, auth_headers, conn):
+    """Its remittance came in on some OTHER day. Un-settling it here would
+    resurrect a debt the creditor has already cleared."""
+    _day(client, auth_headers, "2026-11-29", credits_=[("Anil/Nani New Credit", 1500)])
+    client.post("/daily-trial-balance/2026-11-29/post", headers=auth_headers("Manager"))
+    client.post("/daily-trial-balance/2026-11-29/finalize", headers=auth_headers("Manager"))
+    _day(client, auth_headers, "2026-11-30",
+         remittances=[("Anil/Nani Old Credit Remitted Amt", 1500)])
+    client.post("/daily-trial-balance/2026-11-30/post", headers=auth_headers("Manager"))
+    client.post("/daily-trial-balance/2026-11-30/finalize", headers=auth_headers("Manager"))
+
+    assert conn.execute(
+        "SELECT status FROM trial_balance_posting WHERE shift_date = '2026-11-29'"
+    ).fetchone()["status"] == "paid"
+
+    client.post("/daily-trial-balance/2026-11-30/reopen", headers=auth_headers("Owner"))
+    out = client.post("/daily-trial-balance/2026-11-29/reopen", headers=auth_headers("Owner")).json()
+    assert out["left_paid"] == 1
+    assert conn.execute(
+        "SELECT status FROM trial_balance_posting WHERE shift_date = '2026-11-29'"
+    ).fetchone()["status"] == "paid", "a settled debt must not come back"
+
+
+def test_sign_off_carries_the_days_oil_stock_into_inventory(client, auth_headers, conn):
+    """Agreed a while back and never built - which is why every figure in
+    Inventory Master was still migration 0004's placeholder until the client's
+    own count arrived on 2026-09-15, six of seven wrong and nobody able to see it.
+
+    Sign-off is the right moment: the day's figures are final. It is a SET from
+    the real Closing Stock, not an increment, so running it twice is safe.
+    """
+    date = "2026-12-10"
+    h = auth_headers("Manager")
+    key = conn.execute(
+        "SELECT item_key FROM oil_item WHERE label = '2T/2.40 ML Total#'").fetchone()["item_key"]
+    before = conn.execute(
+        "SELECT on_hand FROM inventory_item WHERE item_key = ?", (key,)).fetchone()["on_hand"]
+
+    client.post("/daily-sales-entry", json={
+        "pump_serial": "12BC4523V-RD", "shift_date": date,
+        "hs": {"current": "9700000"}, "ms": {"current": "9700000"},
+        "oils": [{"label": "2T/2.40 ML Total#", "qty": "3", "rate": "17", "opening": "20"}],
+    }, headers=h)
+    client.put(f"/daily-trial-balance/{date}", json={"s1_hs_current": 60}, headers=h)
+
+    out = client.post(f"/daily-trial-balance/{date}/finalize", headers=h)
+    assert out.status_code == 200, out.text
+    assert "stock_synced" in out.json()
+
+    after = conn.execute(
+        "SELECT on_hand FROM inventory_item WHERE item_key = ?", (key,)).fetchone()["on_hand"]
+    assert after == 17, f"20 opening less 3 sold; was {before}, now {after}"
