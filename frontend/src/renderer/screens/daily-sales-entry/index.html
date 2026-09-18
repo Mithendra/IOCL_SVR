@@ -124,7 +124,7 @@
         <div class="section-title">
           1. <span class="tt" data-en="Gas Sale(s)" data-te="గ్యాస్ అమ్మకాలు">Gas Sale(s)</span>
         </div>
-        <table>
+        <table class="write-in">
           <tr>
             <th>Pump</th><th>Current Reading <span class="req" title="Mandatory">*</span></th>
             <th>Last Shift Reading <span class="req" title="Mandatory — carried automatically once a prior day exists">*</span></th>
@@ -206,7 +206,7 @@
              printed form, in the paper's own running-sum style ("527+588+100=
              1215"), so it is sized to hold 9999999999999999 with room to spare
              rather than to fit the figure exactly (client, 2026-09-12). -->
-        <table class="wide-amounts">
+        <table class="wide-amounts write-in">
           <tr><th>Description</th><th>Amount</th></tr>
           <!-- The three printed rows. Their descriptions are fixed because they
                are pre-printed on the paper form; an added row types its own
@@ -230,7 +230,7 @@
         <div class="section-title">
           4. <span class="tt" data-en="Credit Cards Swiping(s)" data-te="క్రెడిట్ కార్డ్ స్వైపింగ్">Credit Cards Swiping(s)</span>
         </div>
-        <table>
+        <table class="write-in">
           <tr><th>Card Holder / Terminal ID</th><th>Card Type</th><th>Rate</th><th>Txn / Receipt #</th><th>Amount</th></tr>
           <tbody id="cc-rows"></tbody>
           <tr class="total-row"><td colspan="4">Total Amt Credit Cards</td><td><input id="cc-total" disabled placeholder="auto" /></td></tr>
@@ -241,7 +241,7 @@
         <div class="section-title">
           5. <span class="tt" data-en="Today New Credit(s)" data-te="నేటి కొత్త క్రెడిట్లు">Today New Credit(s)</span>
         </div>
-        <table>
+        <table class="write-in">
           <tr><th>Creditor Name</th><th>Type</th><th>In Ltrs</th><th>Rate</th><th>Amount</th><th>Signature</th></tr>
           <tbody id="nc-rows"></tbody>
           <tr class="total-row"><td colspan="5">Total Amt New Credits Today</td><td><input id="nc-total" disabled placeholder="auto" /></td></tr>
@@ -253,7 +253,7 @@
           6. <span class="tt" data-en="Old/Pending Credit Received" data-te="పాత / పెండింగ్ క్రెడిట్ రసీదు">Old/Pending Credit Received</span>
           <span style="font-weight:400;font-size:11px">[NOT part of today's total]</span>
         </div>
-        <table>
+        <table class="write-in">
           <tr><th>Customer Name</th><th>Amount</th><th>Old Credit Given Date</th><th>Signature</th></tr>
           <tbody id="oc-rows"></tbody>
         </table>

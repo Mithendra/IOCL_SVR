@@ -713,15 +713,32 @@ function ensureRows(selector, adder, n) {
 // either - identity always comes from whatever's selected on the form (2026-
 // 09-11), never guessed or overridden from an imported document's own content;
 // importExcel() surfaces a mismatch note instead of silently switching it.
-// Put the sheet's own Last Shift Readings on the form and leave them editable.
-function unlockImportedReadings(payload) {
-  [["hs-last", payload.hs && payload.hs.last],
-    ["ms-last", payload.ms && payload.ms.last]].forEach(([id, v]) => {
-    if (v === undefined || v === null || v === "") return;
-    $(id).disabled = false;
-    $(id).placeholder = "from the imported sheet";
-    setVal(id, v);
-  });
+// Put the Last Shift Readings on the form and leave them editable, in the order
+// of authority the client set:
+//
+//   1. the sheet, if it printed one - it is the source document;
+//   2. what the operator typed BEFORE importing - a deliberate act, and the way
+//      they said they would work on the remote PC: "before, what I can do is I
+//      can really key in the last shift reading, and then you can take the
+//      current reading from the Excel" (2026-09-18);
+//   3. whatever loadPrefill() left there - the carry-forward.
+//
+// Leaving this out meant an import silently discarded a reading the operator had
+// just keyed in, which is the same class of bug as overwriting the sheet.
+function unlockImportedReadings(payload, typed = {}) {
+  [["hs-last", payload.hs && payload.hs.last, typed.hs],
+    ["ms-last", payload.ms && payload.ms.last, typed.ms]].forEach(
+    ([id, fromSheet, fromOperator]) => {
+      const blank = (v) => v === undefined || v === null || v === "";
+      const value = !blank(fromSheet) ? fromSheet : fromOperator;
+      if (blank(value)) return; // nothing better than the carry-forward
+      $(id).disabled = false;
+      $(id).placeholder = !blank(fromSheet)
+        ? "from the imported sheet"
+        : "entered before import";
+      setVal(id, value);
+    }
+  );
 }
 
 function populateInputs(payload) {
@@ -826,6 +843,8 @@ async function importExcel(file) {
     // decides identity, only which sheet to look at (SDD, "everything is keyed
     // by Pump Serial Number" - confirmed 2026-09-11).
     const pumpQS = `?pump_serial=${encodeURIComponent(val("pump-serial"))}`;
+    // Captured before loadPrefill() runs, because that is what overwrites them.
+    const typedLast = { hs: val("hs-last"), ms: val("ms-last") };
     const res = await api.upload(`/daily-sales-entry/import-excel${pumpQS}`, file);
     entryId = null;
 
@@ -858,7 +877,7 @@ async function importExcel(file) {
     // 2026-09-18). Unlocked as well as filled, because ADR-5 says the operator
     // reviews an imported value before saving, and they cannot review a field
     // they cannot reach.
-    unlockImportedReadings(res.payload);
+    unlockImportedReadings(res.payload, typedLast);
     await loadExisting(); // if that day already has an entry, Save updates it
     refresh();
     notes.push(...(res.warnings || []));

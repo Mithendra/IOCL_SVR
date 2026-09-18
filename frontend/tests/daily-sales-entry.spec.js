@@ -824,3 +824,41 @@ test("Import from Excel reads the sheet for whichever pump is selected (multi-pu
   await expect(page.locator("#save-status")).not.toContainText("could not match");
   await expect(page.locator("#hs-current")).toHaveValue("1488457.6");
 });
+
+test("an import keeps a Last Shift Reading the operator keyed in first", async ({ page }) => {
+  // Client, 2026-09-18, describing how they intend to work on the remote PC:
+  // "before, what I can do is I can really key in the last shift reading, and
+  // then you can take the current reading from the Excel."
+  //
+  // Order of authority: the sheet's own figure, then what the operator typed
+  // before importing, then the carry-forward. Before this, loadPrefill() ran as
+  // part of the import and silently discarded a just-keyed reading.
+  const fs = require("fs");
+  const path = require("path");
+  const sheet = path.join(
+    __dirname, "..", "..", "docs", "01-BRD-Requirement-Gathering", "ocr-samples",
+    "SVR_DSR_Empty_12BC4523V-RD_A4 .xlsx"
+  );
+  test.skip(!fs.existsSync(sheet), "blank template not present in this checkout");
+
+  await login(page, "mmanager");
+  await page.goto(SCREEN);
+  await page.selectOption("#pump-serial", "12BC4523V-RD");
+  await page.fill("#shift-date", "2026-11-03");   // a day with nothing on file
+
+  // The operator keys the reading in first.
+  await page.fill("#hs-last", "1489759.27");
+  await page.fill("#ms-last", "663546.17");
+
+  // Then imports a BLANK form - it carries no Last Shift Reading of its own.
+  await page.setInputFiles('input[type="file"][accept*="xlsx"]', {
+    name: "blank.xlsx",
+    mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    buffer: fs.readFileSync(sheet),
+  });
+  await expect(page.locator("#save-status")).toContainText("Imported");
+
+  // What was typed survives.
+  await expect(page.locator("#hs-last")).toHaveValue("1489759.27");
+  await expect(page.locator("#ms-last")).toHaveValue("663546.17");
+});

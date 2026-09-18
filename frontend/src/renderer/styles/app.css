@@ -752,7 +752,10 @@ td input:disabled {
        landscape fought that layout badly enough that one pump's form did not
        print at all. */
     size: A4 portrait;
-    margin: 8mm;
+    /* 6mm, not 8mm. The client's reference blanks use a 15pt (5.3mm) margin and
+       run content from y=16.8 to y=813.7 - they use the sheet. At 8mm the
+       signature block fell onto a second page with room to spare above it. */
+    margin: 6mm;
   }
   body,
   body.shell-mode {
@@ -851,6 +854,217 @@ td input:disabled {
   #query-btn,
   #browse-btn,
   #browse-panel {
+    display: none !important;
+  }
+
+  /* ---- Printing a form to be FILLED IN BY HAND -----------------------------
+     Measured against the client's own reference blanks
+     (docs/.../ocr-samples/EMPTY_PRINTING_FORMS/SVR_DSR_EMPTY_<serial>.pdf):
+     A4 portrait 595.3 x 841.9pt, one page, content from y=16.8 to y=813.7, pure
+     black and white, body text ~7.4pt, and - the part that matters - real row
+     heights: 21pt (7.4mm) for the Gas rows, 18pt for Expenses, 13pt (4.6mm) for
+     the Oil list.
+
+     Client, 2026-09-18: "it would be very difficult to write someone on those
+     ones ... the cell size and the paper size are important ... for simplicity I
+     kept everything black and white."
+
+     The rules above this comment squeeze every input to 9px - about 2.4mm - which
+     is legible on screen and impossible to write a meter reading into. */
+
+  /* 1. A placeholder is guidance for the person typing. On a printed blank it is
+        just ink in the box the operator has to write in - the reference form
+        prints "Enter Last Shift Reading (no" and "auto" into the very cells that
+        need a hand-written number. */
+  input::placeholder,
+  textarea::placeholder {
+    color: transparent !important;
+    opacity: 0 !important;
+  }
+
+  /* 2. Black and white, as asked. The orange section bands and blue rules cost
+        colour toner and add nothing to a form that gets written on. */
+  .sheet,
+  .sheet * {
+    color: #000 !important;
+    background: #fff !important;
+    box-shadow: none !important;
+  }
+  .sheet .section-title,
+  .sheet th {
+    border-bottom: 1px solid #000 !important;
+    font-weight: 700;
+  }
+  .sheet *,
+  .sheet table,
+  .sheet td,
+  .sheet th {
+    border-color: #000 !important;
+  }
+
+  /* The Summary panel: a blue-bordered card with an orange heading band and
+     14px/18px of padding. On paper the border prints blue, the band prints
+     orange, and the padding costs about 40pt - which is what pushed the
+     signature block onto page two. */
+  .summary-box {
+    padding: 3px 6px !important;
+    margin-top: 3px !important;
+    border-radius: 0 !important;
+    border: 1px solid #000 !important;
+  }
+  .summary-box h3 {
+    margin: -3px -6px 3px !important;
+    padding: 2px 6px !important;
+    font-size: 9px !important;
+    border-radius: 0 !important;
+    border-bottom: 1px solid #000 !important;
+  }
+  .summary-row {
+    padding: 1px 0 !important;
+    font-size: 8.5px !important;
+    border-bottom: 1px dashed #000 !important;
+  }
+  .summary-row.net {
+    font-size: 9px !important;
+    padding-top: 2px !important;
+  }
+  .sheet .header {
+    border-bottom: 1.5px solid #000 !important;
+  }
+
+  /* 3. Row heights. Every write-in cell becomes a ruled box tall enough to hold
+        handwriting, sized from the reference rather than guessed. */
+  td input,
+  td select {
+    height: 19px !important;       /* 5.0mm - the Oil list, a little over the
+                                      reference's 4.6mm now there is room */
+    line-height: 19px !important;
+    font-size: 9px !important;
+    border: 1px solid #000 !important;
+    border-radius: 0 !important;
+    background: #fff !important;
+  }
+  .write-in td input,
+  .write-in td select {
+    height: 25px !important;       /* 6.6mm - Gas, Expenses, Credits, Signatures */
+    line-height: 25px !important;
+  }
+  .write-in td {
+    padding: 2px 3px !important;
+  }
+  /* A computed total is never written into, so it keeps the compact height and
+     gives its millimetres to the rows that are. */
+  td input:disabled {
+    height: 15px !important;
+    line-height: 15px !important;
+    border: none !important;
+    border-bottom: 1px solid #000 !important;
+  }
+
+  /* 4. The Summary block is read and signed, not filled row by row. */
+  .meta-grid input,
+  .meta-grid select {
+    height: 17px !important;
+    line-height: 17px !important;
+    border: 1px solid #000 !important;
+  }
+
+  /* 6. Reclaim the page from the chrome, not from the write-in boxes.
+        Measured: our header block ran to y=124 where the reference reaches Gas
+        Sale(s) by y=58 - 66pt of the page spent on identity fields before a
+        single figure. The reference puts Dt&Time, Pump Serial and Name on one
+        line. Every point saved here is a point the hand-written rows keep. */
+  .sheet .header {
+    padding: 2px 6px !important;
+  }
+  .sheet .header p,
+  .sheet .header h1,
+  .sheet .header div {
+    font-size: 10px !important;
+    line-height: 1.1 !important;
+    margin: 0 !important;
+  }
+  .body-pad {
+    padding: 0 6px 2px !important;
+  }
+  .meta-grid {
+    gap: 1px 6px !important;
+    margin-bottom: 1px !important;
+  }
+  .meta-grid label,
+  .field label {
+    font-size: 6.5px !important;
+    line-height: 1 !important;
+    margin: 0 !important;
+  }
+  .section-title {
+    padding: 1px 0 0 !important;
+    font-size: 8.5px !important;
+    line-height: 1.1 !important;
+    margin-top: 2px !important;
+  }
+  th {
+    font-size: 7px !important;
+    padding: 0 2px !important;
+    line-height: 1.1 !important;
+  }
+  td {
+    padding: 0 2px !important;
+  }
+  .write-in td {
+    padding: 1px 2px !important;
+  }
+  .write-in td input,
+  .write-in td select {
+    /* 7.1mm. The reference gives its Gas rows 21pt (7.4mm) and this is what the
+       reclaimed page has room for - the whole point of taking the millimetres
+       back off the chrome. */
+    height: 27px !important;
+    line-height: 27px !important;
+  }
+
+  /* 7. The last 40pt. Measured: the form ended at y=802 with five lines pushed
+        onto a second sheet. A blank that prints on two pages is worse than a
+        tight one - the second page is the signature block, which is exactly the
+        part that has to come back with the form. These take the remainder from
+        the read-only totals and the Summary, never from a write-in box. */
+  td input:disabled {
+    height: 13px !important;
+    line-height: 13px !important;
+  }
+  .meta-grid input,
+  .meta-grid select {
+    height: 15px !important;
+    line-height: 15px !important;
+  }
+  .sheet table {
+    margin-bottom: 1px !important;
+  }
+  .total-row td {
+    padding: 0 2px !important;
+  }
+  /* The signature block carries an 18px top margin for the screen. On paper that
+     margin alone was enough to push Verified By / Signature / Date onto a second
+     sheet - and a blank whose signature line arrives on its own page is the one
+     part that must not go missing. It needs room to be signed, so the height
+     stays; only the gap above it goes. */
+  .verify-grid {
+    margin-top: 4px !important;
+    gap: 6px !important;
+    break-inside: avoid;
+  }
+  .verify-grid input {
+    height: 22px !important;
+    line-height: 22px !important;
+    border: 1px solid #000 !important;
+  }
+
+  /* 5. Navigation is not part of the form. "Back to menu" and the Saved-records
+        label both printed onto the client's blanks. */
+  .sheet ~ p,
+  .body-pad > p:last-child,
+  a[href$="index.html"],
+  label[for="query-btn"] {
     display: none !important;
   }
 }
