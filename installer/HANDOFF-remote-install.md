@@ -70,8 +70,27 @@ build is needed at all, rather than nice-to-haves:
    seed or screen. Client, 2026-09-16: *"Do not want expose those details in
    the application JUST STATEMENT BALANCE ONLY."* Nothing to check during the
    test beyond: if you ever see an account number on screen, that is a defect.
-5. **Build-script guards** — see §6. Doesn't affect the station; explains why
-   the version jumped twice in one day.
+5. **An imported sheet is transcribed, not overwritten** (2026-09-18). Found on
+   the remote PC: the SEP15 road DSR imported as **Rs 128,771,183.75**. Last
+   Shift Reading is backend-owned for a manual entry — it carries yesterday's
+   Current Reading forward (SDD 7.7) — and nothing distinguished a typed shift
+   from a scanned sheet, so the carry-forward wrote over the figure the sheet
+   printed:
+
+   | | Sheet | Form showed |
+   |---|---|---|
+   | HS Last Shift | 1,489,759.27 | 267,841.93 |
+   | Cons | 284.48 | 1,222,201.82 |
+
+   `entry_mode` is now set and stored (`manual` / `excel` / `ocr`). On an import
+   the sheet wins — Last Shift Reading and the gas Rate verbatim, Rate Master
+   only where a cell is blank — and the two reading fields are unlocked so they
+   can be reviewed before Save (ADR-5). Manual entry still carries forward.
+   Client: *"when scanned everything should read it from Attached Excel sheet
+   and it cannot alter any of the existing values. For Manual Entry of course
+   current reading becomes last shift reading and the same will not apply here."*
+6. **Build-script guards** — see §6. Doesn't affect the station; explains why
+   the version jumped several times.
 
 Everything else carried over from 0.1.1: the posting engine (expenses and
 credits post to their master forms at Close & Sign Off, and sign-off is blocked
@@ -80,7 +99,7 @@ rates and inventory.
 
 ---
 
-## 1a. Where things stand (2026-09-16, end of day)
+## 1a. Where things stand (2026-09-18)
 
 This session is starting cold, so here is the state you are inheriting. There is
 no way to resume the build PC's conversation here — a Claude Code transcript is
@@ -95,8 +114,8 @@ and PANs from the app; 4.1 now carrying forward at sign-off; and a rehearsal
 to end on a clean database — upload, Summary, Inventory, Trial Balance, post,
 Close & Sign Off, postings checked on the master forms. Both days pass.
 
-Backend **288 passed / 1 skipped**, ruff clean. Frontend **83 passed**, eslint
-clean. Build **0.1.6**, SHA256 begins `5F48F5BB`.
+Backend **291 passed / 1 skipped**, ruff clean. Frontend **83 passed**, eslint
+clean. Build **0.1.6**, SHA256 begins `8077D345`.
 
 **Two questions are open with the client. Do not decide either one here:**
 
@@ -253,6 +272,15 @@ For **each** of the two days, in this order:
 (`12BC4523V-RD`). Daily Sales Entry → upload the Excel → **review before
 saving**. The app recomputes every total and flags mismatches rather than
 trusting the sheet (ADR-5); read what it flags, don't click past it.
+
+Check **Last Shift Reading against the sheet** on every import — that is the
+field that failed on 2026-09-18. On the SEP15 road DSR it must read
+**1,489,759.27** (HS) and **663,546.17** (MS), giving Cons **284.48** and
+**501.68** and a Gas total of **89,020.54**. Anything in the 267,000 range means
+the carry-forward is overriding the sheet again.
+
+The SEP15 **office** sheet legitimately shows Current = Last and zero
+throughout: that pump did not run. Not a defect.
 
 **(b) Daily Sales Summary.** Both pumps should appear with the green Pump
 Serial# check. Combined consumption per fuel is what Trial Balance Section 3
