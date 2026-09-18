@@ -862,3 +862,53 @@ test("an import keeps a Last Shift Reading the operator keyed in first", async (
   await expect(page.locator("#hs-last")).toHaveValue("1489759.27");
   await expect(page.locator("#ms-last")).toHaveValue("663546.17");
 });
+
+test("Print Blank carries yesterday's Current Reading into Last Shift Reading", async ({
+  page,
+}) => {
+  // Client, 2026-09-18: "when they click on print, given pump, it should
+  // actually put the yesterday's current reading as the last shift reading, and
+  // then print it, so that they simply enter the current reading."
+  //
+  // The form the client printed showed an empty Last Shift box - but that was a
+  // database with nothing on file for the pump, not a missing feature. This
+  // pins the behaviour so the next empty-looking blank can be told apart from a
+  // broken one.
+  const { request } = require("@playwright/test");
+  const ctx = await request.newContext();
+  const token = (
+    await (
+      await ctx.post(`${apiBase}/auth/login`, {
+        data: { login_name: "mmanager", password: "demo1234" },
+      })
+    ).json()
+  ).token;
+  // Yesterday, for a pump/date pair nothing else in the suite touches.
+  await ctx.post(`${apiBase}/daily-sales-entry`, {
+    headers: { Authorization: `Bearer ${token}` },
+    data: {
+      pump_serial: "11CC2012V-OFF",
+      shift_date: "2026-12-01",
+      hs: { current: "500123.45", last: "500000" },
+      ms: { current: "600222.75", last: "600000" },
+    },
+  });
+  await ctx.dispose();
+
+  await login(page, "mmanager");
+  await page.goto(SCREEN);
+  // Case 2: choosing the pump and the next day prefills Last Shift on its own.
+  await page.selectOption("#pump-serial", "11CC2012V-OFF");
+  await page.fill("#shift-date", "2026-12-02");
+  await expect(page.locator("#hs-last")).toHaveValue("500123.45");
+  await expect(page.locator("#ms-last")).toHaveValue("600222.75");
+  await expect(page.locator("#hs-last")).toBeDisabled();
+
+  // Case 1: Print Blank clears the Current Readings - the operator writes those
+  // by hand - and leaves the carried Last Shift Reading on the page.
+  await page.fill("#hs-current", "999");
+  await page.click('[data-blank="11CC2012V-OFF"]');
+  await expect(page.locator("#hs-current")).toHaveValue("");
+  await expect(page.locator("#hs-last")).toHaveValue("500123.45");
+  await expect(page.locator("#ms-last")).toHaveValue("600222.75");
+});
