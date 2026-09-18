@@ -91,16 +91,39 @@ class CalcRequest(BaseModel):
 PUMP_STATUSES = ("online", "salesman_off", "repair")
 
 
+ENTRY_MODES = ("manual", "ocr", "excel")
+
+
 class EntryCreate(CalcRequest):
     shift_date: str | None = None  # defaults to today
     pump_serial: str
     pump_status: str = "online"
+    # Where these numbers came from, and it changes how they are treated.
+    #
+    # "manual": the operator is typing today's shift. Last Shift Reading is the
+    # app's to own - it carries yesterday's Current Reading forward so nobody
+    # retypes a meter reading (SDD 7.7).
+    #
+    # "excel" / "ocr": the numbers were READ OFF A SHEET the station already
+    # filled in. That sheet is the source document and the app must not rewrite
+    # any of it. Client, 2026-09-18: "when scanned everything should read it
+    # from Attached Excel sheet and it cannot alter any of the existing values.
+    # For Manual Entry of course current reading becomes last shift reading and
+    # the same will not apply here."
+    entry_mode: str = "manual"
 
     @field_validator("pump_status")
     @classmethod
     def _known_status(cls, v: str) -> str:
         if v not in PUMP_STATUSES:
             raise ValueError(f"pump_status must be one of {', '.join(PUMP_STATUSES)}")
+        return v
+
+    @field_validator("entry_mode")
+    @classmethod
+    def _known_mode(cls, v: str) -> str:
+        if v not in ENTRY_MODES:
+            raise ValueError(f"entry_mode must be one of {', '.join(ENTRY_MODES)}")
         return v
 
 
@@ -164,15 +187,32 @@ def _row_to_out(row: sqlite3.Row) -> EntryOut:
 
 
 def _apply_locked_context(
-    conn: sqlite3.Connection, payload: dict, shift_date: str, pump_serial: str
+    conn: sqlite3.Connection,
+    payload: dict,
+    shift_date: str,
+    pump_serial: str,
+    entry_mode: str = "manual",
 ) -> tuple[dict, dict]:
     """Overlay carried Last Shift Readings and locked Sell/oil rates onto the payload.
 
-    Rate and (once there's a prior reading to carry) Last Shift Reading are
-    backend-owned - client-supplied values are ignored (the mockup renders them
-    disabled). The very first entry ever made for a pump has no carry source, so
-    the client's own manual Last Shift Reading is kept and numerically normalized
-    instead. Returns ``(payload, meta)``.
+    For a MANUAL entry, Last Shift Reading is backend-owned: it carries yesterday's
+    Current Reading forward so nobody retypes a meter reading (SDD 7.7), and a
+    client-supplied value is ignored. The very first entry ever made for a pump has
+    no carry source, so the operator's own reading is kept and normalized instead.
+
+    For an IMPORTED entry (``entry_mode`` "excel" or "ocr") the reading is taken
+    from the sheet, verbatim. The station filled that sheet in; it is the source
+    document, and carrying a different figure over the top of it silently
+    replaces evidence with a guess.
+
+    That is not hypothetical. On the remote PC, 2026-09-18, the SEP15 road DSR was
+    imported into a database that still held the Sep 9/10/12 rounds. The sheet
+    said Last Shift 1,489,759.27 and Cons 284.48; the carry-forward overwrote it
+    with 267,841.93 from an unrelated meter baseline, and the form showed a
+    consumption of 1,222,201.82 litres and a total of Rs 128,771,183.75. Nothing
+    warned, because as far as the code was concerned it was doing its job.
+
+    Returns ``(payload, meta)``.
     """
     rates = latest_effective_rates(conn, shift_date)
     hs_rate = rates["HS"]["sell_rate"] if "HS" in rates else None
@@ -183,25 +223,29 @@ def _apply_locked_context(
     oil_rates = {i.key: (rates[i.key]["sell_rate"] if i.key in rates else None) for i in items}
     oil_openings = on_hand_map(conn)  # Opening Stock pulled from Inventory Tracking
 
+    from_sheet = entry_mode != "manual"
     carried = carried_last_readings(conn, pump_serial, shift_date)
 
     payload = json.loads(json.dumps(payload))  # deep copy
     payload.setdefault("hs", {})
     payload.setdefault("ms", {})
-    # Backend-owned once there IS a prior reading to carry (SDD 7.7). The very
-    # first entry ever made for a pump has nothing to carry - carried.hs/ms is
-    # None - so the operator's own manual reading is kept instead of being
-    # wiped to blank.
-    if carried.hs is not None:
+    # Carried forward only for a manual entry, and only once there IS a prior
+    # reading to carry (SDD 7.7). An imported sheet keeps its own reading, and so
+    # does the very first entry ever made for a pump, which has nothing to carry.
+    if carried.hs is not None and not from_sheet:
         payload["hs"]["last"] = carried.hs
     else:
         payload["hs"]["last"] = _num(payload["hs"].get("last"))
-    if carried.ms is not None:
+    if carried.ms is not None and not from_sheet:
         payload["ms"]["last"] = carried.ms
     else:
         payload["ms"]["last"] = _num(payload["ms"].get("last"))
-    payload["hs"]["rate"] = hs_rate
-    payload["ms"]["rate"] = ms_rate
+    # Same rule as the reading and as the oil Rate below: an imported sheet keeps
+    # the rate it prints, and only a blank cell falls back to Rate Master. A
+    # manual entry always takes the locked rate.
+    for fuel, locked in (("hs", hs_rate), ("ms", ms_rate)):
+        submitted = _num(payload[fuel].get("rate")) if from_sheet else None
+        payload[fuel]["rate"] = submitted if submitted is not None else locked
 
     # Match submitted rows to items by their own LABEL, not by position: the form
     # the operator submitted from may be a row out of date with this one if an item
@@ -407,8 +451,10 @@ def create_entry(
             f"(#{dup['id']}) - edit that one instead of creating another.",
         )
 
-    raw = body.model_dump(exclude={"shift_date", "pump_serial"})
-    payload, meta = _apply_locked_context(conn, raw, shift_date, body.pump_serial)
+    raw = body.model_dump(exclude={"shift_date", "pump_serial", "entry_mode"})
+    payload, meta = _apply_locked_context(
+        conn, raw, shift_date, body.pump_serial, body.entry_mode
+    )
     result = compute_payload(payload)
     if body.pump_status != "repair":
         _reject_backwards_readings(result, payload)
@@ -422,12 +468,13 @@ def create_entry(
                 sell_rate_hs, sell_rate_ms, oil_rates_json,
                 gas_total, oil_total, expenses_total, net_bal_hand_off,
                 payload, result, last_updated_by, pump_status
-            ) VALUES (?, ?, ?, 'manual', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 shift_date,
                 body.pump_serial,
                 principal.login_name,
+                body.entry_mode,
                 _num(payload["hs"].get("current")),
                 _num(payload["ms"].get("current")),
                 meta_last(payload, "hs"),
@@ -479,8 +526,14 @@ def update_entry(
         )
 
     shift_date = body.shift_date or row["shift_date"]
-    raw = body.model_dump(exclude={"shift_date", "pump_serial"})
-    payload, meta = _apply_locked_context(conn, raw, shift_date, body.pump_serial)
+    # An edit keeps the row's own provenance: re-saving an imported sheet must not
+    # quietly turn it into a manual entry and pull the carry-forward back over the
+    # readings that came off the sheet.
+    entry_mode = body.entry_mode if body.entry_mode != "manual" else row["entry_mode"]
+    raw = body.model_dump(exclude={"shift_date", "pump_serial", "entry_mode"})
+    payload, meta = _apply_locked_context(
+        conn, raw, shift_date, body.pump_serial, entry_mode
+    )
     result = compute_payload(payload)
     if body.pump_status != "repair":
         _reject_backwards_readings(result, payload)

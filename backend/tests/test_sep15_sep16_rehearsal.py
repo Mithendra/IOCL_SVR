@@ -261,3 +261,103 @@ def test_the_whole_chain_for_both_days(client, auth_headers):
                         headers=auth_headers("Manager"))
     assert fin16.status_code == 200, (
         f"SEP16 sign-off refused: {fin16.status_code} {fin16.text[:400]}")
+
+
+# --- an imported sheet is transcribed, never overwritten -----------------------
+
+
+def test_an_imported_sheet_keeps_its_own_last_shift_reading(client, auth_headers):
+    """The remote-PC failure of 2026-09-18, reproduced and then fixed.
+
+    The SEP15 road DSR was imported into a database that already held earlier
+    rounds. Last Shift Reading is backend-owned for a manual entry (SDD 7.7), so
+    the carry-forward wrote over the figure the sheet printed:
+
+        sheet   Last 1,489,759.27   Cons    284.48   Amt      29,972.81
+        form    Last   267,841.93   Cons 1,222,201.82   Amt 128,771,183.75
+
+    Client: "when scanned everything should read it from Attached Excel sheet
+    and it cannot alter any of the existing values. For Manual Entry of course
+    current reading becomes last shift reading and the same will not apply here."
+
+    So this stores an earlier entry for the same pump FIRST - the condition that
+    caused it - and then imports the sheet.
+    """
+    day, serial = "2026-09-15", "12BC4523V-RD"
+
+    # An earlier round for this pump, on a different meter baseline. This is what
+    # the carry-forward would reach for.
+    client.post("/daily-sales-entry", json={
+        "pump_serial": serial, "shift_date": "2026-09-10",
+        "hs": {"current": "267841.93", "last": "267800"},
+        "ms": {"current": "288877.28", "last": "288800"},
+    }, headers=auth_headers("Manager"))
+
+    parsed = _upload(client, auth_headers, DSR[day]["road"], serial)
+    assert parsed["payload"]["hs"]["last"] == 1489759.27, "the parser lost the sheet's figure"
+
+    body = dict(parsed["payload"])
+    body.update({"pump_serial": serial, "shift_date": day, "entry_mode": "excel"})
+    r = client.post("/daily-sales-entry", json=body, headers=auth_headers("Manager"))
+    assert r.status_code == 201, f"{r.status_code} {r.text[:300]}"
+
+    saved = r.json()
+    res = saved["result"]
+    # The sheet's own figures, to the paisa: SVR_DSR_EMPTY_12BC4523V-RD_15Sept2026
+    # H6/H7 (Last), L6/L7 (Cons), Q8 (Total Amt), R19 (Gas + Oil).
+    assert saved["payload"]["hs"]["last"] == 1489759.27
+    assert saved["payload"]["ms"]["last"] == 663546.17
+    assert round(res["hs"]["cons"], 2) == 284.48
+    assert round(res["ms"]["cons"], 2) == 501.68
+    assert round(res["gas_total"], 2) == 89020.54
+    assert round(res["gas_total"] + res["oil_total"], 2) == 89105.54
+    assert saved["entry_mode"] == "excel"
+
+
+def test_a_manual_entry_still_carries_yesterday_forward(client, auth_headers):
+    """The other half of the client's sentence, and the reason this is a mode and
+    not a blanket change: typing today's shift must still inherit yesterday's
+    Current Reading, so nobody re-keys a meter reading (SDD 7.7)."""
+    serial = "12BC4523V-RD"
+    client.post("/daily-sales-entry", json={
+        "pump_serial": serial, "shift_date": "2026-09-10",
+        "hs": {"current": "1000", "last": "900"},
+        "ms": {"current": "2000", "last": "1900"},
+    }, headers=auth_headers("Manager"))
+
+    r = client.post("/daily-sales-entry", json={
+        "pump_serial": serial, "shift_date": "2026-09-11",
+        "hs": {"current": "1200", "last": "1"},     # nonsense, and ignored
+        "ms": {"current": "2200", "last": "1"},
+    }, headers=auth_headers("Manager"))
+    assert r.status_code == 201, r.text[:300]
+    saved = r.json()
+    assert saved["entry_mode"] == "manual"
+    assert saved["payload"]["hs"]["last"] == 1000, "carry-forward stopped working"
+    assert saved["payload"]["ms"]["last"] == 2000
+
+
+def test_re_saving_an_imported_entry_does_not_turn_it_manual(client, auth_headers):
+    """Load an imported day, press Save, and the sheet's readings must survive -
+    otherwise the carry-forward comes back through the edit path."""
+    day, serial = "2026-09-15", "12BC4523V-RD"
+    client.post("/daily-sales-entry", json={
+        "pump_serial": serial, "shift_date": "2026-09-10",
+        "hs": {"current": "267841.93", "last": "267800"},
+        "ms": {"current": "288877.28", "last": "288800"},
+    }, headers=auth_headers("Manager"))
+
+    parsed = _upload(client, auth_headers, DSR[day]["road"], serial)
+    body = dict(parsed["payload"])
+    body.update({"pump_serial": serial, "shift_date": day, "entry_mode": "excel"})
+    entry_id = client.post("/daily-sales-entry", json=body,
+                           headers=auth_headers("Manager")).json()["id"]
+
+    # The screen re-saves what it loaded, without naming a mode.
+    again = dict(parsed["payload"])
+    again.update({"pump_serial": serial, "shift_date": day})
+    r = client.put(f"/daily-sales-entry/{entry_id}", json=again,
+                   headers=auth_headers("Manager"))
+    assert r.status_code == 200, r.text[:300]
+    assert r.json()["payload"]["hs"]["last"] == 1489759.27
+    assert round(r.json()["result"]["hs"]["cons"], 2) == 284.48

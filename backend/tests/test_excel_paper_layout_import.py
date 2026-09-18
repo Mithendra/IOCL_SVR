@@ -136,7 +136,10 @@ def test_multi_sheet_workbook_picks_the_sheet_for_the_selected_pump():
 
     road_payload, _, road_warnings = parse_workbook(data, pump_serial="12BC4523V-RD")
     assert not any("could not match" in w for w in road_warnings)
-    assert road_payload["hs"] == {"current": 267859.1, "last": 267841.93}
+    # The sheet's own Rate is read now too (client, 2026-09-18: an imported
+    # sheet is transcribed, not overwritten), so it is part of the payload.
+    assert road_payload["hs"] == {"current": 267859.1, "last": 267841.93,
+                                  "rate": 105.36}
     # This side of the form is almost entirely the paper's own "-" markers -
     # every one of them reads back as blank, not as a literal dash (2026-09-11).
     # Rate is the exception: a blank Rate cell is a real 0, so it can never fall
@@ -148,7 +151,8 @@ def test_multi_sheet_workbook_picks_the_sheet_for_the_selected_pump():
 
     office_payload, _, office_warnings = parse_workbook(data, pump_serial="11CC2012V-OFF")
     assert not any("could not match" in w for w in office_warnings)
-    assert office_payload["hs"] == {"current": 1488457.6, "last": 1487828.11}
+    assert office_payload["hs"] == {"current": 1488457.6, "last": 1487828.11,
+                                    "rate": 105.36}
     assert office_payload["phone_pay_settled"] == 14698
     assert office_payload["phone_pay_unsettled"] == 4660
 
@@ -173,8 +177,10 @@ def test_zero_activity_repair_day_reads_current_equal_to_last():
     """The Road pump's real 2026-09-09 file (repair day) - Current Reading ==
     Last Shift Reading (the meter didn't move), not blank and not skipped."""
     payload, _, _ = parse_workbook(_REAL_ROAD_SEP9.read_bytes(), pump_serial="12BC4523V-RD")
-    assert payload["hs"] == {"current": 267841.93, "last": 267841.93}
-    assert payload["ms"] == {"current": 288877.28, "last": 288877.28}
+    assert payload["hs"] == {"current": 267841.93, "last": 267841.93,
+                             "rate": 105.36}
+    assert payload["ms"] == {"current": 288877.28, "last": 288877.28,
+                             "rate": 117.7}
     assert compute_payload(payload)["hs"]["cons"] == 0.0
 
 

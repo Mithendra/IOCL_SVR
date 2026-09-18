@@ -272,6 +272,7 @@ function readForm() {
     pump_serial: val("pump-serial"),
     pump_status: val("pump-status") || "online",
     shift_date: val("shift-date"),
+    entry_mode: entryMode,
     hs: { current: val("hs-current"), last: val("hs-last"), rate: val("hs-rate") },
     ms: { current: val("ms-current"), last: val("ms-last"), rate: val("ms-rate") },
     oils,
@@ -377,6 +378,12 @@ function refresh() {
 // one in repair is 5 - the figure this project chased for three days.
 const GAS_INPUTS = ["hs-current", "hs-last", "ms-current", "ms-last"];
 
+// Where the numbers on the form came from. "manual" means the operator is typing
+// the shift, and Last Shift Reading is the backend's to carry forward. "excel"
+// means they came off a sheet the station already filled in, and every figure on
+// that sheet is kept exactly as printed (client, 2026-09-18).
+let entryMode = "manual";
+
 function applyPumpStatus() {
   const status = val("pump-status") || "online";
   const offline = status === "repair";
@@ -471,6 +478,10 @@ async function loadExisting({ populate = false } = {}) {
   }
   entryId = row.id;
   if (populate) {
+    // Adopt the saved row's provenance. Re-opening an imported day and pressing
+    // Save must not turn it into a manual entry and pull the carry-forward back
+    // over the readings that came off the sheet.
+    entryMode = row.entry_mode || "manual";
     // pump_status is a column, not part of the payload blob, so it restores here
     // rather than in populateInputs().
     const sel = $("pump-status");
@@ -676,6 +687,7 @@ async function deleteEntry() {
   try {
     await api.del(`/daily-sales-entry/${deletedId}`);
     entryId = null;
+    entryMode = "manual";
     const banner = $("editing-note");
     if (banner) banner.hidden = true;
     clearOperatorFields();
@@ -701,6 +713,17 @@ function ensureRows(selector, adder, n) {
 // either - identity always comes from whatever's selected on the form (2026-
 // 09-11), never guessed or overridden from an imported document's own content;
 // importExcel() surfaces a mismatch note instead of silently switching it.
+// Put the sheet's own Last Shift Readings on the form and leave them editable.
+function unlockImportedReadings(payload) {
+  [["hs-last", payload.hs && payload.hs.last],
+    ["ms-last", payload.ms && payload.ms.last]].forEach(([id, v]) => {
+    if (v === undefined || v === null || v === "") return;
+    $(id).disabled = false;
+    $(id).placeholder = "from the imported sheet";
+    setVal(id, v);
+  });
+}
+
 function populateInputs(payload) {
   setVal("hs-current", payload.hs && payload.hs.current);
   setVal("ms-current", payload.ms && payload.ms.current);
@@ -825,7 +848,17 @@ async function importExcel(file) {
     }
 
     await loadPrefill(); // rebuild oil rows + lock rates/readings for the selected pump+date
+    entryMode = "excel";
     populateInputs(res.payload); // then overlay the imported inputs (never identity)
+    // The sheet is the source document, so its Last Shift Reading stands. Left to
+    // itself loadPrefill() has just DISABLED these two fields and filled them with
+    // the carry-forward, and populateInputs skips a disabled field - which is how
+    // the SEP15 road sheet's 1,489,759.27 was replaced by 267,841.93 from an
+    // unrelated day, turning 284.48 litres into 1,222,201.82 (remote PC,
+    // 2026-09-18). Unlocked as well as filled, because ADR-5 says the operator
+    // reviews an imported value before saving, and they cannot review a field
+    // they cannot reach.
+    unlockImportedReadings(res.payload);
     await loadExisting(); // if that day already has an entry, Save updates it
     refresh();
     notes.push(...(res.warnings || []));

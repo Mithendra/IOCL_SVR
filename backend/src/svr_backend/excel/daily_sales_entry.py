@@ -426,18 +426,30 @@ def _parse_paper_layout(rows: list[tuple], items=OIL_ITEMS) -> tuple[dict, dict,
     else:
         col_current = _col_of(rows[gas_hdr], "current reading")
         col_last = _col_of(rows[gas_hdr], "last shift")
+        # The sheet prints its own Rate (SEP15 road DSR: O6 105.36, O7 117.7).
+        # Read it, for the same reason the oil Rate is read: on an imported sheet
+        # the sheet is the source document. A blank cell falls back to Rate
+        # Master at save time (client, 2026-09-18).
+        col_rate = _col_of(rows[gas_hdr], "rate")
         stop = _find_row(rows, "total amt", start=gas_hdr + 1)
         stop = stop if stop is not None else min(gas_hdr + 6, len(rows))
         for i in range(gas_hdr + 1, stop):
             label = _txt(rows[i][0] if rows[i] else None)
             if not label:
                 continue
+            fuel = None
             if any(h in label for h in _HS_LABEL_HINTS):
-                payload["hs"]["current"] = _cell(rows[i], col_current)
-                payload["hs"]["last"] = _cell(rows[i], col_last)
+                fuel = "hs"
             elif any(h in label for h in _MS_LABEL_HINTS):
-                payload["ms"]["current"] = _cell(rows[i], col_current)
-                payload["ms"]["last"] = _cell(rows[i], col_last)
+                fuel = "ms"
+            if fuel is None:
+                continue
+            payload[fuel]["current"] = _cell(rows[i], col_current)
+            payload[fuel]["last"] = _cell(rows[i], col_last)
+            if col_rate is not None:
+                rate = _cell(rows[i], col_rate)
+                if rate is not None:
+                    payload[fuel]["rate"] = rate
 
     # ---- 2. Oil Sale(s) ----
     oil_hdr = _find_row(rows, "quantity", start=gas_hdr + 1 if gas_hdr is not None else 0)
