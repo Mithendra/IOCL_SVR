@@ -361,3 +361,61 @@ def test_re_saving_an_imported_entry_does_not_turn_it_manual(client, auth_header
     assert r.status_code == 200, r.text[:300]
     assert r.json()["payload"]["hs"]["last"] == 1489759.27
     assert round(r.json()["result"]["hs"]["cons"], 2) == 284.48
+
+
+def test_a_blank_form_printed_by_the_app_gets_the_carry_forward(client, auth_headers):
+    """Client, 2026-09-18: "unless if they print a respective serial number from
+    system Print Blank for Entry - in this case you make last morning current as
+    the last reading."
+
+    Print Blank for Entry exists so the station can fill a form by hand. Those
+    forms come back with Current written in and Last Shift EMPTY, because the app
+    printed the sheet and never had a reading to print there. Verified against
+    the real blank template: it parses as ``last: None``.
+
+    So a blank cell is not "the sheet says blank" - there is nothing to
+    transcribe, and the carry-forward supplies it.
+    """
+    serial = "12BC4523V-RD"
+    client.post("/daily-sales-entry", json={
+        "pump_serial": serial, "shift_date": "2026-09-14",
+        "hs": {"current": "1489759.27", "last": "1489000"},
+        "ms": {"current": "663546.17", "last": "663000"},
+    }, headers=auth_headers("Manager"))
+
+    # A printed blank, filled in by hand: Current written, Last left empty.
+    r = client.post("/daily-sales-entry", json={
+        "pump_serial": serial, "shift_date": "2026-09-15", "entry_mode": "excel",
+        "hs": {"current": "1490043.75", "last": None},
+        "ms": {"current": "664047.85", "last": None},
+    }, headers=auth_headers("Manager"))
+    assert r.status_code == 201, f"{r.status_code} {r.text[:300]}"
+
+    saved = r.json()
+    assert saved["payload"]["hs"]["last"] == 1489759.27, (
+        "a blank Last Shift on a printed form should take last morning's Current "
+        f"Reading, got {saved['payload']['hs']['last']!r}")
+    assert saved["payload"]["ms"]["last"] == 663546.17
+    # And the day computes to the sheet's own consumption.
+    assert round(saved["result"]["hs"]["cons"], 2) == 284.48
+    assert round(saved["result"]["ms"]["cons"], 2) == 501.68
+
+
+def test_a_filled_sheet_still_beats_the_carry_forward(client, auth_headers):
+    """The fallback must not become a licence to override. When the sheet prints
+    a Last Shift Reading it wins, even where a different figure could be carried."""
+    serial = "12BC4523V-RD"
+    client.post("/daily-sales-entry", json={
+        "pump_serial": serial, "shift_date": "2026-09-14",
+        "hs": {"current": "267841.93", "last": "267800"},
+        "ms": {"current": "288877.28", "last": "288800"},
+    }, headers=auth_headers("Manager"))
+
+    r = client.post("/daily-sales-entry", json={
+        "pump_serial": serial, "shift_date": "2026-09-15", "entry_mode": "excel",
+        "hs": {"current": "1490043.75", "last": "1489759.27"},
+        "ms": {"current": "664047.85", "last": "663546.17"},
+    }, headers=auth_headers("Manager"))
+    assert r.status_code == 201, f"{r.status_code} {r.text[:300]}"
+    assert r.json()["payload"]["hs"]["last"] == 1489759.27
+    assert round(r.json()["result"]["hs"]["cons"], 2) == 284.48

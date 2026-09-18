@@ -229,17 +229,31 @@ def _apply_locked_context(
     payload = json.loads(json.dumps(payload))  # deep copy
     payload.setdefault("hs", {})
     payload.setdefault("ms", {})
-    # Carried forward only for a manual entry, and only once there IS a prior
-    # reading to carry (SDD 7.7). An imported sheet keeps its own reading, and so
-    # does the very first entry ever made for a pump, which has nothing to carry.
-    if carried.hs is not None and not from_sheet:
-        payload["hs"]["last"] = carried.hs
-    else:
-        payload["hs"]["last"] = _num(payload["hs"].get("last"))
-    if carried.ms is not None and not from_sheet:
-        payload["ms"]["last"] = carried.ms
-    else:
-        payload["ms"]["last"] = _num(payload["ms"].get("last"))
+    # Last Shift Reading, in one rule:
+    #
+    #   manual entry      the app owns it - yesterday's Current Reading carries
+    #                     forward so nobody re-keys a meter (SDD 7.7).
+    #   imported sheet    the sheet owns it, IF it printed one. The station
+    #                     filled that sheet in; it is the source document.
+    #   imported blank    a form the app itself printed for this pump has the
+    #                     cell EMPTY, so there is nothing to transcribe and the
+    #                     carry-forward supplies it - last morning's Current
+    #                     Reading (client, 2026-09-18).
+    #
+    # The last case is why this is a fallback and not a flat "never carry on an
+    # import": Print Blank for Entry exists precisely so the station can fill a
+    # form by hand, and those forms come back with Current filled and Last empty.
+    for fuel in ("hs", "ms"):
+        carried_value = getattr(carried, fuel)
+        from_cell = _num(payload[fuel].get("last"))
+        if from_sheet:
+            payload[fuel]["last"] = from_cell if from_cell is not None else carried_value
+        elif carried_value is not None:
+            payload[fuel]["last"] = carried_value
+        else:
+            # The first entry ever made for a pump has nothing to carry, so the
+            # operator's own reading is kept rather than wiped to blank.
+            payload[fuel]["last"] = from_cell
     # Same rule as the reading and as the oil Rate below: an imported sheet keeps
     # the rate it prints, and only a blank cell falls back to Rate Master. A
     # manual entry always takes the locked rate.
