@@ -117,6 +117,12 @@
         <p id="req-warning" class="status-line err" hidden style="margin:0 0 8px"></p>
 
         <p id="carried-note" style="font-size:11px;color:var(--io-blue-dark);margin:0 0 8px"></p>
+        <!-- Owner-only. A carried Last Shift Reading is right almost always, but
+             when it is wrong it used to be permanent: the field is disabled and
+             the backend ignored anything sent for it (client, 2026-09-23).
+             Hidden unless there IS a carried reading AND the user is an Owner;
+             the server enforces the role regardless of this button. -->
+        <button type="button" class="btn-small" id="unlock-last-btn" hidden>Unlock (Owner)</button>
         <p id="editing-note" hidden
            style="font-size:12px;font-weight:700;color:var(--io-blue);background:#eef3fb;border:1px solid var(--io-blue);border-radius:4px;padding:5px 8px;margin:0 0 8px"></p>
 

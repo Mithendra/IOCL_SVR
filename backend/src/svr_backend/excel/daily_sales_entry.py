@@ -92,6 +92,60 @@ def _list_section(title: str, label: str, values: list, base_key: str, total_key
     return rows
 
 
+def _credit_card_rows(payload: dict, result: dict) -> list[_Row]:
+    """A swipe is a row, not a number. Card Holder, Card Type, Rate and Receipt #
+    are on the client's form and were exported nowhere (client, 2026-09-23)."""
+    amounts = payload.get("credit_card_amounts") or []
+    details = payload.get("credit_card_rows") or []
+    rows: list[_Row] = [_section("4. Credit Cards Swiping(s)")]
+    for i in range(max(_MAX_ROWS, len(amounts), len(details))):
+        d = details[i] if i < len(details) else {}
+        amt = amounts[i] if i < len(amounts) else None
+        n = f"Row {i + 1}"
+        rows += [
+            _r("Card swipe", f"{n} - Card Holder / Terminal ID", d.get("holder"),
+               key=f"credit_card_rows.{i}.holder"),
+            _r("Card swipe", f"{n} - Card Type", d.get("card_type"),
+               key=f"credit_card_rows.{i}.card_type"),
+            _r("Card swipe", f"{n} - Rate", d.get("rate"),
+               key=f"credit_card_rows.{i}.rate"),
+            _r("Card swipe", f"{n} - Transaction / Receipt #", d.get("receipt"),
+               key=f"credit_card_rows.{i}.receipt"),
+            _r("Card swipe", f"{n} - Amount", amt, key=f"credit_card_amounts.{i}"),
+        ]
+    rows.append(
+        _r("", "Total Amt Credit Cards", computed=result.get("credit_cards_total"),
+           key="_chk.credit_cards_total")
+    )
+    return rows
+
+
+def _old_credit_rows(payload: dict, result: dict) -> list[_Row]:
+    """Customer Name and the date the credit was given - the two things that make
+    an old-credit line mean anything - were exported nowhere either."""
+    amounts = payload.get("old_credit_amounts") or []
+    details = payload.get("old_credit_rows") or []
+    rows: list[_Row] = [_section("6. Old/Pending Credit Received")]
+    for i in range(max(_MAX_ROWS, len(amounts), len(details))):
+        d = details[i] if i < len(details) else {}
+        amt = amounts[i] if i < len(amounts) else None
+        n = f"Row {i + 1}"
+        rows += [
+            _r("Old credit", f"{n} - Customer Name", d.get("customer"),
+               key=f"old_credit_rows.{i}.customer"),
+            _r("Old credit", f"{n} - Amount", amt, key=f"old_credit_amounts.{i}"),
+            _r("Old credit", f"{n} - Old Credit Given Date", d.get("given_date"),
+               key=f"old_credit_rows.{i}.given_date"),
+            _r("Old credit", f"{n} - Signature", d.get("signature"),
+               key=f"old_credit_rows.{i}.signature"),
+        ]
+    rows.append(
+        _r("", "Old Credit Total (reference only)", computed=result.get("old_credit_total"),
+           key="_chk.old_credit_total")
+    )
+    return rows
+
+
 def _new_credit_rows(payload: dict, result: dict) -> list[_Row]:
     nc = payload.get("new_credits") or []
     r_nc = result.get("new_credit_amounts") or []
@@ -101,9 +155,15 @@ def _new_credit_rows(payload: dict, result: dict) -> list[_Row]:
         amt = r_nc[i] if i < len(r_nc) else None
         n = f"Row {i + 1}"
         rows += [
+            _r("New credit", f"{n} - Creditor Name", row.get("name"),
+               key=f"new_credits.{i}.name"),
+            _r("New credit", f"{n} - Type", row.get("fuel_type"),
+               key=f"new_credits.{i}.fuel_type"),
             _r("New credit", f"{n} - In Ltrs", row.get("ltrs"), key=f"new_credits.{i}.ltrs"),
             _r("New credit", f"{n} - Rate", row.get("rate"), key=f"new_credits.{i}.rate"),
             _r("New credit", f"{n} - Amount", computed=amt, key=f"_chk.new_credit_amounts.{i}"),
+            _r("New credit", f"{n} - Signature", row.get("signature"),
+               key=f"new_credits.{i}.signature"),
         ]
     rows.append(
         _r("", "Total Amt New Credits", computed=result.get("new_credits_total"),
@@ -145,17 +205,9 @@ def _all_rows(payload: dict, result: dict, meta: dict) -> list[_Row]:
         "3. Expenses", "Expense", payload.get("expenses") or [], "expenses",
         "expenses_total", "Total Amt Expenses", result.get("expenses_total"),
     )
-    rows += _list_section(
-        "4. Credit Cards Swiping(s)", "Card swipe", payload.get("credit_card_amounts") or [],
-        "credit_card_amounts", "credit_cards_total", "Total Amt Credit Cards",
-        result.get("credit_cards_total"),
-    )
+    rows += _credit_card_rows(payload, result)
     rows += _new_credit_rows(payload, result)
-    rows += _list_section(
-        "6. Old/Pending Credit Received", "Old credit", payload.get("old_credit_amounts") or [],
-        "old_credit_amounts", "old_credit_total", "Old Credit Total (reference only)",
-        result.get("old_credit_total"),
-    )
+    rows += _old_credit_rows(payload, result)
     rows += _summary_rows(payload, result)
     return rows
 
@@ -519,18 +571,42 @@ def _parse_paper_layout(rows: list[tuple], items=OIL_ITEMS) -> tuple[dict, dict,
         payload["expenses"] = expenses
 
     # ---- 4. Credit Cards Swiping(s) ----
+    # Until 2026-09-23 this read the Amount and threw the rest of the row away -
+    # Card Holder, Card Type, Rate and Receipt # were on the sheet, on the screen
+    # and on the printed form, and stored nowhere. The client found it by
+    # importing SEP15 and seeing "Airtel Hari" vanish while 420 survived.
+    #
+    # `credit_card_rows` is index-aligned with `credit_card_amounts`, the same way
+    # `expense_labels` is aligned with `expenses`, so the amount stays the single
+    # source of truth for every total and nothing recomputes.
     cc_span = _section_span(rows, "credit cards swiping", "today new credit")
     if cc_span:
         s, e = cc_span
         hdr = _find_row(rows, "terminal id", start=s)
         if hdr is not None:
-            payload["credit_card_amounts"] = [
-                v
-                for i in range(hdr + 1, e)
-                if _row_txt(rows[i]) and "total amt" not in _row_txt(rows[i])
-                for v in [_rightmost_value(rows[i], skip_first=0)]
-                if v is not None
-            ]
+            col_holder = _col_of(rows[hdr], "terminal id")
+            col_type = _col_of(rows[hdr], "card type")
+            col_rate = _col_of(rows[hdr], "rate")
+            col_receipt = _col_of(rows[hdr], "receipt")
+            amounts, details = [], []
+            for i in range(hdr + 1, e):
+                t = _row_txt(rows[i])
+                if not t or "total amt" in t:
+                    continue
+                amt = _rightmost_value(rows[i], skip_first=0)
+                if amt is None:
+                    continue
+                amounts.append(amt)
+                details.append(
+                    {
+                        "holder": _cell(rows[i], col_holder),
+                        "card_type": _cell(rows[i], col_type),
+                        "rate": _cell(rows[i], col_rate),
+                        "receipt": _cell(rows[i], col_receipt),
+                    }
+                )
+            payload["credit_card_amounts"] = amounts
+            payload["credit_card_rows"] = details
 
     # ---- 5. Today New Credit(s) ----
     nc_span = _section_span(rows, "today new credit", "old/pending credit")
@@ -540,14 +616,28 @@ def _parse_paper_layout(rows: list[tuple], items=OIL_ITEMS) -> tuple[dict, dict,
         if hdr is not None:
             col_ltrs = _col_of(rows[hdr], "in ltrs")
             col_rate = _col_of(rows[hdr], "rate")
+            # The creditor's name is the whole point of a credit row - it is who
+            # owes the money. It was being dropped (client, 2026-09-23).
+            col_name = _col_of(rows[hdr], "creditor name")
+            col_type = _col_of(rows[hdr], "type")
+            col_sign = _col_of(rows[hdr], "signature")
             new_credits = []
             for i in range(hdr + 1, e):
                 t = _row_txt(rows[i])
                 if not t or "total amt" in t:
                     continue
                 ltrs, rate = _cell(rows[i], col_ltrs), _cell(rows[i], col_rate)
-                if ltrs is not None or rate is not None:
-                    new_credits.append({"ltrs": ltrs, "rate": rate})
+                name = _cell(rows[i], col_name)
+                if ltrs is not None or rate is not None or name:
+                    new_credits.append(
+                        {
+                            "ltrs": ltrs,
+                            "rate": rate,
+                            "name": name,
+                            "fuel_type": _cell(rows[i], col_type),
+                            "signature": _cell(rows[i], col_sign),
+                        }
+                    )
             payload["new_credits"] = new_credits
 
     # ---- 6. Old/Pending Credit Received (reference only) ----

@@ -220,10 +220,18 @@ async function refreshOilSection() {
   refresh();
 }
 
+// Every box on these rows is now WIRED. They used to render as bare <input>
+// elements with no class, which readForm() had no way to find - so the operator
+// typed "Airtel Hari" into a card row, or "Anil/Nani" into a credit row, and the
+// app saved the amount and silently dropped the name. It was not stored, not
+// exported, not printed back (client, 2026-09-23, from the SEP15 import).
 function addCcRow() {
   $("cc-rows").appendChild(
     blankRow(
-      "<td><input></td><td><input></td><td><input></td><td><input></td>" +
+      '<td><input class="cc-holder"></td>' +
+        '<td><input class="cc-type"></td>' +
+        '<td><input class="cc-rate"></td>' +
+        '<td><input class="cc-receipt"></td>' +
         '<td><input class="cc-amount" data-calc></td>'
     )
   );
@@ -231,11 +239,12 @@ function addCcRow() {
 function addNcRow() {
   $("nc-rows").appendChild(
     blankRow(
-      "<td><input></td><td><input></td>" +
+      '<td><input class="nc-name"></td>' +
+        '<td><input class="nc-type" placeholder="1.Diesel / 2.Petrol"></td>' +
         '<td><input class="nc-ltrs" data-calc></td>' +
         '<td><input class="nc-rate" data-calc></td>' +
         '<td><input class="nc-amount" disabled placeholder="auto"></td>' +
-        "<td><input></td>"
+        '<td><input class="nc-sign"></td>'
     )
   );
 }
@@ -255,7 +264,12 @@ function addExpRow(desc = "", amount = "") {
 
 function addOcRow() {
   $("oc-rows").appendChild(
-    blankRow('<td><input></td><td><input class="oc-amount" data-calc></td><td><input></td><td><input></td>')
+    blankRow(
+      '<td><input class="oc-customer"></td>' +
+        '<td><input class="oc-amount" data-calc></td>' +
+        '<td><input class="oc-given"></td>' +
+        '<td><input class="oc-sign"></td>'
+    )
   );
 }
 
@@ -273,6 +287,7 @@ function readForm() {
     pump_status: val("pump-status") || "online",
     shift_date: val("shift-date"),
     entry_mode: entryMode,
+    last_reading_override: lastReadingOverride,
     hs: { current: val("hs-current"), last: val("hs-last"), rate: val("hs-rate") },
     ms: { current: val("ms-current"), last: val("ms-last"), rate: val("ms-rate") },
     oils,
@@ -281,11 +296,26 @@ function readForm() {
     // own fixed label; an added row contributes what was typed into it.
     expense_labels: expenseLabels(),
     credit_card_amounts: [...document.querySelectorAll(".cc-amount")].map((i) => i.value),
+    // Index-aligned with the amounts above, like expense_labels with expenses.
+    credit_card_rows: [...document.querySelectorAll("#cc-rows tr")].map((tr) => ({
+      holder: tr.querySelector(".cc-holder").value,
+      card_type: tr.querySelector(".cc-type").value,
+      rate: tr.querySelector(".cc-rate").value,
+      receipt: tr.querySelector(".cc-receipt").value,
+    })),
     new_credits: [...document.querySelectorAll("#nc-rows tr")].map((tr) => ({
       ltrs: tr.querySelector(".nc-ltrs").value,
       rate: tr.querySelector(".nc-rate").value,
+      name: tr.querySelector(".nc-name").value,
+      fuel_type: tr.querySelector(".nc-type").value,
+      signature: tr.querySelector(".nc-sign").value,
     })),
     old_credit_amounts: [...document.querySelectorAll(".oc-amount")].map((i) => i.value),
+    old_credit_rows: [...document.querySelectorAll("#oc-rows tr")].map((tr) => ({
+      customer: tr.querySelector(".oc-customer").value,
+      given_date: tr.querySelector(".oc-given").value,
+      signature: tr.querySelector(".oc-sign").value,
+    })),
     phone_pay_settled: val("pp-settled"),
     phone_pay_unsettled: val("pp-unsettled"),
   };
@@ -384,6 +414,36 @@ const GAS_INPUTS = ["hs-current", "hs-last", "ms-current", "ms-last"];
 // that sheet is kept exactly as printed (client, 2026-09-18).
 let entryMode = "manual";
 
+// Owner-only: unlock the carried Last Shift Reading so it can be corrected.
+// Client, 2026-09-23: "12BC4523V-RD does not let me change the last reading ...
+// there should be a mechanism to change this number by owner only, or when there
+// is a need to reset by owner." A wrong carried reading was otherwise permanent -
+// the field is disabled and the backend ignored anything sent for it, so it
+// propagated to every later day with no way to correct it from inside the app.
+let lastReadingOverride = false;
+
+function syncOverrideBtn(hasCarry) {
+  const btn = $("unlock-last-btn");
+  if (!btn) return;
+  const isOwner = Boolean(me && me.role === "Owner");
+  btn.hidden = !(hasCarry && isOwner);
+  btn.textContent = lastReadingOverride ? "Re-lock" : "Unlock (Owner)";
+}
+
+function toggleLastReadingOverride() {
+  lastReadingOverride = !lastReadingOverride;
+  ["hs-last", "ms-last"].forEach((id) => {
+    $(id).disabled = !lastReadingOverride;
+    if (lastReadingOverride) $(id).placeholder = "Owner override - type the correct reading";
+  });
+  const status = $("save-status");
+  status.className = "status-line";
+  status.textContent = lastReadingOverride
+    ? "Last Shift Reading unlocked. What you type is saved instead of the carried figure, and the change is recorded in the audit log."
+    : "Last Shift Reading locked again - the carried figure will be used.";
+  syncOverrideBtn(true);
+}
+
 function applyPumpStatus() {
   const status = val("pump-status") || "online";
   const offline = status === "repair";
@@ -429,10 +489,14 @@ async function loadPrefill() {
   // reading on file. The very first entry for a pump has nothing to carry, so
   // it's left open for manual entry instead of being stuck blank forever.
   const hasCarry = Boolean(p.carried_from);
+  // A loaded day starts locked again - an override is a deliberate act each
+  // time, not a mode the screen stays in.
+  lastReadingOverride = false;
   $("hs-last").disabled = hasCarry;
   $("ms-last").disabled = hasCarry;
   $("hs-last").placeholder = hasCarry ? "auto @ 23:59 IST" : "Enter Last Shift Reading (no prior reading on file)";
   $("ms-last").placeholder = $("hs-last").placeholder;
+  syncOverrideBtn(hasCarry);
 
   $("carried-note").textContent = hasCarry
     ? `Last Shift Reading carried from ${p.carried_from} (auto @ 23:59 IST).`
@@ -793,23 +857,44 @@ function populateInputs(payload) {
   const exp = payload.expenses || [];
   ["exp1", "exp2", "exp3"].forEach((id, i) => setVal(id, exp[i]));
 
+  // `put` keeps a blank where the value is absent, so an older record with no
+  // holder/name simply shows an empty box rather than the string "null".
+  const put = (el, v) => {
+    if (el) el.value = v === undefined || v === null ? "" : v;
+  };
+
   const cards = payload.credit_card_amounts || [];
-  ensureRows(".cc-amount", addCcRow, cards.length);
-  document.querySelectorAll(".cc-amount").forEach((el, i) => {
-    el.value = cards[i] === undefined || cards[i] === null ? "" : cards[i];
+  const cardRows = payload.credit_card_rows || [];
+  ensureRows(".cc-amount", addCcRow, Math.max(cards.length, cardRows.length));
+  document.querySelectorAll("#cc-rows tr").forEach((tr, i) => {
+    put(tr.querySelector(".cc-amount"), cards[i]);
+    const d = cardRows[i] || {};
+    put(tr.querySelector(".cc-holder"), d.holder);
+    put(tr.querySelector(".cc-type"), d.card_type);
+    put(tr.querySelector(".cc-rate"), d.rate);
+    put(tr.querySelector(".cc-receipt"), d.receipt);
   });
 
   const ncs = payload.new_credits || [];
   ensureRows("#nc-rows tr", addNcRow, ncs.length);
   document.querySelectorAll("#nc-rows tr").forEach((tr, i) => {
-    tr.querySelector(".nc-ltrs").value = ncs[i] && ncs[i].ltrs != null ? ncs[i].ltrs : "";
-    tr.querySelector(".nc-rate").value = ncs[i] && ncs[i].rate != null ? ncs[i].rate : "";
+    const n = ncs[i] || {};
+    put(tr.querySelector(".nc-ltrs"), n.ltrs);
+    put(tr.querySelector(".nc-rate"), n.rate);
+    put(tr.querySelector(".nc-name"), n.name);
+    put(tr.querySelector(".nc-type"), n.fuel_type);
+    put(tr.querySelector(".nc-sign"), n.signature);
   });
 
   const ocs = payload.old_credit_amounts || [];
-  ensureRows(".oc-amount", addOcRow, ocs.length);
-  document.querySelectorAll(".oc-amount").forEach((el, i) => {
-    el.value = ocs[i] === undefined || ocs[i] === null ? "" : ocs[i];
+  const ocRows = payload.old_credit_rows || [];
+  ensureRows(".oc-amount", addOcRow, Math.max(ocs.length, ocRows.length));
+  document.querySelectorAll("#oc-rows tr").forEach((tr, i) => {
+    put(tr.querySelector(".oc-amount"), ocs[i]);
+    const d = ocRows[i] || {};
+    put(tr.querySelector(".oc-customer"), d.customer);
+    put(tr.querySelector(".oc-given"), d.given_date);
+    put(tr.querySelector(".oc-sign"), d.signature);
   });
 
   setVal("pp-settled", payload.phone_pay_settled);
@@ -1058,6 +1143,8 @@ async function init() {
   $("save-btn").addEventListener("click", save);
   $("update-btn").addEventListener("click", save); // same request logic; buttons differ by when they're enabled
   $("delete-btn").addEventListener("click", deleteEntry);
+  const unlockBtn = $("unlock-last-btn");
+  if (unlockBtn) unlockBtn.addEventListener("click", toggleLastReadingOverride);
   $("print-btn").addEventListener("click", printSheet);
   document.querySelectorAll("[data-blank]").forEach((btn) => {
     btn.addEventListener("click", async () => {

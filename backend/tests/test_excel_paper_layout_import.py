@@ -117,7 +117,12 @@ def test_natural_paper_layout_is_parsed_without_field_keys():
 
     assert payload["expenses"] == [600, 75, 5000]
     assert payload["credit_card_amounts"] == [1000, 250]
-    assert payload["new_credits"] == [{"ltrs": 10, "rate": 105.36}]
+    # The creditor's NAME comes through now. It was in this fixture all along
+    # and was being discarded with the rest of the row (client, 2026-09-23).
+    assert payload["new_credits"] == [
+        {"ltrs": 10, "rate": 105.36, "name": "Ramesh", "fuel_type": "1",
+         "signature": None}
+    ]
     assert payload["old_credit_amounts"] == [300]
     assert payload["phone_pay_settled"] == 10
     assert payload["phone_pay_unsettled"] == 20
@@ -338,7 +343,10 @@ def test_a4_template_reads_every_section_once_filled():
     assert [o.get("opening") for o in payload["oils"]] == [100, 50, 28, None, 19, None, 42]
     assert payload["expenses"] == [600, 75, 5000]
     assert payload["credit_card_amounts"] == [1000, 500]
-    assert payload["new_credits"] == [{"ltrs": 10, "rate": 105.36}]
+    assert payload["new_credits"] == [
+        {"ltrs": 10, "rate": 105.36, "name": None, "fuel_type": None,
+         "signature": None}
+    ]
     assert payload["old_credit_amounts"] == [300]
     assert payload["phone_pay_settled"] == 8560
     assert payload["phone_pay_unsettled"] == 200

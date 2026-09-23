@@ -75,8 +75,24 @@ class CalcRequest(BaseModel):
     # Pydantic on the way in.
     expense_labels: list = Field(default_factory=list)
     credit_card_amounts: list = Field(default_factory=list)
+    # Card Holder / Terminal ID, Card Type, Rate and Receipt #, aligned by index
+    # with `credit_card_amounts` - the same arrangement as expense_labels above,
+    # so the amount stays the single source of truth for every total.
+    #
+    # These columns are on the client's form, on our screen and on the printed
+    # page, and until 2026-09-23 they were stored NOWHERE: the row was read for
+    # its Amount and the rest thrown away. The client found it by importing SEP15
+    # and watching "Airtel Hari" disappear while its 420 survived. The engine
+    # never reads them; they simply have to make the round trip.
+    credit_card_rows: list[dict] = Field(default_factory=list)
+    # Each row: {ltrs, rate, name, fuel_type, signature}. `name` is the creditor -
+    # who owes the money, which is the entire point of a credit line - and was
+    # being dropped for the same reason.
     new_credits: list[dict] = Field(default_factory=list)
     old_credit_amounts: list = Field(default_factory=list)
+    # Customer Name, Old Credit Given Date and Signature, index-aligned with
+    # `old_credit_amounts`.
+    old_credit_rows: list[dict] = Field(default_factory=list)
     phone_pay_settled: float | str | None = None
     phone_pay_unsettled: float | str | None = None
     # "Night Cash Hand Off Total Amt" was removed from the form 2026-09-12 (the
@@ -111,6 +127,20 @@ class EntryCreate(CalcRequest):
     # For Manual Entry of course current reading becomes last shift reading and
     # the same will not apply here."
     entry_mode: str = "manual"
+    # Owner-only escape hatch for Last Shift Reading.
+    #
+    # The carry-forward is right almost always, and when it is wrong there was no
+    # way to correct it: the field is disabled on screen and the backend ignored
+    # whatever was submitted, so a bad reading propagated to every later day with
+    # nothing anyone could do about it from inside the app (client, 2026-09-23:
+    # "12BC4523V-RD does not let me change the last reading ... there should be a
+    # mechanism to change this number by owner only").
+    #
+    # Deliberately Owner-only and deliberately explicit: a Manager or Sales user
+    # sending this is refused rather than quietly ignored, and the override is
+    # audited, because overwriting a carried meter reading is exactly the kind of
+    # change that must leave a trace.
+    last_reading_override: bool = False
 
     @field_validator("pump_status")
     @classmethod
@@ -186,12 +216,27 @@ def _row_to_out(row: sqlite3.Row) -> EntryOut:
     )
 
 
+def _check_override(body: EntryCreate, principal: Principal) -> None:
+    """Only an Owner may overwrite a carried Last Shift Reading.
+
+    Refused loudly rather than ignored quietly: a Manager who thinks they have
+    corrected a meter reading, and finds the carried figure saved instead, has
+    been misled by the app. Server-side, independent of the UI (SDD 4.1-4.3).
+    """
+    if body.last_reading_override and principal.role != "Owner":
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            "Only an Owner can override the carried Last Shift Reading.",
+        )
+
+
 def _apply_locked_context(
     conn: sqlite3.Connection,
     payload: dict,
     shift_date: str,
     pump_serial: str,
     entry_mode: str = "manual",
+    allow_last_override: bool = False,
 ) -> tuple[dict, dict]:
     """Overlay carried Last Shift Readings and locked Sell/oil rates onto the payload.
 
@@ -224,6 +269,10 @@ def _apply_locked_context(
     oil_openings = on_hand_map(conn)  # Opening Stock pulled from Inventory Tracking
 
     from_sheet = entry_mode != "manual"
+    # Two different questions, so two flags. An imported sheet is authoritative
+    # for its Rate as well as its reading; an Owner override is about the Last
+    # Shift Reading ONLY and must not quietly unlock the rate as well.
+    keep_submitted_last = from_sheet or allow_last_override
     carried = carried_last_readings(conn, pump_serial, shift_date)
 
     payload = json.loads(json.dumps(payload))  # deep copy
@@ -246,7 +295,7 @@ def _apply_locked_context(
     for fuel in ("hs", "ms"):
         carried_value = getattr(carried, fuel)
         from_cell = _num(payload[fuel].get("last"))
-        if from_sheet:
+        if keep_submitted_last:
             payload[fuel]["last"] = from_cell if from_cell is not None else carried_value
         elif carried_value is not None:
             payload[fuel]["last"] = carried_value
@@ -465,9 +514,13 @@ def create_entry(
             f"(#{dup['id']}) - edit that one instead of creating another.",
         )
 
-    raw = body.model_dump(exclude={"shift_date", "pump_serial", "entry_mode"})
+    _check_override(body, principal)
+    raw = body.model_dump(
+        exclude={"shift_date", "pump_serial", "entry_mode", "last_reading_override"}
+    )
     payload, meta = _apply_locked_context(
-        conn, raw, shift_date, body.pump_serial, body.entry_mode
+        conn, raw, shift_date, body.pump_serial, body.entry_mode,
+        body.last_reading_override,
     )
     result = compute_payload(payload)
     if body.pump_status != "repair":
@@ -544,9 +597,13 @@ def update_entry(
     # quietly turn it into a manual entry and pull the carry-forward back over the
     # readings that came off the sheet.
     entry_mode = body.entry_mode if body.entry_mode != "manual" else row["entry_mode"]
-    raw = body.model_dump(exclude={"shift_date", "pump_serial", "entry_mode"})
+    _check_override(body, principal)
+    raw = body.model_dump(
+        exclude={"shift_date", "pump_serial", "entry_mode", "last_reading_override"}
+    )
     payload, meta = _apply_locked_context(
-        conn, raw, shift_date, body.pump_serial, entry_mode
+        conn, raw, shift_date, body.pump_serial, entry_mode,
+        body.last_reading_override,
     )
     result = compute_payload(payload)
     if body.pump_status != "repair":

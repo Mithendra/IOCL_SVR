@@ -52,7 +52,12 @@ def test_export_then_parse_preserves_inputs():
     assert len(payload["oils"]) == 7  # 7 fixed rows kept, no phantom extras
     assert payload["expenses"] == ["500+100=600", 75]   # free-text expression survives
     assert payload["credit_card_amounts"] == [1000, 250]
-    assert payload["new_credits"] == [{"ltrs": 10, "rate": 105.36}]
+    # The row round-trips with its creditor fields now; the fixture above sets
+    # only ltrs and rate, so the rest come back empty rather than missing.
+    assert payload["new_credits"] == [
+        {"ltrs": 10, "rate": 105.36, "name": None, "fuel_type": None,
+         "signature": None}
+    ]
     assert payload["old_credit_amounts"] == [300]
     assert payload["phone_pay_unsettled"] == 20
     # "night_cash" left the form 2026-09-12: an older workbook still parses,

@@ -419,3 +419,69 @@ def test_a_filled_sheet_still_beats_the_carry_forward(client, auth_headers):
     assert r.status_code == 201, f"{r.status_code} {r.text[:300]}"
     assert r.json()["payload"]["hs"]["last"] == 1489759.27
     assert round(r.json()["result"]["hs"]["cons"], 2) == 284.48
+
+
+# --- Owner override of a carried Last Shift Reading ---------------------------
+
+
+def _prior_day(client, auth_headers, serial="12BC4523V-RD"):
+    client.post("/daily-sales-entry", json={
+        "pump_serial": serial, "shift_date": "2026-09-13",
+        "hs": {"current": "267841.93", "last": "267800"},
+        "ms": {"current": "288877.28", "last": "288800"},
+    }, headers=auth_headers("Manager"))
+
+
+def test_owner_can_correct_a_wrong_carried_reading(client, auth_headers):
+    """Client, 2026-09-23: "12BC4523V-RD does not let me change the last reading
+    ... there should be a mechanism to change this number by owner only."
+
+    Before this, a wrong carried reading was permanent from inside the app: the
+    field is disabled on screen AND the backend ignored whatever was submitted,
+    so the bad figure propagated into every later day.
+    """
+    serial = "12BC4523V-RD"
+    _prior_day(client, auth_headers, serial)
+
+    r = client.post("/daily-sales-entry", json={
+        "pump_serial": serial, "shift_date": "2026-09-15",
+        "hs": {"current": "1490043.75", "last": "1489759.27"},
+        "ms": {"current": "664047.85", "last": "663546.17"},
+        "last_reading_override": True,
+    }, headers=auth_headers("Owner"))
+    assert r.status_code == 201, f"{r.status_code} {r.text[:300]}"
+    saved = r.json()
+    assert saved["payload"]["hs"]["last"] == 1489759.27, (
+        "the Owner's correction was ignored in favour of the carried figure")
+    assert round(saved["result"]["hs"]["cons"], 2) == 284.48
+
+
+def test_without_the_override_the_carry_still_wins(client, auth_headers):
+    """The override must be a deliberate act, not the new default. A plain manual
+    save still inherits yesterday's Current Reading (SDD 7.7)."""
+    serial = "12BC4523V-RD"
+    _prior_day(client, auth_headers, serial)
+    r = client.post("/daily-sales-entry", json={
+        "pump_serial": serial, "shift_date": "2026-09-15",
+        "hs": {"current": "1490043.75", "last": "1489759.27"},
+        "ms": {"current": "664047.85", "last": "663546.17"},
+    }, headers=auth_headers("Owner"))
+    assert r.status_code == 201
+    assert r.json()["payload"]["hs"]["last"] == 267841.93
+
+
+def test_only_an_owner_may_override(client, auth_headers):
+    """Refused loudly, not ignored quietly. A Manager who believes they corrected
+    a meter reading, and finds the carried figure saved instead, has been misled
+    by the app - which is how this class of bug goes unnoticed for weeks."""
+    serial = "12BC4523V-RD"
+    _prior_day(client, auth_headers, serial)
+    for role in ("Manager", "Sales"):
+        r = client.post("/daily-sales-entry", json={
+            "pump_serial": serial, "shift_date": "2026-09-16",
+            "hs": {"current": "1490043.75", "last": "1489759.27"},
+            "ms": {"current": "664047.85", "last": "663546.17"},
+            "last_reading_override": True,
+        }, headers=auth_headers(role))
+        assert r.status_code == 403, f"{role} was allowed to override: {r.status_code}"
+        assert "Owner" in r.json()["detail"]
