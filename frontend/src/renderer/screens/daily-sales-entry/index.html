@@ -123,48 +123,7 @@
              Hidden unless there IS a carried reading AND the user is an Owner;
              the server enforces the role regardless of this button. -->
         <button type="button" class="btn-small" id="unlock-last-btn" hidden>Unlock (Owner)</button>
-        <p id="editing-note" hidden
-           style="font-size:12px;font-weight:700;color:var(--io-blue);background:#eef3fb;border:1px solid var(--io-blue);border-radius:4px;padding:5px 8px;margin:0 0 8px"></p>
 
-        <!-- 1. Gas Sale(s) -->
-        <div class="section-title">
-          1. <span class="tt" data-en="Gas Sale(s)" data-te="గ్యాస్ అమ్మకాలు">Gas Sale(s)</span>
-        </div>
-        <table class="write-in">
-          <tr>
-            <th>Pump</th><th>Current Reading <span class="req" title="Mandatory">*</span></th>
-            <th>Last Shift Reading <span class="req" title="Mandatory — carried automatically once a prior day exists">*</span></th>
-            <th>Cons[Last-Current]</th><th>Rate</th><th>Amount</th><th>IOCL #</th>
-          </tr>
-          <tr>
-            <td>Diesel (HS)</td>
-            <td><input id="hs-current" data-calc /></td>
-            <td><input id="hs-last" disabled data-calc placeholder="auto @ 23:59 IST" /></td>
-            <td><input id="hs-cons" disabled placeholder="auto" /></td>
-            <td><input id="hs-rate" disabled placeholder="auto (Sell Rate HS)" /></td>
-            <td><input id="hs-amount" disabled placeholder="auto" /></td>
-            <td><input id="hs-ioclnum" /></td>
-          </tr>
-          <tr>
-            <td>Petrol (MS)</td>
-            <td><input id="ms-current" data-calc /></td>
-            <td><input id="ms-last" disabled data-calc placeholder="auto @ 23:59 IST" /></td>
-            <td><input id="ms-cons" disabled placeholder="auto" /></td>
-            <td><input id="ms-rate" disabled placeholder="auto (Sell Rate MS)" /></td>
-            <td><input id="ms-amount" disabled placeholder="auto" /></td>
-            <td><input id="ms-ioclnum" /></td>
-          </tr>
-          <tr class="total-row">
-            <td colspan="5">Total Amt</td>
-            <td><input id="gas-total" disabled placeholder="auto" /></td>
-            <td></td>
-          </tr>
-        </table>
-
-        <!-- 2. Oil Sale(s) -->
-        <div class="section-title">
-          2. <span class="tt" data-en="Oil Sale(s)" data-te="నూనె అమ్మకాలు">Oil Sale(s)</span>
-        </div>
         <table>
           <tr>
             <th>Item</th><th>Quantity</th><th>Rate</th>
@@ -320,6 +279,108 @@
           <div class="field"><label>Verified By</label><input id="verify-name" disabled /></div>
           <div class="field"><label>Signature</label><input type="text" /></div>
           <div class="field"><label>Date</label><input type="text" /></div>
+        </div>
+
+        <!-- Owner tools live at the FOOT of the form (client, 2026-09-23).
+             The form above is the day's work and is read top to bottom;
+             a reset is a rare correction and does not belong in the middle
+             of it. -->
+        <button type="button" class="btn-small" id="reset-open-btn" hidden>Reset readings (Owner)</button>
+
+        <!-- Owner's reading-reset form. Opening it needs the passphrase; the
+             passphrase is asked for AGAIN on Apply, so an unlocked panel left on
+             screen is not by itself enough to re-base a meter (client,
+             2026-09-23). Hidden from print - it is not part of the form. -->
+        <div id="reset-panel" class="oil-newbox" hidden style="display:block">
+          <div style="font-weight:700;margin-bottom:6px">
+            Reset Last Shift Reading — Owner only
+          </div>
+          <p style="font-size:11px;margin:0 0 8px;max-width:560px">
+            Records what a pump&#39;s meter <b>actually</b> reads as of a date. It does
+            not change any saved day; from that date on, the carry-forward uses
+            this instead. Every reset is kept with its reason and who made it.
+          </p>
+
+          <div id="reset-setup" hidden>
+            <p style="font-size:11px;margin:0 0 6px;color:var(--io-red)">
+              No passphrase has been set on this machine yet. Choose one — at
+              least 8 characters. It is stored hashed and cannot be recovered.
+            </p>
+            <input id="reset-new-pass" type="password" placeholder="New passphrase" />
+            <button type="button" class="btn-small" id="reset-set-btn">Set passphrase</button>
+          </div>
+
+          <div id="reset-gate">
+            <input id="reset-pass" type="password" placeholder="Passphrase" />
+            <button type="button" class="btn-small" id="reset-unlock-btn">Open</button>
+          </div>
+
+          <div id="reset-body" hidden style="margin-top:8px">
+            <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center">
+              <!-- The pump is whichever one is selected on the form above, shown
+                   read-only. Client, 2026-09-23: the reset is for "the respective
+                   pump selected". A second dropdown here would let an Owner read
+                   one pump's figures and silently re-base the other's. -->
+              <span style="font-size:11px">Pump:</span>
+              <b id="reset-pump-label"></b>
+              <input id="reset-pump" type="hidden" />
+              <input id="reset-date" type="date" title="The reading is true as of this date" />
+              <input id="reset-hs" placeholder="Diesel (HS) reading" />
+              <input id="reset-ms" placeholder="Petrol (MS) reading" />
+            </div>
+            <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:6px">
+              <input id="reset-reason" placeholder="Why? (kept on the record)" style="min-width:260px" />
+              <button type="button" class="btn-small" id="reset-apply-btn">Apply reset</button>
+              <button type="button" class="btn-small secondary" id="reset-close-btn">Close</button>
+            </div>
+            <p id="reset-status" class="status-line"></p>
+            <table class="tb-rows" id="reset-history" style="margin-top:6px">
+              <tr><th>Effective</th><th>Pump</th><th>HS</th><th>MS</th><th>Reason</th><th>By</th></tr>
+              <tbody id="reset-history-rows"></tbody>
+            </table>
+          </div>
+        </div>
+        <p id="editing-note" hidden
+           style="font-size:12px;font-weight:700;color:var(--io-blue);background:#eef3fb;border:1px solid var(--io-blue);border-radius:4px;padding:5px 8px;margin:0 0 8px"></p>
+
+        <!-- 1. Gas Sale(s) -->
+        <div class="section-title">
+          1. <span class="tt" data-en="Gas Sale(s)" data-te="గ్యాస్ అమ్మకాలు">Gas Sale(s)</span>
+        </div>
+        <table class="write-in">
+          <tr>
+            <th>Pump</th><th>Current Reading <span class="req" title="Mandatory">*</span></th>
+            <th>Last Shift Reading <span class="req" title="Mandatory — carried automatically once a prior day exists">*</span></th>
+            <th>Cons[Last-Current]</th><th>Rate</th><th>Amount</th><th>IOCL #</th>
+          </tr>
+          <tr>
+            <td>Diesel (HS)</td>
+            <td><input id="hs-current" data-calc /></td>
+            <td><input id="hs-last" disabled data-calc placeholder="auto @ 23:59 IST" /></td>
+            <td><input id="hs-cons" disabled placeholder="auto" /></td>
+            <td><input id="hs-rate" disabled placeholder="auto (Sell Rate HS)" /></td>
+            <td><input id="hs-amount" disabled placeholder="auto" /></td>
+            <td><input id="hs-ioclnum" /></td>
+          </tr>
+          <tr>
+            <td>Petrol (MS)</td>
+            <td><input id="ms-current" data-calc /></td>
+            <td><input id="ms-last" disabled data-calc placeholder="auto @ 23:59 IST" /></td>
+            <td><input id="ms-cons" disabled placeholder="auto" /></td>
+            <td><input id="ms-rate" disabled placeholder="auto (Sell Rate MS)" /></td>
+            <td><input id="ms-amount" disabled placeholder="auto" /></td>
+            <td><input id="ms-ioclnum" /></td>
+          </tr>
+          <tr class="total-row">
+            <td colspan="5">Total Amt</td>
+            <td><input id="gas-total" disabled placeholder="auto" /></td>
+            <td></td>
+          </tr>
+        </table>
+
+        <!-- 2. Oil Sale(s) -->
+        <div class="section-title">
+          2. <span class="tt" data-en="Oil Sale(s)" data-te="నూనె అమ్మకాలు">Oil Sale(s)</span>
         </div>
 
         <p style="margin-top:18px"><a href="../../index.html">&larr; Back to menu</a></p>

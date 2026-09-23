@@ -422,11 +422,138 @@ let entryMode = "manual";
 // propagated to every later day with no way to correct it from inside the app.
 let lastReadingOverride = false;
 
+// ---- Owner's reading-reset form ---------------------------------------------
+// Client, 2026-09-23: "Define a small owner form where you can reset the last
+// reading for both pumps. To open that form you need to have a secret password."
+//
+// The passphrase is checked SERVER-side, every time. Nothing here decides
+// anything: this panel only collects it. A secret a renderer could verify on its
+// own is a secret printed inside app.asar for anyone to read.
+
+let resetPass = "";
+
+function resetStatus(msg, kind = "") {
+  const el = $("reset-status");
+  if (!el) return;
+  el.className = `status-line ${kind}`;
+  el.textContent = msg;
+}
+
+async function openResetPanel() {
+  const panel = $("reset-panel");
+  panel.hidden = false;
+  try {
+    const st = await api.get("/owner-reset/status");
+    $("reset-setup").hidden = st.configured;
+    $("reset-gate").hidden = !st.configured;
+  } catch (err) {
+    resetStatus(`Could not check the passphrase — ${err.message || err}`, "err");
+  }
+}
+
+async function setResetPassphrase() {
+  const v = $("reset-new-pass").value;
+  try {
+    await api.post("/owner-reset/secret", { new_passphrase: v });
+    $("reset-new-pass").value = "";
+    $("reset-setup").hidden = true;
+    $("reset-gate").hidden = false;
+    resetStatus("Passphrase set. Enter it to open the form.", "ok");
+  } catch (err) {
+    resetStatus(`${err.message || err}`, "err");
+  }
+}
+
+async function unlockResetForm() {
+  const v = $("reset-pass").value;
+  try {
+    await api.post("/owner-reset/unlock", { passphrase: v });
+    resetPass = v;
+    $("reset-pass").value = "";
+    $("reset-gate").hidden = true;
+    $("reset-body").hidden = false;
+    if (!$("reset-date").value) $("reset-date").value = val("shift-date");
+    syncResetPump();
+    resetStatus("");
+    await loadResetHistory();
+  } catch (err) {
+    resetStatus(`${err.message || err}`, "err");
+  }
+}
+
+// The reset always targets the pump selected on the form above. Kept in step so
+// changing the dropdown while the panel is open cannot re-base the wrong pump.
+function syncResetPump() {
+  const pump = val("pump-serial");
+  const hidden = $("reset-pump");
+  const label = $("reset-pump-label");
+  if (hidden) hidden.value = pump;
+  if (label) label.textContent = `${pump}${PUMP_LABELS[pump] ? ` (${PUMP_LABELS[pump]})` : ""}`;
+}
+
+function closeResetForm() {
+  // Forget the passphrase on close. Leaving it in memory so the panel "just
+  // works" next time is how a second gate quietly becomes one.
+  resetPass = "";
+  $("reset-body").hidden = true;
+  $("reset-gate").hidden = false;
+  $("reset-panel").hidden = true;
+}
+
+async function loadResetHistory() {
+  try {
+    const rows = await api.get("/owner-reset/baselines");
+    const body = $("reset-history-rows");
+    body.innerHTML = "";
+    // Built as text nodes, not an HTML string: the reason is free text typed by a
+    // person, and it has no business being parsed as markup.
+    rows.forEach((r) => {
+      const tr = document.createElement("tr");
+      [r.effective_date, r.pump_serial, r.hs_last ?? "", r.ms_last ?? "",
+        r.reason || "", r.last_updated_by || ""].forEach((v) => {
+        const td = document.createElement("td");
+        td.textContent = String(v);
+        tr.appendChild(td);
+      });
+      body.appendChild(tr);
+    });
+  } catch {
+    /* the history is a convenience; a failure here must not block a reset */
+  }
+}
+
+async function applyReset() {
+  const body = {
+    passphrase: resetPass,
+    pump_serial: $("reset-pump").value,
+    effective_date: $("reset-date").value,
+    hs_last: $("reset-hs").value === "" ? null : Number($("reset-hs").value),
+    ms_last: $("reset-ms").value === "" ? null : Number($("reset-ms").value),
+    reason: $("reset-reason").value,
+  };
+  try {
+    await api.post("/owner-reset", body);
+    resetStatus(
+      `Saved. From ${body.effective_date} on, ${body.pump_serial} carries this reading.`,
+      "ok"
+    );
+    $("reset-hs").value = "";
+    $("reset-ms").value = "";
+    $("reset-reason").value = "";
+    await loadResetHistory();
+    await loadPrefill(); // the form behind the panel is now out of date
+  } catch (err) {
+    resetStatus(`${err.message || err}`, "err");
+  }
+}
+
 function syncOverrideBtn(hasCarry) {
   const btn = $("unlock-last-btn");
   if (!btn) return;
   const isOwner = Boolean(me && me.role === "Owner");
   btn.hidden = !(hasCarry && isOwner);
+  const opener = $("reset-open-btn");
+  if (opener) opener.hidden = !isOwner;
   btn.textContent = lastReadingOverride ? "Re-lock" : "Unlock (Owner)";
 }
 
@@ -492,6 +619,10 @@ async function loadPrefill() {
   // A loaded day starts locked again - an override is a deliberate act each
   // time, not a mode the screen stays in.
   lastReadingOverride = false;
+  // A new pump or date means the open reset panel was authorised for a different
+  // one. Close it and ask again rather than carrying the unlock across.
+  if ($("reset-body") && !$("reset-body").hidden) closeResetForm();
+  syncResetPump();
   $("hs-last").disabled = hasCarry;
   $("ms-last").disabled = hasCarry;
   $("hs-last").placeholder = hasCarry ? "auto @ 23:59 IST" : "Enter Last Shift Reading (no prior reading on file)";
@@ -1145,6 +1276,15 @@ async function init() {
   $("delete-btn").addEventListener("click", deleteEntry);
   const unlockBtn = $("unlock-last-btn");
   if (unlockBtn) unlockBtn.addEventListener("click", toggleLastReadingOverride);
+  const on = (id, fn) => {
+    const el = $(id);
+    if (el) el.addEventListener("click", fn);
+  };
+  on("reset-open-btn", openResetPanel);
+  on("reset-set-btn", setResetPassphrase);
+  on("reset-unlock-btn", unlockResetForm);
+  on("reset-apply-btn", applyReset);
+  on("reset-close-btn", closeResetForm);
   $("print-btn").addEventListener("click", printSheet);
   document.querySelectorAll("[data-blank]").forEach((btn) => {
     btn.addEventListener("click", async () => {

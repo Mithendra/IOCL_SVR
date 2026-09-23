@@ -50,6 +50,29 @@ def carried_last_readings(
         """,
         (pump_serial, before_date),
     ).fetchone()
+
+    # An Owner reset (migration 0036) says "as of this date the meter reads X".
+    # It competes with the last saved entry and the LATER one wins; on a tie the
+    # baseline wins, because it was entered deliberately to correct that very day.
+    #
+    # The baseline never edits the saved entry. Rewriting a day the station has
+    # already signed off, to fix today, is how an audit trail stops meaning
+    # anything - so the correction is recorded beside history, not on top of it.
+    base = conn.execute(
+        """
+        SELECT effective_date, hs_last, ms_last
+        FROM reading_baseline
+        WHERE pump_serial = ? AND effective_date < ?
+        ORDER BY effective_date DESC, id DESC
+        LIMIT 1
+        """,
+        (pump_serial, before_date),
+    ).fetchone()
+
+    if base is not None and (row is None or base["effective_date"] >= row["shift_date"]):
+        return CarriedReadings(
+            hs=base["hs_last"], ms=base["ms_last"], source_date=base["effective_date"]
+        )
     if row is None:
         return CarriedReadings(hs=None, ms=None, source_date=None)
     return CarriedReadings(

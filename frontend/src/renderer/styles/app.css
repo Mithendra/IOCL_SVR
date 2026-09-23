@@ -853,7 +853,11 @@ td input:disabled {
   /* The Query/Browse controls are an on-screen lookup aid, not part of the form. */
   #query-btn,
   #browse-btn,
-  #browse-panel {
+  #browse-panel,
+  /* Owner tools, not part of the paper form. */
+  #unlock-last-btn,
+  #reset-open-btn,
+  #reset-panel {
     display: none !important;
   }
 
