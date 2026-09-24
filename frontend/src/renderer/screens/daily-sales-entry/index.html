@@ -123,7 +123,48 @@
              Hidden unless there IS a carried reading AND the user is an Owner;
              the server enforces the role regardless of this button. -->
         <button type="button" class="btn-small" id="unlock-last-btn" hidden>Unlock (Owner)</button>
+        <p id="editing-note" hidden
+           style="font-size:12px;font-weight:700;color:var(--io-blue);background:#eef3fb;border:1px solid var(--io-blue);border-radius:4px;padding:5px 8px;margin:0 0 8px"></p>
 
+        <!-- 1. Gas Sale(s) -->
+        <div class="section-title">
+          1. <span class="tt" data-en="Gas Sale(s)" data-te="గ్యాస్ అమ్మకాలు">Gas Sale(s)</span>
+        </div>
+        <table class="write-in">
+          <tr>
+            <th>Pump</th><th>Current Reading <span class="req" title="Mandatory">*</span></th>
+            <th>Last Shift Reading <span class="req" title="Mandatory — carried automatically once a prior day exists">*</span></th>
+            <th>Cons[Last-Current]</th><th>Rate</th><th>Amount</th><th>IOCL #</th>
+          </tr>
+          <tr>
+            <td>Diesel (HS)</td>
+            <td><input id="hs-current" data-calc /></td>
+            <td><input id="hs-last" disabled data-calc placeholder="auto @ 23:59 IST" /></td>
+            <td><input id="hs-cons" disabled placeholder="auto" /></td>
+            <td><input id="hs-rate" disabled placeholder="auto (Sell Rate HS)" /></td>
+            <td><input id="hs-amount" disabled placeholder="auto" /></td>
+            <td><input id="hs-ioclnum" /></td>
+          </tr>
+          <tr>
+            <td>Petrol (MS)</td>
+            <td><input id="ms-current" data-calc /></td>
+            <td><input id="ms-last" disabled data-calc placeholder="auto @ 23:59 IST" /></td>
+            <td><input id="ms-cons" disabled placeholder="auto" /></td>
+            <td><input id="ms-rate" disabled placeholder="auto (Sell Rate MS)" /></td>
+            <td><input id="ms-amount" disabled placeholder="auto" /></td>
+            <td><input id="ms-ioclnum" /></td>
+          </tr>
+          <tr class="total-row">
+            <td colspan="5">Total Amt</td>
+            <td><input id="gas-total" disabled placeholder="auto" /></td>
+            <td></td>
+          </tr>
+        </table>
+
+        <!-- 2. Oil Sale(s) -->
+        <div class="section-title">
+          2. <span class="tt" data-en="Oil Sale(s)" data-te="నూనె అమ్మకాలు">Oil Sale(s)</span>
+        </div>
         <table>
           <tr>
             <th>Item</th><th>Quantity</th><th>Rate</th>
@@ -248,10 +289,14 @@
           <button type="button" class="export-btn" id="update-btn" style="order:-1" disabled>Update</button>
           <button type="button" class="export-btn secondary" id="delete-btn" style="order:-1;border-color:var(--io-red);color:var(--io-red)" hidden>Delete</button>
           <button type="button" class="export-btn secondary" id="print-btn">Print</button>
-          <button type="button" class="export-btn secondary" data-blank="12BC4523V-RD">Print Blank — 12BC4523V-RD</button>
-          <button type="button" class="export-btn secondary" data-blank="11CC2012V-OFF">Print Blank — 11CC2012V-OFF</button>
-          <button type="button" class="export-btn secondary" data-sync="12BC4523V-RD" hidden>Print &amp; Sync — 12BC4523V-RD</button>
-          <button type="button" class="export-btn secondary" data-sync="11CC2012V-OFF" hidden>Print &amp; Sync — 11CC2012V-OFF</button>
+          <!-- ONE set of print controls (client, 2026-09-23). There used to be
+               four - Print Blank and Print & Sync, per pump - and they printed
+               the data-entry screen rather than the station's own form. Both of
+               these draw the form measured from
+               ocr-samples/EMPTY_PRINTING_FORMS/SVR_DSR_EMPTY_<serial>.pdf and
+               take the pump and date from the fields above. -->
+          <button type="button" class="export-btn secondary" id="dsr-blank-btn">Print Blank DSR</button>
+          <button type="button" class="export-btn secondary" id="dsr-filled-btn">Print Filled DSR</button>
           <button type="button" class="export-btn secondary" id="import-btn">Import from Excel</button>
           <button type="button" class="export-btn" id="export-btn">Export to Excel</button>
         </div>
@@ -340,51 +385,22 @@
             </table>
           </div>
         </div>
-        <p id="editing-note" hidden
-           style="font-size:12px;font-weight:700;color:var(--io-blue);background:#eef3fb;border:1px solid var(--io-blue);border-radius:4px;padding:5px 8px;margin:0 0 8px"></p>
-
-        <!-- 1. Gas Sale(s) -->
-        <div class="section-title">
-          1. <span class="tt" data-en="Gas Sale(s)" data-te="గ్యాస్ అమ్మకాలు">Gas Sale(s)</span>
-        </div>
-        <table class="write-in">
-          <tr>
-            <th>Pump</th><th>Current Reading <span class="req" title="Mandatory">*</span></th>
-            <th>Last Shift Reading <span class="req" title="Mandatory — carried automatically once a prior day exists">*</span></th>
-            <th>Cons[Last-Current]</th><th>Rate</th><th>Amount</th><th>IOCL #</th>
-          </tr>
-          <tr>
-            <td>Diesel (HS)</td>
-            <td><input id="hs-current" data-calc /></td>
-            <td><input id="hs-last" disabled data-calc placeholder="auto @ 23:59 IST" /></td>
-            <td><input id="hs-cons" disabled placeholder="auto" /></td>
-            <td><input id="hs-rate" disabled placeholder="auto (Sell Rate HS)" /></td>
-            <td><input id="hs-amount" disabled placeholder="auto" /></td>
-            <td><input id="hs-ioclnum" /></td>
-          </tr>
-          <tr>
-            <td>Petrol (MS)</td>
-            <td><input id="ms-current" data-calc /></td>
-            <td><input id="ms-last" disabled data-calc placeholder="auto @ 23:59 IST" /></td>
-            <td><input id="ms-cons" disabled placeholder="auto" /></td>
-            <td><input id="ms-rate" disabled placeholder="auto (Sell Rate MS)" /></td>
-            <td><input id="ms-amount" disabled placeholder="auto" /></td>
-            <td><input id="ms-ioclnum" /></td>
-          </tr>
-          <tr class="total-row">
-            <td colspan="5">Total Amt</td>
-            <td><input id="gas-total" disabled placeholder="auto" /></td>
-            <td></td>
-          </tr>
-        </table>
-
-        <!-- 2. Oil Sale(s) -->
-        <div class="section-title">
-          2. <span class="tt" data-en="Oil Sale(s)" data-te="నూనె అమ్మకాలు">Oil Sale(s)</span>
-        </div>
 
         <p style="margin-top:18px"><a href="../../index.html">&larr; Back to menu</a></p>
       </div>
+    </div>
+
+    <!-- The form as it will print, at actual size, so the layout can be checked
+         before paper is used. OUTSIDE .sheet deliberately: the print rule hides
+         .sheet, and a preview nested inside it hides itself - which printed two
+         empty pages before this was moved. -->
+    <div id="dsr-preview" hidden>
+      <div class="dsr-bar">
+        <b id="dsr-preview-title"></b>
+        <button type="button" class="btn-small" id="dsr-print-btn">Print / Save PDF</button>
+        <button type="button" class="btn-small secondary" id="dsr-close-btn">Close</button>
+      </div>
+      <div id="dsr-preview-body"></div>
     </div>
 
     <script type="module" src="../../lib/screen-shell.js"></script>

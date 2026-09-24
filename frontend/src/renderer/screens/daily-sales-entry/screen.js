@@ -6,6 +6,7 @@
 import { api, getToken } from "../../lib/api.js";
 import * as mirror from "../../lib/calc-mirror.js";
 import { fmt2 } from "../../lib/format.js";
+import { renderDsrForm } from "../../lib/dsr-form.js";
 
 // Oil Sale(s) rows come from the server (/oil-items), not from a list kept here.
 // The station decides what it sells (client, 2026-09-13), so a second copy in the
@@ -1162,6 +1163,93 @@ function wireToggles() {
 // (station-wide, not per pump - see inventory.sync_from_daily_sales), then
 // carries yesterday's Current Reading into today's Last Shift Reading as
 // usual (loadPrefill), then prints a blank form for the given pump.
+// ---- The station's own DSR form, blank or filled -----------------------------
+// One layout for both (client, 2026-09-23: "always the same format"), drawn from
+// their reference blank rather than by printing the data-entry screen. See
+// lib/dsr-form.js - every coordinate in it is measured from that PDF.
+
+function dsrFileName(pumpSerial, shiftDate) {
+  return `SVR_DSR_${pumpSerial}_${shiftDate || "blank"}`;
+}
+
+async function showDsrForm(filled) {
+  const status = $("save-status");
+  const pump = val("pump-serial");
+  const shiftDate = val("shift-date");
+  let data = null;
+
+  if (filled) {
+    // Print what is SAVED for the day, not what happens to be on screen: a form
+    // that shows unsaved edits is a form that disagrees with the database.
+    try {
+      const rows = await api.get(
+        `/daily-sales-entry?shift_date=${encodeURIComponent(shiftDate)}` +
+          `&pump_serial=${encodeURIComponent(pump)}`
+      );
+      data = rows && rows[0];
+      if (!data) {
+        status.className = "status-line err";
+        status.textContent =
+          `Nothing saved for ${pump} on ${shiftDate} - save the day first, or use Print Blank DSR.`;
+        return;
+      }
+    } catch (err) {
+      status.className = "status-line err";
+      status.textContent = `Could not read the day - ${err.message || err}`;
+      return;
+    }
+  } else {
+    // A blank still carries yesterday's Current Reading as Last Shift, so the
+    // operator only writes today's - which is the whole point of printing it
+    // from the system rather than photocopying a pad.
+    data = {
+      payload: {
+        hs: { last: val("hs-last"), rate: val("hs-rate") },
+        ms: { last: val("ms-last"), rate: val("ms-rate") },
+        oils: OIL_KEYS.map((k) => ({
+          label: oilLabels[k],
+          rate: val(`${k}-rate`),
+          opening: val(`${k}-opening`),
+        })),
+      },
+      result: {},
+    };
+  }
+
+  $("dsr-preview-body").innerHTML = renderDsrForm({
+    pumpSerial: pump,
+    pumpLabel: PUMP_LABELS[pump],
+    shiftDate,
+    data,
+  });
+  $("dsr-preview-title").textContent =
+    `${filled ? "Filled" : "Blank"} - ${dsrFileName(pump, shiftDate)}.pdf`;
+  $("dsr-preview").hidden = false;
+  document.body.classList.add("dsr-mode");
+  status.className = "status-line ok";
+  status.textContent = "Check the form, then Print / Save PDF.";
+}
+
+function closeDsrPreview() {
+  $("dsr-preview").hidden = true;
+  document.body.classList.remove("dsr-mode");
+}
+
+async function printDsr() {
+  // `dsr-mode` on <body> is what the print stylesheet keys off, so the page that
+  // reaches the printer is the form alone - not the form plus the screen.
+  const name = dsrFileName(val("pump-serial"), val("shift-date"));
+  if (window.svr && typeof window.svr.printPreview === "function") {
+    try {
+      await window.svr.printPreview(name);
+      return;
+    } catch {
+      /* fall through to the browser dialog */
+    }
+  }
+  window.print();
+}
+
 async function syncAndPrint(pumpSerial) {
   const status = $("save-status");
   status.className = "status-line";
@@ -1286,6 +1374,14 @@ async function init() {
   on("reset-apply-btn", applyReset);
   on("reset-close-btn", closeResetForm);
   $("print-btn").addEventListener("click", printSheet);
+  const onId = (id, fn) => {
+    const el = $(id);
+    if (el) el.addEventListener("click", fn);
+  };
+  onId("dsr-blank-btn", () => showDsrForm(false));
+  onId("dsr-filled-btn", () => showDsrForm(true));
+  onId("dsr-print-btn", printDsr);
+  onId("dsr-close-btn", closeDsrPreview);
   document.querySelectorAll("[data-blank]").forEach((btn) => {
     btn.addEventListener("click", async () => {
       $("pump-serial").value = btn.dataset.blank;

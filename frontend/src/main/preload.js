@@ -16,7 +16,7 @@ contextBridge.exposeInMainWorld("svr", {
   // Renders the current page to an A4 PDF and opens it in a preview window.
   // Electron's bare window.print() shows no preview pane on Windows, so the
   // operator could not see page breaks before printing (client, 2026-09-11).
-  printPreview: () => ipcRenderer.invoke("svr:print-preview"),
+  printPreview: (name) => ipcRenderer.invoke("svr:print-preview", name),
   // Capture a region of the page as a PNG, copy it to the clipboard and save
   // a file. Used for the Section 8 snapshot that goes to management on
   // WhatsApp - see captureSection() in main.js for why a picture.

@@ -752,15 +752,23 @@ td input:disabled {
        landscape fought that layout badly enough that one pump's form did not
        print at all. */
     size: A4 portrait;
-    /* 6mm, not 8mm. The client's reference blanks use a 15pt (5.3mm) margin and
-       run content from y=16.8 to y=813.7 - they use the sheet. At 8mm the
-       signature block fell onto a second page with room to spare above it. */
-    margin: 6mm;
+    /* ZERO, and the margin is put back as padding on the data-entry sheet below.
+       The DSR form is drawn at full A4 - 595.3 x 841.9pt, its cells positioned in
+       the page's own coordinates - so any @page margin shrinks the printable box
+       under it and Chromium scales the whole form down to fit. That is exactly
+       what happened at 6mm: every label landed 16pt right and the rows closed up
+       by a fifth, which is not "the same format" by any reading. */
+    margin: 0;
   }
   body,
   body.shell-mode {
     padding: 0;
     background: #fff;
+  }
+  /* The page margin the data-entry form used to get from @page. The DSR form
+     must NOT have it - it carries its own margins inside a full-bleed A4. */
+  body:not(.dsr-mode) .sheet {
+    padding: 6mm !important;
   }
   .sheet {
     max-width: 100%;
@@ -1150,5 +1158,79 @@ td input:disabled {
   #req-legend,
   #req-warning {
     display: none !important;
+  }
+}
+
+
+
+/* ---- The DSR form itself --------------------------------------------------
+   Kept in step with the same rules exported as DSR_CSS from lib/dsr-form.js,
+   which a standalone page (and the print-comparison test) injects on its own.
+   They live here too because the in-app preview renders into the live document,
+   and without them the absolutely-positioned cells have nothing to position
+   against: the form flowed into a 5071px column and printed across six pages. */
+.dsr-page{position:relative;width:595.3pt;height:841.9pt;
+  background:#fff;color:#000;font-family:Arial,Helvetica,sans-serif;
+  overflow:hidden}
+.dsr-page .bx{position:absolute;border:0.6pt solid #000;box-sizing:border-box}
+.dsr-page .tx{position:absolute;line-height:1.15;white-space:pre-wrap;
+  box-sizing:border-box}
+.dsr-page .b{font-weight:700}
+.dsr-page .c{text-align:center}
+.dsr-page .r{text-align:right}
+
+/* ---- The DSR form preview -------------------------------------------------
+   The station's own paper form, shown at actual size before any paper is used.
+   On screen it sits over the data-entry sheet; in print it IS the page - the
+   sheet behind it is hidden, so what reaches the printer is the form alone. */
+#dsr-preview {
+  margin: 12px 0;
+  padding: 8px;
+  border: 1px solid var(--line);
+  background: #f7f9ff;
+  overflow: auto;
+}
+.dsr-bar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+#dsr-preview-body {
+  /* A4 is 595pt wide; the surrounding chrome is narrower on a laptop, so let it
+     scroll rather than scaling - a scaled preview is not a preview of what
+     prints. */
+  overflow-x: auto;
+}
+
+@media print {
+  /* When the preview is open, the form is the entire printed page. */
+  body.dsr-mode .sheet,
+  body.dsr-mode .shell-sidebar,
+  body.dsr-mode .dsr-bar,
+  body.dsr-mode .last-updated-bar {
+    display: none !important;
+  }
+  body.dsr-mode #dsr-preview {
+    /* Pinned to the page origin. The shell puts padding on the body and its
+       wrapper, which pushed the form ~40pt down and spilled the last rows onto
+       a second sheet - a one-page form that prints on two is not the form. */
+    position: absolute !important;
+    top: 0 !important;
+    left: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: none !important;
+    background: #fff !important;
+    overflow: visible !important;
+  }
+  body.dsr-mode {
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #fff !important;
+  }
+  /* The form carries its own A4 page box; anything else would fight it. */
+  body.dsr-mode #dsr-preview-body .dsr-page {
+    margin: 0 !important;
   }
 }

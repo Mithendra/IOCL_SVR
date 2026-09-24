@@ -99,14 +99,18 @@ const SPLASH_HTML = `<!doctype html><meta charset="utf-8">
 // over three pages (2026-09-11). Rendering to an A4 PDF first and opening it in
 // a window gives a true preview of the page breaks, and Chromium's built-in PDF
 // viewer supplies Print and Save buttons for free.
-async function showPrintPreview(sourceWebContents) {
+async function showPrintPreview(sourceWebContents, fileName) {
   const pdf = await sourceWebContents.printToPDF({
     pageSize: "A4",
     landscape: false,
     printBackground: true,
     preferCSSPageSize: true, // honour the @page rule in app.css
   });
-  const file = path.join(os.tmpdir(), `svr-print-${Date.now()}.pdf`);
+  // The station files these by pump and date, so the file is named the way they
+  // name them: SVR_DSR_<serial>_<date>.pdf (client, 2026-09-23). A timestamp
+  // tells whoever opens the Downloads folder nothing at all.
+  const safe = String(fileName || "").replace(/[^A-Za-z0-9._-]/g, "");
+  const file = path.join(os.tmpdir(), safe ? `${safe}.pdf` : `svr-print-${Date.now()}.pdf`);
   await fs.promises.writeFile(file, pdf);
 
   const preview = new BrowserWindow({
@@ -164,8 +168,8 @@ ipcMain.handle("svr:capture-section", (event, rect) =>
   })
 );
 
-ipcMain.handle("svr:print-preview", (event) =>
-  showPrintPreview(event.sender).catch((err) => {
+ipcMain.handle("svr:print-preview", (event, fileName) =>
+  showPrintPreview(event.sender, fileName).catch((err) => {
     // Surfaced to the renderer as a rejected promise so the screen can show it
     // in its own status line rather than failing silently.
     throw new Error(`Print preview failed: ${err.message}`);
