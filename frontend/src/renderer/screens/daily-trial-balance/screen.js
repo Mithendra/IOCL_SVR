@@ -114,8 +114,10 @@ function refreshSelects(listKey) {
     sel.value = keep;
   });
 }
-const hintHtml = (h) =>
-  h ? ` <span style="font-weight:400;font-size:10px;color:var(--io-blue-dark)">${h}</span>` : "";
+// Sized in em, not px. At 10px absolute the hint printed LARGER than the label
+// beside it, because the print stylesheet drops table text to 8px and an inline
+// pixel size does not follow - measured in the whole-sheet PDF (2026-09-24).
+const hintHtml = (h) => (h ? ` <span class="tb-hint">${h}</span>` : "");
 
 // ------------------------------------------------------- manual-section rendering
 
@@ -129,6 +131,29 @@ function cellFor(sectionKey, spec) {
 }
 
 function fieldsBlock(sectionKey, block) {
+  // A conditional block - the Difference reconciliation panel - renders inside a
+  // <details>. Closed on a day with nothing to explain, which is how the
+  // station's own sheet reads (SEP15 shows one line; SEP16 shows the lot).
+  // openConditionalBlocks() below opens it when the record carries a value.
+  if (block.collapsible) {
+    const rows = block.fields
+      .map(([no, label, spec, hint]) =>
+        `<tr><td>${no ? `${no} ` : ""}${label}${hintHtml(hint)}</td>` +
+        `${cellFor(sectionKey, spec)}</tr>`
+      )
+      .join("");
+    const keys = (block.collapseUnless || [])
+      .map((k) => `${sectionKey}.${k}`)
+      .join(",");
+    return (
+      `<details class="tb-collapsible" data-unless="${esc(keys)}">` +
+      `<summary>${block.title} — ` +
+      `<span class="tb-collapse-hint">${esc(block.collapsedLabel || "show")}</span>` +
+      `</summary>` +
+      `<table class="tb-fields"><tr><th>Line</th><th>Amount</th></tr>${rows}</table>` +
+      `</details>`
+    );
+  }
   const title = block.title ? `<div class="tb-block-title">${block.title}</div>` : "";
   const rows = block.fields
     .map(([no, label, spec, hint]) =>
@@ -159,7 +184,7 @@ function rowsBlock(sectionKey, block) {
   const listed = block.columns.find((c) => c.optionList);
   const title = block.title ? `<div class="tb-block-title">${block.title}</div>` : "";
   const note = block.note
-    ? `<p style="font-size:11px;color:var(--io-blue-dark);margin:4px 0 0">${block.note}</p>`
+    ? `<p class="tb-note-line">${block.note}</p>`
     : "";
   const totalRow = block.total
     ? `<tr class="total-row"><td colspan="${block.columns.length - 1}">${block.totalLabel}</td>` +
@@ -196,6 +221,30 @@ function rowsBlock(sectionKey, block) {
   );
 }
 
+// A repeating block that is CARRIED, not typed - 8.7 Old Credit Remittances,
+// which restates 4.7. Read-only by construction: there is nothing to disable,
+// because there is no input to type into. The rows arrive with the derived
+// figures and are painted by fillDerived().
+function mirrorRowsBlock(sectionKey, block) {
+  const head = block.columns.map((c) => `<th>${c.label}</th>`).join("");
+  const title = block.title ? `<div class="tb-block-title">${block.title}</div>` : "";
+  const note = block.note
+    ? `<p class="tb-note-line">${block.note}</p>`
+    : "";
+  const totalRow =
+    `<tr class="total-row"><td colspan="${block.columns.length - 1}">${block.totalLabel}</td>` +
+    `<td><input data-derived="${esc(block.total)}" disabled placeholder="auto"></td></tr>`;
+  return (
+    title +
+    `<table class="tb-rows tb-mirror tb-rows-${block.columns.length}">` +
+    `<tr>${head}</tr>` +
+    `<tbody data-mirror-rows="${esc(block.from)}" ` +
+    `data-mirror-cols="${esc(block.columns.map((c) => `${c.key}:${c.money ? "m" : "t"}`).join(","))}">` +
+    `</tbody>${totalRow}</table>` +
+    note
+  );
+}
+
 function gridBlock(sectionKey, block) {
   const head = block.columns.map(([, label]) => `<th>${label}</th>`).join("");
   const body = block.rows
@@ -215,7 +264,7 @@ function gridBlock(sectionKey, block) {
     )
     .join("");
   const note = block.note
-    ? `<p style="font-size:11px;color:var(--io-blue-dark);margin:4px 0 0">${block.note}</p>`
+    ? `<p class="tb-note-line">${block.note}</p>`
     : "";
   return `<table class="tb-grid"><tr><th></th>${head}</tr>${body}</table>${note}`;
 }
@@ -247,12 +296,25 @@ function signoffBlock(sectionKey, block) {
   );
 }
 
+// Open any conditional block whose own fields carry a value, so a day that HAS
+// an adjustment never hides it.
+function openConditionalBlocks() {
+  document.querySelectorAll("details.tb-collapsible").forEach((d) => {
+    const keys = (d.dataset.unless || "").split(",").filter(Boolean);
+    const filled = keys.some((k) => {
+      const el = document.querySelector(`[data-manual="${k}"]`);
+      return el && String(el.value).trim() !== "";
+    });
+    if (filled) d.open = true;
+  });
+}
+
 function buildManualSections() {
   for (const section of SECTIONS) {
     const host = $(`sec-${section.n}`);
     if (!host) continue;
     const hint = section.hint
-      ? ` <span style="font-weight:400;font-size:11px">${section.hint}</span>`
+      ? ` <span class="tb-hint">${section.hint}</span>`
       : "";
     // The heading bar spans the whole form so a section reads as one block;
     // the width only governs the TABLES inside it (client, 2026-09-12).
@@ -272,6 +334,7 @@ function buildManualSections() {
       if (block.type === "fields") html += fieldsBlock(section.key, block);
       else if (block.type === "rows") html += rowsBlock(section.key, block);
       else if (block.type === "grid") html += gridBlock(section.key, block);
+      else if (block.type === "mirrorRows") html += mirrorRowsBlock(section.key, block);
       else if (block.type === "signoff") html += signoffBlock(section.key, block);
     }
     host.innerHTML = html;
@@ -282,6 +345,7 @@ function buildManualSections() {
   const header = $("tb-prepared");
   if (header) header.innerHTML = optionMarkup("staff", null);
   syncDuplicateFields();
+  wireLiveRecalc();
 
   stampSection8();
   document.querySelectorAll("[data-add-row]").forEach((btn) => {
@@ -363,6 +427,75 @@ function syncDuplicateFields() {
   });
 }
 
+// Recompute as the day is typed.
+//
+// Client, 2026-09-24: 7.1 was entered and 7.3 went on showing 2,870.70 - the
+// figure from the last save, when 7.1 was empty. Every derived line on this form
+// came from the server, and the server was only asked on Load and on Save, so
+// the operator was reading a calculation of the PREVIOUS state while entering
+// the current one, with nothing to say so.
+//
+// Half this form is derived from the other half, so that is the worst screen in
+// the app to leave stale. Debounced, because a keystroke is not a question.
+// Everything the engine computes, in one place, so a live recompute and a fresh
+// load cannot paint different things.
+function applyComputed(computed) {
+  if (!computed) return;
+  for (const f of ["hs", "ms"]) {
+    const s = computed.section1[f];
+    txt(`${f}-diff`, s.diff);
+    txt(`${f}-cons`, s.consumption);
+    txt(`${f}-cpd`, s.computer_pump_diff);
+    txt(`${f}-bl`, s.benefit_loss);
+    txt(`${f}-dt`, s.deduct_testing);
+    txt(`${f}-sl`, s.stock_ltrs);
+    txt(`${f}-sl2`, s.stock_ltrs); // same figure, shown again in Section 5
+    txt(`${f}-sa`, s.stock_amount);
+  }
+  txt("s6-total", computed.section6.total);
+  txt("s7-2", computed.section7["7_2_stock_value"]);
+  txt("s7-3", computed.section7["7_3_total"]);
+  if (computed.derived) fillDerived(computed.derived);
+}
+
+let tbCalcTimer = null;
+function scheduleRecalc() {
+  clearTimeout(tbCalcTimer);
+  tbCalcTimer = setTimeout(recalcNow, 350);
+}
+
+async function recalcNow() {
+  const dateStr = val("tb-date");
+  if (!dateStr) return;
+  try {
+    const res = await api.post(
+      `/daily-trial-balance/${encodeURIComponent(dateStr)}/calc`,
+      payload()
+    );
+    applyComputed(res.computed);
+  } catch {
+    // A failed recompute must not block typing. The figures simply stay as they
+    // were until the next keystroke or Save.
+  }
+}
+
+function wireLiveRecalc() {
+  // Delegated, deliberately. buildManualSections() re-renders every [data-manual]
+  // field on each load, so listeners bound to the elements themselves are thrown
+  // away with them - which is why the first attempt at this did nothing and 7.3
+  // still showed the previous save's figure.
+  const live = (e) => {
+    const t = e.target;
+    if (!t) return;
+    if (t.hasAttribute("data-manual") || t.hasAttribute("data-col") ||
+        ["hs-y", "hs-c", "ms-y", "ms-c"].includes(t.id)) {
+      scheduleRecalc();
+    }
+  };
+  document.addEventListener("input", live);
+  document.addEventListener("change", live);
+}
+
 function blockFor(path) {
   for (const section of SECTIONS) {
     for (const block of section.blocks) {
@@ -387,8 +520,16 @@ function addRow(path, values = {}) {
             `${optionMarkup(col.optionList, v)}</select></td>`
           );
         }
-        const shown = col.key === "given_on" || col.key === "date" ? v : money(v);
-        return `<td><input data-col="${esc(col.key)}" value="${shown == null ? "" : esc(shown)}"></td>`;
+        // A date column gets a real date field. "Credit Given on Date" was a
+        // plain text box, reported twice by the client (2026-09-24) - the same
+        // fault as Old Credit Given Date on the sales form.
+        const isDate = col.key === "given_on" || col.key === "date";
+        const shown = isDate ? v : money(v);
+        const type = isDate ? ' type="date"' : "";
+        return (
+          `<td><input${type} data-col="${esc(col.key)}" ` +
+          `value="${shown == null ? "" : esc(shown)}"></td>`
+        );
       })
       .join("") +
     `<td><button type="button" class="add-row-btn" data-del-row style="padding:2px 6px">×</button></td>`;
@@ -414,6 +555,8 @@ function fillManual(manual) {
     // like a form rather than an empty box.
     if (!list.length) addRow(body.dataset.rows);
   });
+  // A day that carries an adjustment must not hide it behind a closed panel.
+  openConditionalBlocks();
 }
 
 function fillDerived(derived) {
@@ -421,6 +564,30 @@ function fillDerived(derived) {
     path.split(".").reduce((acc, part) => (acc == null ? acc : acc[part]), derived || {});
   document.querySelectorAll("[data-derived]").forEach((el) => {
     el.value = fmt2(dig(el.dataset.derived));
+  });
+  document.querySelectorAll("[data-mirror-rows]").forEach((body) => {
+    const cols = body.dataset.mirrorCols.split(",").map((c) => c.split(":"));
+    const rows = dig(body.dataset.mirrorRows);
+    body.innerHTML = "";
+    const list = Array.isArray(rows) ? rows : [];
+    if (!list.length) {
+      const tr = document.createElement("tr");
+      tr.innerHTML =
+        `<td colspan="${cols.length}" class="tb-mirror-empty">Nothing carried yet</td>`;
+      body.appendChild(tr);
+      return;
+    }
+    for (const row of list) {
+      const tr = document.createElement("tr");
+      tr.innerHTML = cols
+        .map(([key, kind]) =>
+          kind === "m"
+            ? `<td class="tb-mirror-num">${fmt2(row[key])}</td>`
+            : `<td>${esc(row[key] == null ? "" : String(row[key]))}</td>`
+        )
+        .join("");
+      body.appendChild(tr);
+    }
   });
   markTodaysaleSource(derived);
 }
@@ -761,39 +928,51 @@ function buildSnapshot(view) {
   let rows = snapLine(
     `8. Daily Management Reporting — ${stamp}`, "", "", { band: true }
   );
-  rows += snapLine("8.1 Yesterday's SVR Cash/Book Value", inr(s8.f1));
+  // Read the DERIVED figures, not the manual blob. 8.1/8.2/8.4 stopped being
+  // typed on 2026-09-24 - they come from 4.1/4.2/4.4 now - so `s8.f1` and its
+  // neighbours are empty, and the snapshot went out with those lines blank
+  // (client, 2026-09-24: "many values are not printed").
+  rows += snapLine("8.1 Yesterday's SVR Cash/Book Value", inr(d.f1));
   rows += snapLine(
-    "8.2 Today's Sales After Expenses, Testing and Density Adjustments", inr(s8.f2)
+    "8.2 Today's Sales After Expenses, Testing and Density Adjustments", inr(d.f2)
   );
   rows += snapLine("8.3 Projected SVR Cash/Book Value", inr(d.f3),
     "# Duplicate Section for mgmt Reporting 4.Cash Reconcilation");
-  rows += snapLine("8.4 Actual Reported SVR Cash/Book Value", inr(s8.f4));
+  rows += snapLine("8.4 Actual Reported SVR Cash/Book Value", inr(d.f4));
   rows += snapLine("8.5 Difference — Actual Reported Minus Projected", inr(d.f5), OVER_LIMIT);
 
-  rows += snapLine("Regular Expenses", "", "", { band: true });
+  // Numbered, like the form (client, 2026-09-24). An unnumbered line in a
+  // snapshot sent to management cannot be pointed at in a reply.
+  rows += snapLine("8.6 Regular Expenses", "", "", { band: true });
   for (const r of s8.regular_expenses || []) {
     rows += snapLine(r.category || "", inr(r.amount));
   }
   rows += snapLine("Total Regular Expenses", inr(d.regular_expenses_total), "", { band: true });
 
-  rows += snapLine("Old Credit Collections [Remove/Update the row above]", "", "", { band: true });
-  for (const r of s8.old_credit_collections || []) {
-    rows += snapLine(r.type || "", inr(r.amount), "", { mid: "Write to the nxt Col" });
+  rows += snapLine("8.7 Old Credit Remittances", "", "", { band: true });
+  // Carried from 4.7 - read the engine's rows, not the manual blob, or a day
+  // whose remittances were only ever keyed in Section 4 prints an empty block.
+  for (const r of d.old_credit_rows || []) {
+    rows += snapLine(r.type || "", inr(r.amount));
   }
+  rows += snapLine("Total Old Credit Remittances", inr(d.old_credit_total), "", { band: true });
 
   rows += snapLine(
-    "Cash Value Difference — Escalate if Absolute Difference Exceeds ₹50",
+    "8.8 Cash Value Difference — Escalate if Absolute Difference Exceeds ₹50",
     inr(d.f5), OVER_LIMIT, { redLabel: true }
   );
-  rows += snapLine("Today's Actual Reported Trial Balance / SVR Net Worth",
+  rows += snapLine("8.9 Today's Actual Reported Trial Balance / SVR Net Worth",
     inr(d.mgmt_actual_networth));
-  rows += snapLine("Yesterday's Actual Reported Trial Balance", inr(s8.mgmt_yesterday_tb));
-  rows += snapLine("Daily Profit Including 2T Sales", inr(s8.mgmt_profit));
-  rows += snapLine("Projected SVR Net Worth", inr(d.mgmt_projected_networth));
-  rows += snapLine("Actual Reported SVR Net Worth", inr(d.mgmt_actual_networth));
-  rows += snapLine("Difference — Actual Reported Minus Projected", inr(d.mgmt_networth_diff),
+  rows += snapLine("8.10 Yesterday's Actual Reported Trial Balance",
+    inr(d.mgmt_yesterday_tb));
+  rows += snapLine("8.11 Daily Profit Including 2T Sales", inr(d.mgmt_profit));
+  rows += snapLine("8.12 Projected SVR Net Worth", inr(d.mgmt_projected_networth));
+  rows += snapLine("8.13 Actual Reported SVR Net Worth", inr(d.mgmt_actual_networth));
+  rows += snapLine("8.14 Difference — Actual Reported Minus Projected",
+    inr(d.mgmt_networth_diff),
     "#Possitive Number is Good could be related to Consump Difference");
-  rows += snapLine("Actual Profit all Daily Expenses Rs3300", inr(s8.mgmt_actual_profit), "",
+  rows += snapLine("8.15 Actual Profit after all Daily Expenses (Rs 3,299.98)",
+    inr(d.mgmt_actual_profit), "",
     { redLabel: true });
 
   for (const [label, key] of [
@@ -836,8 +1015,29 @@ async function snapshotSection8() {
   }
   // Build management's own layout and show it, so what is captured is what they
   // can see they are about to send.
-  block.innerHTML = buildSnapshot(lastView);
+  //
+  // With a way out. It opened and stayed open - client, 2026-09-24: "snapshot to
+  // clipboard is expanding the form and not able to close." The snapshot also
+  // freezes the figures it was built from, so a Refresh is offered beside Close
+  // rather than making the operator guess whether it is current.
+  block.innerHTML =
+    '<div class="snap-bar">' +
+    '<button type="button" class="btn-small" id="s8-snap-refresh">Refresh</button>' +
+    '<button type="button" class="btn-small secondary" id="s8-snap-close">Close</button>' +
+    "</div>" +
+    buildSnapshot(lastView);
   block.hidden = false;
+  $("s8-snap-close").addEventListener("click", () => {
+    block.hidden = true;
+    block.innerHTML = "";
+    $("s8-send-status").textContent = "";
+  });
+  $("s8-snap-refresh").addEventListener("click", async () => {
+    // Re-read the day before rebuilding, so a figure edited since the snapshot
+    // was opened is the one that gets sent.
+    await load();
+    await snapshotSection8();
+  });
 
   if (!window.svr || typeof window.svr.captureSection !== "function") {
     st.className = "status-line err";
@@ -956,36 +1156,59 @@ async function exportFull() {
   }
 }
 
-// The whole sheet as a picture, for sending on WhatsApp. Same clipboard route as
-// the Section 8 snapshot - management sometimes wants the full day, not just
-// their own block (client, 2026-09-12).
-async function snapshotWholeSheet() {
+// The whole sheet as a PDF document, for sending on WhatsApp.
+//
+// It was a clipboard PNG until 2026-09-24, the same route as the Section 8
+// snapshot. That route is right for Section 8 - a short block pasted straight
+// into a chat - and wrong for the whole sheet: eleven sections come out as one
+// enormous strip, WhatsApp re-compresses it into something nobody can read, and
+// a clipboard image cannot be forwarded, filed or reopened. The client asked for
+// a document instead, and a PDF is what a phone opens with nothing installed.
+async function exportSheetPdf() {
   const st = $("s8-send-status");
-  const block = $("body");
-  if (!window.svr || typeof window.svr.captureSection !== "function") {
+  if (!window.svr || typeof window.svr.savePdf !== "function") {
     st.className = "status-line err";
     st.textContent =
-      "Snapshot needs the installed SVR app. From a browser tab, " +
+      "Saving a PDF needs the installed SVR app. From a browser tab, " +
       "use Export Trial Balance to Excel and attach that instead.";
     return;
   }
+  if (!lastView) {
+    st.className = "status-line err";
+    st.textContent = "Load a date first.";
+    return;
+  }
   st.className = "status-line";
-  st.textContent = "Capturing the whole sheet…";
-  window.scrollTo(0, 0);
-  await new Promise((r) => setTimeout(r, 150));
-  const r = block.getBoundingClientRect();
+  st.textContent = "Building the PDF…";
+  // Chromium renders print media for printToPDF, so the @media print rules
+  // already strip the buttons and the sidebar. This class covers the things
+  // that are only noise in a DOCUMENT - the open snapshot panel and the browse
+  // results - without touching what the entry form prints.
+  document.body.classList.add("pdf-export");
+  // app.css pins @page to A4 PORTRAIT for the printed DSR form, and Chromium
+  // honours it even when printToPDF is told landscape - the page came out
+  // portrait with the sheet cut down the middle. A later @page rule wins, so
+  // one is injected for the duration of the export and removed afterwards; the
+  // entry form's own @page is untouched.
+  const pageRule = document.createElement("style");
+  pageRule.textContent = "@page { size: A4 landscape; margin: 8mm; }";
+  document.head.appendChild(pageRule);
   try {
-    const out = await window.svr.captureSection({
-      x: r.left, y: r.top, width: r.width, height: r.height,
-      label: `${$("tb-date").value}-full`,
+    const out = await window.svr.savePdf({
+      fileName: `SVR-TrialBalance-${$("tb-date").value}`,
+      landscape: true,
+      cssPageSize: true,
     });
     st.className = "status-line ok";
     st.textContent =
-      `Whole sheet copied to the clipboard — paste it into WhatsApp with Ctrl+V. ` +
-      `Saved at ${out.file}.`;
+      `Saved ${out.file} and opened it. Attach that file in WhatsApp — ` +
+      `it stays on disk, so it can be sent again or filed.`;
   } catch (err) {
     st.className = "status-line err";
-    st.textContent = `Snapshot failed — ${err.message || err}`;
+    st.textContent = `PDF failed — ${err.message || err}`;
+  } finally {
+    document.body.classList.remove("pdf-export");
+    pageRule.remove();
   }
 }
 
@@ -1005,27 +1228,17 @@ function render(view) {
   $("hs-c").value = money(i.s1_hs_current);
   $("ms-y").value = money(i.s1_ms_yesterday);
   $("ms-c").value = money(i.s1_ms_current);
-  $("cash-bv").value = money(i.s54_cash_book_value);
+  // 6.1 is filled by fillDerived() from section4.reported. The stored column is
+  // only used when the record has one AND the derived figure is unavailable -
+  // otherwise the two could show different numbers for the same line.
+  if (!$("cash-bv").value) $("cash-bv").value = money(i.s54_cash_book_value);
   fillManual(lastManual);
   fillDerived(view.computed.derived);
   stampSection8(); // the heading carries the loaded day's date, so re-stamp here
 
-  for (const f of ["hs", "ms"]) {
-    const s = view.computed.section1[f];
-    txt(`${f}-diff`, s.diff);
-    txt(`${f}-cons`, s.consumption);
-    txt(`${f}-cpd`, s.computer_pump_diff);
-    txt(`${f}-bl`, s.benefit_loss);
-    txt(`${f}-dt`, s.deduct_testing);
-    txt(`${f}-sl`, s.stock_ltrs);
-    txt(`${f}-sl2`, s.stock_ltrs); // same figure, shown again in Section 5
-    txt(`${f}-sa`, s.stock_amount);
-  }
   txt("hs-br", view.pulled.buy_rate_hs);
   txt("ms-br", view.pulled.buy_rate_ms);
-  txt("s6-total", view.computed.section6.total);
-  txt("s7-2", view.computed.section7["7_2_stock_value"]);
-  txt("s7-3", view.computed.section7["7_3_total"]);
+  applyComputed(view.computed);
 
   // Section 1's Actual Consump is both pumps combined, so the two serials are
   // named here: the mockup's Section 2 had them the wrong way round (Office
@@ -1068,9 +1281,14 @@ function render(view) {
   $("carry-info").textContent = carryParts.join(" ");
 
   const locked = view.status === "finalized";
-  for (const id of ["hs-y", "hs-c", "ms-y", "ms-c", "cash-bv"]) {
+  // cash-bv (6.1) is NOT in this list any more: it is derived from 4.4 and stays
+  // disabled whatever the day's status. Setting `.disabled = locked` re-enabled
+  // it on every open day, which is how a derived line went back to being typeable
+  // the moment the record loaded (2026-09-24).
+  for (const id of ["hs-y", "hs-c", "ms-y", "ms-c"]) {
     $(id).disabled = locked;
   }
+  $("cash-bv").disabled = true;
   lockManualInputs(locked);
   // Save starts a day; Update corrects one already saved. Both PUT - the
   // endpoint upserts - but showing which applies is the point (client asked
@@ -1248,9 +1466,45 @@ async function clearPosted() {
   }
 }
 
+// Close & Sign Off is armed by the first click and fires on the second.
+//
+// It used to ask through window.confirm(). Electron does not show that dialog,
+// so the answer came back false and the button did nothing at all - the same
+// defect that had already been found twice in this app. A button that changes
+// into "Confirm — Close & Sign Off" is a confirmation the operator can actually
+// see, and it disarms itself after eight seconds.
+let finalizeArmed = false;
+let finalizeArmTimer = null;
+
+function disarmFinalize() {
+  finalizeArmed = false;
+  clearTimeout(finalizeArmTimer);
+  const btn = $("finalize-btn");
+  if (btn) {
+    btn.textContent = "Close & Sign Off";
+    btn.classList.remove("armed");
+  }
+}
+
 async function finalize() {
   const st = $("finalize-status");
-  if (!window.confirm("Close & Sign Off this date's Trial Balance? It cannot be edited afterwards.")) return;
+  if (!finalizeArmed) {
+    finalizeArmed = true;
+    const btn = $("finalize-btn");
+    btn.textContent = "Confirm — Close & Sign Off";
+    btn.classList.add("armed");
+    st.className = "status-line err";
+    st.textContent =
+      "This closes the day for good — it cannot be edited afterwards. " +
+      "Press again to confirm, or wait to cancel.";
+    finalizeArmTimer = setTimeout(() => {
+      disarmFinalize();
+      st.className = "status-line";
+      st.textContent = "";
+    }, 8000);
+    return;
+  }
+  disarmFinalize();
   const projectedRaw = $("projected-total").value.trim();
   const reasonRaw = $("finalize-reason").value.trim();
   const body = {
@@ -1258,6 +1512,14 @@ async function finalize() {
     reason: reasonRaw || null,
   };
   try {
+    // Save what is on the form FIRST. Close & Sign Off never carried the manual
+    // blob, so anything typed since the last Save - a whole Section 10, a whole
+    // Section 8 - was discarded at the moment the day became read-only, with
+    // nothing on screen to say so and no way back in afterwards. The checker is
+    // signing off what they are looking at, so that is what gets written.
+    st.className = "status-line";
+    st.textContent = "Saving the form, then closing…";
+    await api.put(`/daily-trial-balance/${$("tb-date").value}`, payload());
     render(await api.post(`/daily-trial-balance/${$("tb-date").value}/finalize`, body));
     st.className = "status-line ok";
     st.textContent = "Closed & Signed Off. Tomorrow's entry has been created and seeded.";
@@ -1394,7 +1656,7 @@ async function init() {
   $("export-btn").addEventListener("click", exportFull);
   $("q-search-btn").addEventListener("click", searchDates);
   $("query-btn").addEventListener("click", queryDate);
-  $("sheet-snapshot-btn").addEventListener("click", snapshotWholeSheet);
+  $("sheet-pdf-btn").addEventListener("click", exportSheetPdf);
   $("browse-btn").addEventListener("click", () => {
     const panel = $("browse-panel");
     panel.hidden = !panel.hidden;

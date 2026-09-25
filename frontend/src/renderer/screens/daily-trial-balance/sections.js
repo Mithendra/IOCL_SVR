@@ -120,8 +120,11 @@ export const SECTIONS = [
             { derived: "section4.todaysale" },
             "Computed from the day's Daily Sales Entries: sales less Beta/Density/Testing"],
           ["4.3", "Total - Projected", { derived: "section4.total3" }],
-          ["4.4", "Today SVR Cash/Book Value Reported", "reported",
-            "Carry this forward as tomorrow's 4.1"],
+          // SEP15!D52 = D47. It is 3.15's total, not a number to key again
+          // (client, 2026-09-24).
+          ["4.4", "Today SVR Cash/Book Value Reported",
+            { derived: "section4.reported" },
+            "From 3.15 Total Cash/Book Amount — carry it forward as tomorrow's 4.1"],
           ["4.5", "Diff Reported - Projected", { derived: "section4.diff" },
             "OK within ₹50 — above that, call/inform management immediately"],
         ],
@@ -153,6 +156,18 @@ export const SECTIONS = [
       {
         type: "fields",
         title: "Difference reconciliation",
+        // Client, 2026-09-24: "this section is not needed." Half right, and the
+        // sheet settles it. On SEP15 the panel is ONE line - E54 DIFFERENCE
+        // AMOUNT, F54 = D53 - because the day balanced. On SEP16 it is the whole
+        // block (F55 37,500 staff salaries, F56 58 RTGS) and F57 turns a raw
+        // -37,578.64 into the true -20.64 that lets the day close.
+        //
+        // So it is not redundant; it is CONDITIONAL. Collapsed unless one of the
+        // adjustment lines carries a value, which is how their own sheet reads.
+        collapsible: true,
+        collapseUnless: ["yesbank_return", "staff_salaries", "rtgs_charges",
+          "other_adjustment"],
+        collapsedLabel: "Add an adjustment (bank return, salaries, charges)",
         fields: [
           ["4.8", "Difference Amount", { derived: "section4.diff" }],
           ["4.9", "Yes Bank Return Amount", "yesbank_return"],
@@ -178,9 +193,14 @@ export const SECTIONS = [
     blocks: [
       {
         type: "fields",
+        // The section heading already says what these are; a "Line | Amount"
+        // header above five named lines is noise (client, 2026-09-24).
+        noHead: true,
         fields: [
           ["7.1", "Yesterday's Actual Reported Trial Balance", "yesterday"],
-          ["7.2", "Today's Profit Including 2T Sales", "profit"],
+          // SEP15!D77 = K4, Section 1's own Total Sale Amt.
+          ["7.2", "Today's Profit Including 2T Sales",
+            { derived: "section7.profit" }, "From Section 1 Total Sale Amt"],
           ["7.3", "Today's Projected Trial Balance", { derived: "section7.total3" }],
           ["7.4", "Difference — Actual Reported Minus Projected",
             { derived: "section7.diff" },
@@ -201,11 +221,15 @@ export const SECTIONS = [
       {
         type: "fields",
         fields: [
-          ["8.1", "Yesterday's SVR Cash/Book Value", "f1"],
-          ["8.2", "Today's Sales After Expenses, Testing and Density Adjustments", "f2"],
+          // 8.1/8.2/8.4 repeat 4.1/4.2/4.4 - SEP15!D82=D49, D83=D50, D85=D52.
+          ["8.1", "Yesterday's SVR Cash/Book Value",
+            { derived: "section8.f1" }, "From 4.1"],
+          ["8.2", "Today's Sales After Expenses, Testing and Density Adjustments",
+            { derived: "section8.f2" }, "From 4.2"],
           ["8.3", "Projected SVR Cash/Book Value", { derived: "section8.f3" },
             "Duplicate of Section 4, for management reporting"],
-          ["8.4", "Actual Reported SVR Cash/Book Value", "f4"],
+          ["8.4", "Actual Reported SVR Cash/Book Value",
+            { derived: "section8.f4" }, "From 4.4"],
           ["8.5", "Difference — Actual Reported Minus Projected", { derived: "section8.f5" },
             "OK within ₹50 — above that, call/inform management immediately"],
         ],
@@ -227,33 +251,53 @@ export const SECTIONS = [
         totalLabel: "Total Regular Expenses",
       },
       {
-        type: "rows",
+        // Carried from 4.7, not typed again (client, 2026-09-24). Renamed from
+        // "Old Credit Collections" at the same time: a remittance is money
+        // coming BACK against a credit already given, and calling it a
+        // collection invited it being read as a new sale.
+        //
+        // A mirror, like 8.1/8.2/8.4 - Section 8 is management's restatement of
+        // Section 4, so a remittance keyed once in 4.7 appears here by itself.
+        type: "mirrorRows",
         key: "old_credit_collections",
-        title: "8.7 Old Credit Collections",
+        from: "section8.old_credit_rows",
+        title: "8.7 Old Credit Remittances",
         columns: [
-          { key: "type", label: "Type", optionList: "old_credit" },
-          { key: "amount", label: "Amount" },
+          { key: "type", label: "Type" },
+          { key: "amount", label: "Amount", money: true },
         ],
         total: "section8.old_credit_total",
-        totalLabel: "Total Old Credit Collections",
+        totalLabel: "Total Old Credit Remittances",
+        note: "Carried from 4.7 Credit Remittance — enter a remittance there and it appears here.",
       },
       {
         type: "fields",
-        title: "Management Summary",
+        // No "Management Summary / Line | Amount" header - the numbered lines
+        // say what they are (client, 2026-09-24).
+        noHead: true,
         note: { key: "mgmt_note" },
         fields: [
           ["8.8", "Cash Value Difference — escalate if above ₹50",
             { derived: "section8.f5" }],
           ["8.9", "Today's Actual Reported Trial Balance / SVR Net Worth",
             { derived: "section8.mgmt_actual_networth" }],
-          ["8.10", "Yesterday's Actual Reported Trial Balance", "mgmt_yesterday_tb"],
-          ["8.11", "Daily Profit Including 2T Sales", "mgmt_profit"],
+          // SEP15!D97 = 'SEP14'!D80 - the same figure as 7.1.
+          ["8.10", "Yesterday's Actual Reported Trial Balance",
+            { derived: "section8.mgmt_yesterday_tb" }, "From 7.1"],
+          // SEP15!D98 = K4 - the same figure as 7.2.
+          ["8.11", "Daily Profit Including 2T Sales",
+            { derived: "section8.mgmt_profit" }, "From 7.2 (Section 1 Total Sale Amt)"],
           ["8.12", "Projected SVR Net Worth", { derived: "section8.mgmt_projected_networth" }],
           ["8.13", "Actual Reported SVR Net Worth", { derived: "section8.mgmt_actual_networth" }],
           ["8.14", "Difference — Actual Reported Minus Projected",
             { derived: "section8.mgmt_networth_diff" },
             "A positive number is good"],
-          ["8.15", "Actual Profit after all Daily Expenses", "mgmt_actual_profit"],
+          // SEP15!D102 = D98 - 300 - 1666.66 - 666.66 - 666.66: the electricity
+          // bill, the manager's daily salary and two salesmen's - Rs 3,299.98,
+          // which is the daily_expenses parameter.
+          ["8.15", "Actual Profit after all Daily Expenses",
+            { derived: "section8.mgmt_actual_profit" },
+            "8.11 less Rs 3,299.98 daily expenses (power, manager, two salesmen)"],
         ],
       },
       {

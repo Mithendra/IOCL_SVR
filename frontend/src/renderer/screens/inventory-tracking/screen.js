@@ -33,46 +33,179 @@ function renderStock(rows) {
     const low = r.status === "low";
     tr.innerHTML =
       `<td>${r.item_label}</td><td>${r.unit}</td>` +
-      `<td><input class="on-hand" data-key="${r.item_key}" value="${fmt2(r.opening_stock)}" ` +
+      `<td><input class="on-hand" data-key="${r.item_key}" ` +
+      `data-original="${fmt2(r.opening_stock)}" value="${fmt2(r.opening_stock)}" ` +
       `title="Sets the stock level outright - it does not add to it" ` +
       `${canSetStock() ? "" : "disabled"}></td>` +
       `<td>${fmt2(r.received_today)}</td>` +
       `<td>${fmt2(r.sold_today)}</td><td>${fmt2(r.closing_stock)}</td>` +
-      `<td><input class="reorder" data-key="${r.item_key}" value="${fmt2(r.reorder_level)}" ${isOwner() ? "" : "disabled"}></td>` +
+      `<td><input class="reorder" data-key="${r.item_key}" ` +
+      `data-original="${fmt2(r.reorder_level)}" value="${fmt2(r.reorder_level)}" ` +
+      `${isOwner() ? "" : "disabled"}></td>` +
       `<td style="color:${low ? "var(--io-red)" : "#157347"};font-weight:700">${low ? "Low" : "OK"}</td>`;
     body.appendChild(tr);
   }
-  if (isOwner()) {
-    for (const el of document.querySelectorAll(".reorder")) {
-      el.addEventListener("change", () => saveReorder(el.dataset.key, el.value));
+  // Item 1 (client, 2026-09-24): "updated inventory master and there is no Save
+  // button which is needed."
+  //
+  // Both figures used to write to the database on `change` - silently, the
+  // moment the cell lost focus. No confirmation, no undo, and clicking away
+  // mid-edit committed whatever happened to be in the box. On Hand is the
+  // opening stock every later day is measured from, so that is the wrong way
+  // round: it should take a deliberate press.
+  //
+  // Editing now only marks the row; Save writes. The rows that changed are
+  // highlighted so it is obvious what is about to be written.
+  for (const el of document.querySelectorAll(".on-hand, .reorder")) {
+    el.addEventListener("input", () => {
+      el.closest("tr").style.background = "#fff4e5";
+      markDirty();
+    });
+  }
+  markDirty();
+}
+
+// Which rows differ from what was loaded.
+function pendingEdits() {
+  const out = [];
+  for (const el of document.querySelectorAll(".on-hand, .reorder")) {
+    const original = el.dataset.original ?? "";
+    if (String(el.value) !== String(original)) {
+      out.push({ key: el.dataset.key, field: el.classList.contains("on-hand") ? "on_hand" : "reorder_level", value: el.value });
     }
   }
-  if (canSetStock()) {
-    for (const el of document.querySelectorAll(".on-hand")) {
-      el.addEventListener("change", () => saveOnHand(el.dataset.key, el.value));
+  return out;
+}
+
+function markDirty() {
+  const n = pendingEdits().length;
+  const btn = $("save-inv-btn");
+  const undo = $("undo-inv-btn");
+  if (btn) {
+    btn.disabled = n === 0;
+    btn.textContent = n ? `Save ${n} change${n === 1 ? "" : "s"}` : "Save";
+  }
+  if (undo) undo.disabled = n === 0;
+}
+
+async function saveInventory() {
+  const st = $("restock-status");
+  const edits = pendingEdits();
+  if (!edits.length) return;
+  st.className = "status-line";
+  st.textContent = `Saving ${edits.length} change(s)…`;
+  const done = [];
+  try {
+    for (const e of edits) {
+      const n = Number(e.value);
+      if (!Number.isFinite(n) || n < 0) {
+        st.className = "status-line err";
+        st.textContent =
+          `${e.key}: ${e.field.replace("_", " ")} must be 0 or more — nothing saved for that row.`;
+        return;
+      }
+      const body = e.field === "on_hand" ? { on_hand: n } : { reorder_level: n };
+      await api.put(`/inventory/${e.key}`, body);
+      done.push(`${e.key} ${e.field.replace("_", " ")} → ${e.value}`);
     }
+    st.className = "status-line ok";
+    st.textContent = `Saved: ${done.join(", ")}.`;
+    await load();
+  } catch (err) {
+    st.className = "status-line err";
+    st.textContent =
+      `Saved ${done.length} of ${edits.length} — then failed: ${err.message || err}. ` +
+      `Reload to see what is stored.`;
   }
 }
 
-// Replaces the tracked stock level with exactly what was typed - including 0.
-async function saveOnHand(key, value) {
-  const st = $("restock-status");
-  const qty = Number(value);
-  if (!Number.isFinite(qty) || qty < 0) {
+// Item 1, the other half: undo the edits on screen before they are written.
+// "Delete" on a stock figure is ambiguous - it could mean zero the stock or
+// retire the item - so this does the unambiguous thing and puts the row back.
+async function undoInventoryEdits() {
+  await load();
+  $("restock-status").className = "status-line";
+  $("restock-status").textContent = "Edits discarded — showing what is stored.";
+}
+
+// ---- Item 2: the oil catalogue, moved here from Daily Sales Entry -----------
+// Owner/Manager only, the same gate it had on the other screen. Retiring is a
+// retire, never a delete: a day recorded before an item went away still shows
+// its row and still adds up to what was actually banked.
+
+function renderOilItems() {
+  const body = $("oil-item-rows");
+  if (!body) return;
+  body.innerHTML = "";
+  const allowed = canSetStock();
+  for (const r of items) {
+    const tr = document.createElement("tr");
+    const name = document.createElement("td");
+    name.textContent = r.item_label;
+    const act = document.createElement("td");
+    if (allowed) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "btn-small secondary";
+      b.textContent = "Retire";
+      b.addEventListener("click", () => retireOilItem(r.item_key, r.item_label));
+      act.appendChild(b);
+    }
+    tr.appendChild(name);
+    tr.appendChild(act);
+    body.appendChild(tr);
+  }
+  const add = $("oil-add-btn");
+  if (add) add.hidden = !allowed;
+}
+
+async function addOilItem() {
+  const st = $("oil-admin-status");
+  const label = ($("oil-new-label").value || "").trim();
+  if (!label) {
     st.className = "status-line err";
-    st.textContent = "Opening Stock must be 0 or more.";
-    await load(); // put the old figure back
+    st.textContent = "Give the item a name first.";
     return;
   }
+  st.className = "status-line";
+  st.textContent = "Adding…";
   try {
-    await api.put(`/inventory/${key}`, { on_hand: qty });
+    // Rate and Opening Stock go in with it: an oil row is unusable without both,
+    // and the alternative is an operator finding a blank row and no way to price
+    // it. Either can be corrected here or in Rate Master afterwards.
+    await api.post("/oil-items", {
+      label,
+      rate: Number($("oil-new-rate").value) || 0,
+      opening_stock: Number($("oil-new-stock").value) || 0,
+    });
+    $("oil-new").hidden = true;
+    ["oil-new-label", "oil-new-rate", "oil-new-stock"].forEach((id) => {
+      $(id).value = "";
+    });
     await load();
     st.className = "status-line ok";
-    st.textContent = `Opening Stock for ${key} set to ${fmt2(qty)} (replaced, not added).`;
+    st.textContent = `Added "${label}". It is on every Oil Sale(s) row from now on.`;
   } catch (err) {
     st.className = "status-line err";
-    st.textContent = `Failed — ${err.message || err}`;
+    st.textContent = err.message || String(err);
+  }
+}
+
+async function retireOilItem(key, label) {
+  const st = $("oil-admin-status");
+  st.className = "status-line";
+  st.textContent = `Retiring "${label}"…`;
+  try {
+    await api.del(`/oil-items/${key}`);
     await load();
+    st.className = "status-line ok";
+    st.textContent =
+      `"${label}" is off the Daily Sales form. Days already recorded still show ` +
+      `it and are worth exactly what they were — add it again by name to bring ` +
+      `it back.`;
+  } catch (err) {
+    st.className = "status-line err";
+    st.textContent = err.message || String(err);
   }
 }
 
@@ -92,20 +225,9 @@ async function load() {
   $("as-of-label").textContent = $("as-of").value;
   renderStock(rows);
   fillItemDropdown();
+  renderOilItems();
 }
 
-async function saveReorder(key, value) {
-  const st = $("restock-status");
-  try {
-    await api.put(`/inventory/${key}`, { reorder_level: Number(value) });
-    await load();
-    st.className = "status-line ok";
-    st.textContent = `Reorder level for ${key} set to ${value}.`;
-  } catch (err) {
-    st.className = "status-line err";
-    st.textContent = `Failed — ${err.message || err}`;
-  }
-}
 
 async function addRestock() {
   const st = $("restock-status");
@@ -152,6 +274,15 @@ async function init() {
   $("rs-date").value = today;
   $("as-of").addEventListener("change", load);
   $("restock-btn").addEventListener("click", addRestock);
+  $("save-inv-btn").addEventListener("click", saveInventory);
+  $("oil-add-btn").addEventListener("click", () => {
+    $("oil-new").hidden = !$("oil-new").hidden;
+  });
+  $("oil-new-save").addEventListener("click", addOilItem);
+  $("oil-new-cancel").addEventListener("click", () => {
+    $("oil-new").hidden = true;
+  });
+  $("undo-inv-btn").addEventListener("click", undoInventoryEdits);
   await load();
 }
 

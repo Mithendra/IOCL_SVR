@@ -42,9 +42,35 @@ function authHeaders(extra) {
   return headers;
 }
 
+// FastAPI answers a validation failure with `detail` as a LIST of objects, one
+// per bad field. Interpolated straight into a template string that becomes
+// "[object Object],[object Object]" - which is what the client saw on 2026-09-24
+// and which says nothing at all about what was wrong. Read the list instead:
+// the field name is in `loc`, the reason in `msg`.
+function describeDetail(detail) {
+  if (typeof detail === "string") return detail;
+  if (Array.isArray(detail)) {
+    return detail
+      .map((d) => {
+        if (typeof d === "string") return d;
+        const where = Array.isArray(d.loc)
+          ? d.loc.filter((x) => x !== "body").join(".")
+          : "";
+        const why = d.msg || d.type || JSON.stringify(d);
+        return where ? `${where}: ${why}` : why;
+      })
+      .join("; ");
+  }
+  if (detail && typeof detail === "object") {
+    return detail.msg || JSON.stringify(detail);
+  }
+  return String(detail);
+}
+
 function httpError(method, path, status, detail) {
-  const err = new Error(`${method} ${path} -> ${status}: ${detail}`);
+  const err = new Error(`${method} ${path} -> ${status}: ${describeDetail(detail)}`);
   err.status = status;
+  err.detail = detail;
   return err;
 }
 

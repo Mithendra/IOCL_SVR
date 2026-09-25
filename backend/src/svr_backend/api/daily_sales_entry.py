@@ -93,6 +93,12 @@ class CalcRequest(BaseModel):
     # Customer Name, Old Credit Given Date and Signature, index-aligned with
     # `old_credit_amounts`.
     old_credit_rows: list[dict] = Field(default_factory=list)
+    # Item 5 (client, 2026-09-24): who signed the day off and on what date. The
+    # form had these boxes all along with no id on them, so nothing read them and
+    # every keystroke was discarded. The engine does not use them; they only have
+    # to survive the round trip and reach the printed form.
+    verified_signature: str | None = None
+    verified_date: str | None = None
     phone_pay_settled: float | str | None = None
     phone_pay_unsettled: float | str | None = None
     # "Night Cash Hand Off Total Amt" was removed from the form 2026-09-12 (the

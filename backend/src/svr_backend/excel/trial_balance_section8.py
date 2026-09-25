@@ -51,10 +51,15 @@ def build_section8_workbook(view: dict) -> bytes:
 
     rows: list[tuple[str, object]] = [
         ("__section__", "Daily Management Reporting"),
-        ("8.1 Yesterday's SVR Cash/Book Value", _n(s8.get("f1"))),
-        ("8.2 Today's Sales After Expenses, Testing and Density Adjustments", _n(s8.get("f2"))),
+        # DERIVED, not the manual blob: 8.1/8.2/8.4, 8.10, 8.11 and 8.15 stopped
+        # being typed on 2026-09-24 (they come from 4.1/4.2/4.4, 7.1, 7.2 and the
+        # daily-expenses figure). Reading `s8` gave empty cells, and the client
+        # got a workbook with the headline lines blank.
+        ("8.1 Yesterday's SVR Cash/Book Value", _n(derived.get("f1"))),
+        ("8.2 Today's Sales After Expenses, Testing and Density Adjustments",
+         _n(derived.get("f2"))),
         ("8.3 Projected SVR Cash/Book Value", _n(derived.get("f3"))),
-        ("8.4 Actual Reported SVR Cash/Book Value", _n(s8.get("f4"))),
+        ("8.4 Actual Reported SVR Cash/Book Value", _n(derived.get("f4"))),
         ("8.5 Difference - Actual Reported Minus Projected", _n(derived.get("f5"))),
         ("__section__", "8.6 Regular Expenses"),
     ]
@@ -63,24 +68,34 @@ def build_section8_workbook(view: dict) -> bytes:
             rows.append((f"   {row.get('category') or '(uncategorised)'}", _n(row.get("amount"))))
     rows.append(("Total Regular Expenses", _n(derived.get("regular_expenses_total"))))
 
-    rows.append(("__section__", "8.7 Old Credit Collections"))
-    for row in s8.get("old_credit_collections") or []:
+    # 8.7 is CARRIED from 4.7 Credit Remittance (client, 2026-09-24), so its rows
+    # come from the engine, not the manual blob - a day where nothing was typed
+    # into 8.7 still lists the day's remittances here.
+    rows.append(("__section__", "8.7 Old Credit Remittances"))
+    for row in derived.get("old_credit_rows") or []:
         if isinstance(row, dict):
             rows.append((f"   {row.get('type') or '(unspecified)'}", _n(row.get("amount"))))
-    rows.append(("Total Old Credit Collections", _n(derived.get("old_credit_total"))))
+    rows.append(("Total Old Credit Remittances", _n(derived.get("old_credit_total"))))
 
+    # Every line numbered, the way the form numbers it (client, 2026-09-24:
+    # "requested for Section 8.1 like line item numbers in the excel sheet").
+    # An unnumbered line in a report sent to management cannot be pointed at in
+    # a reply. 8.8-8.15 are the Management Summary; it carries no heading of its
+    # own any more, because the numbers say what the block is.
     rows += [
-        ("__section__", "8.8 Management Summary"),
-        ("Cash Value Difference - escalate if above Rs 100", _n(derived.get("f5"))),
-        ("Today's Actual Reported Trial Balance / SVR Net Worth",
+        ("8.8 Cash Value Difference - escalate if above Rs 50", _n(derived.get("f5"))),
+        ("8.9 Today's Actual Reported Trial Balance / SVR Net Worth",
          _n(derived.get("mgmt_actual_networth"))),
-        ("Yesterday's Actual Reported Trial Balance", _n(s8.get("mgmt_yesterday_tb"))),
-        ("Daily Profit Including 2T Sales", _n(s8.get("mgmt_profit"))),
-        ("Projected SVR Net Worth", _n(derived.get("mgmt_projected_networth"))),
-        ("Actual Reported SVR Net Worth", _n(derived.get("mgmt_actual_networth"))),
-        ("Difference - Actual Reported Minus Projected", _n(derived.get("mgmt_networth_diff"))),
-        ("Actual Profit after all Daily Expenses", _n(s8.get("mgmt_actual_profit"))),
-        ("__section__", "8.9 Sign-off"),
+        ("8.10 Yesterday's Actual Reported Trial Balance",
+         _n(derived.get("mgmt_yesterday_tb"))),
+        ("8.11 Daily Profit Including 2T Sales", _n(derived.get("mgmt_profit"))),
+        ("8.12 Projected SVR Net Worth", _n(derived.get("mgmt_projected_networth"))),
+        ("8.13 Actual Reported SVR Net Worth", _n(derived.get("mgmt_actual_networth"))),
+        ("8.14 Difference - Actual Reported Minus Projected",
+         _n(derived.get("mgmt_networth_diff"))),
+        ("8.15 Actual Profit after all Daily Expenses",
+         _n(derived.get("mgmt_actual_profit"))),
+        ("__section__", "8.16 Sign-off"),
         ("Prepared by", s8.get("prepared_by")),
         ("Verified by", s8.get("verified_by")),
         ("Sent to SVR and Bank Statement to Group Email", s8.get("sent_by")),
@@ -137,15 +152,18 @@ def section8_message(view: dict) -> str:
     lines = [
         f"SVR Daily Management Reporting - {view.get('shift_date')}",
         "",
-        f"8.1 Yesterday's Cash/Book: {money(s8.get('f1'))}",
-        f"8.2 Today's Sales after Expenses: {money(s8.get('f2'))}",
+        f"8.1 Yesterday's Cash/Book: {money(derived.get('f1'))}",
+        f"8.2 Today's Sales after Expenses: {money(derived.get('f2'))}",
         f"8.3 Projected Cash/Book: {money(derived.get('f3'))}",
-        f"8.4 Actual Reported Cash/Book: {money(s8.get('f4'))}",
+        f"8.4 Actual Reported Cash/Book: {money(derived.get('f4'))}",
         f"8.5 Difference: {money(derived.get('f5'))}",
         "",
-        f"Actual Reported Net Worth: {money(derived.get('mgmt_actual_networth'))}",
-        f"Projected Net Worth: {money(derived.get('mgmt_projected_networth'))}",
-        f"Difference: {money(derived.get('mgmt_networth_diff'))}",
+        f"8.9 Actual Reported Net Worth: {money(derived.get('mgmt_actual_networth'))}",
+        f"8.10 Yesterday's Reported Trial Balance: {money(derived.get('mgmt_yesterday_tb'))}",
+        f"8.11 Daily Profit Including 2T Sales: {money(derived.get('mgmt_profit'))}",
+        f"8.12 Projected Net Worth: {money(derived.get('mgmt_projected_networth'))}",
+        f"8.14 Difference: {money(derived.get('mgmt_networth_diff'))}",
+        f"8.15 Actual Profit after Daily Expenses: {money(derived.get('mgmt_actual_profit'))}",
         "",
         f"Prepared by: {s8.get('prepared_by') or '-'}",
         f"Verified by: {s8.get('verified_by') or '-'}",

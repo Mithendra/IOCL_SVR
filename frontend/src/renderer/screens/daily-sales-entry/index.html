@@ -37,8 +37,14 @@
       <div class="body-pad">
         <div class="meta-grid">
           <div class="field">
-            <label for="shift-date">Shift Date <span class="req" title="Mandatory">*</span></label>
-            <input type="date" id="shift-date" />
+            <!-- Item 6: this is the key the whole day is filed under, and it
+                 used to look like any other field. -->
+            <label for="shift-date" style="font-weight:700">Shift Date
+              <span class="req" title="Mandatory">*</span>
+              <span style="font-weight:400;font-size:10px">— the day this entry is filed under</span>
+            </label>
+            <input type="date" id="shift-date"
+                   style="font-weight:700;border-color:var(--io-blue)" />
           </div>
           <div class="field">
             <label for="pump-serial">Pump Serial# <span class="req" title="Mandatory">*</span></label>
@@ -123,6 +129,25 @@
              Hidden unless there IS a carried reading AND the user is an Owner;
              the server enforces the role regardless of this button. -->
         <button type="button" class="btn-small" id="unlock-last-btn" hidden>Unlock (Owner)</button>
+        <!-- Item 6: a standing warning when the day is not being filed under
+             today's date. Not a dialog: Electron blocks confirm(), so a modal
+             here would simply never appear and the save would stop for no
+             visible reason. -->
+        <p id="calc-note" hidden
+           style="font-size:12px;color:#8a4b00;background:#fff4e5;border:1px solid #d08a00;border-radius:4px;padding:5px 8px;margin:0 0 8px"></p>
+        <p id="date-warning" hidden
+           style="font-size:12px;font-weight:700;color:#8a4b00;background:#fff4e5;border:1px solid #d08a00;border-radius:4px;padding:5px 8px;margin:0 0 8px"></p>
+
+        <!-- Item 7: a saved day filed under the wrong date can be moved rather
+             than re-keyed. Appears only when a day was just loaded and the date
+             has been changed to one with nothing saved. -->
+        <!-- No inline `display`: it would beat the [hidden] attribute, which sets
+             display:none, and the bar would never hide. The flex layout lives in
+             the stylesheet under .move-bar instead. -->
+        <div id="move-entry-bar" class="move-bar" hidden>
+          <span id="move-entry-text"></span>
+          <button type="button" class="btn-small" id="move-entry-btn">Move</button>
+        </div>
         <p id="editing-note" hidden
            style="font-size:12px;font-weight:700;color:var(--io-blue);background:#eef3fb;border:1px solid var(--io-blue);border-radius:4px;padding:5px 8px;margin:0 0 8px"></p>
 
@@ -192,17 +217,12 @@
              (client, 2026-09-13). Manager/Owner only: Sales keys the day's
              figures and does not decide the product list. window.prompt() is
              blocked in Electron, so this is an inline box, not a dialog. -->
-        <div id="oil-admin" hidden>
-          <button type="button" class="btn-small" id="oil-add-btn">+ New Oil Item</button>
-          <div id="oil-new" class="oil-newbox" hidden>
-            <input id="oil-new-label" placeholder="Item name, e.g. Coolant Total 1 Lts" />
-            <input id="oil-new-rate" placeholder="Rate" />
-            <input id="oil-new-stock" placeholder="Opening stock" />
-            <button type="button" class="btn-small" id="oil-new-save">Add</button>
-            <button type="button" class="btn-small secondary" id="oil-new-cancel">Cancel</button>
-          </div>
-          <p id="oil-admin-status" class="status-line"></p>
-        </div>
+        <!-- Item 2 (client, 2026-09-24): "+ New Oil Item is not needed on the
+             Daily Sales form, which should be there in Inv Master only."
+             Adding or retiring a product is a catalogue decision made now and
+             then; this form is filled in every shift. Both controls moved to
+             Inventory Tracking. The oil ROWS stay here. -->
+
 
         <!-- 3. Expenses -->
         <div class="section-title">
@@ -237,9 +257,14 @@
           4. <span class="tt" data-en="Credit Cards Swiping(s)" data-te="క్రెడిట్ కార్డ్ స్వైపింగ్">Credit Cards Swiping(s)</span>
         </div>
         <table class="write-in">
-          <tr><th>Card Holder / Terminal ID</th><th>Card Type</th><th>Rate</th><th>Txn / Receipt #</th><th>Amount</th></tr>
+          <!-- Client, 2026-09-24: Type and In Ltrs, and Rate behaving as it does in
+               Section 5 - a card swipe is fuel sold at the pump price, same as a
+               credit, so the rate is not a free number. -->
+          <tr><th>Card Holder / Terminal ID</th><th>Card Type</th>
+              <th>Type<br><span style="font-weight:400;font-size:10px">(1. Diesel 2. Petrol)</span></th>
+              <th>In Ltrs</th><th>Rate</th><th>Txn / Receipt #</th><th>Amount</th></tr>
           <tbody id="cc-rows"></tbody>
-          <tr class="total-row"><td colspan="4">Total Amt Credit Cards</td><td><input id="cc-total" disabled placeholder="auto" /></td></tr>
+          <tr class="total-row"><td colspan="6">Total Amt Credit Cards</td><td><input id="cc-total" disabled placeholder="auto" /></td></tr>
         </table>
         <button type="button" class="add-row-btn" data-add="cc">+ Add row</button>
 
@@ -298,7 +323,14 @@
           <button type="button" class="export-btn secondary" id="dsr-blank-btn">Print Blank DSR</button>
           <button type="button" class="export-btn secondary" id="dsr-filled-btn">Print Filled DSR</button>
           <button type="button" class="export-btn secondary" id="import-btn">Import from Excel</button>
-          <button type="button" class="export-btn" id="export-btn">Export to Excel</button>
+          <!-- Item 8 (client, 2026-09-24). "Export to Excel" produced a 249-row
+               list of field keys - a machine round-trip format, 172 rows of it
+               empty placeholders. It is excellent for re-import and useless to
+               read, send or file, which is what the client means by export. The
+               readable export is the station's own form; the key/value sheet
+               keeps its job under a name that says what it is for. -->
+          <button type="button" class="export-btn" id="export-dsr-btn">Export DSR (PDF)</button>
+          <button type="button" class="export-btn secondary" id="export-btn">Export for re-import (Excel)</button>
         </div>
         <p id="save-status" class="status-line"></p>
         <p id="toolbar-hint" style="font-size:11px;color:var(--io-blue-dark);text-align:right;margin:2px 0 0">
@@ -320,10 +352,14 @@
           </table>
         </div>
 
+        <!-- Item 5 (client, 2026-09-24). Date is a real date field now, and both
+             Signature and Date have ids: they had none, so nothing could read
+             them and whatever was typed was discarded - the same fault found in
+             Credit Cards and New Credits. -->
         <div class="verify-grid">
           <div class="field"><label>Verified By</label><input id="verify-name" disabled /></div>
-          <div class="field"><label>Signature</label><input type="text" /></div>
-          <div class="field"><label>Date</label><input type="text" /></div>
+          <div class="field"><label>Signature</label><input type="text" id="verify-signature" /></div>
+          <div class="field"><label>Date</label><input type="date" id="verify-date" /></div>
         </div>
 
         <!-- Owner tools live at the FOOT of the form (client, 2026-09-23).
@@ -336,7 +372,7 @@
              passphrase is asked for AGAIN on Apply, so an unlocked panel left on
              screen is not by itself enough to re-base a meter (client,
              2026-09-23). Hidden from print - it is not part of the form. -->
-        <div id="reset-panel" class="oil-newbox" hidden style="display:block">
+        <div id="reset-panel" class="oil-newbox reset-panel" hidden>
           <div style="font-weight:700;margin-bottom:6px">
             Reset Last Shift Reading — Owner only
           </div>

@@ -91,6 +91,38 @@ class FinalizeRequest(BaseModel):
     reason: str | None = None
 
 
+def _cash_book_or_section3(row) -> float | None:
+    """6.1 falls back to Section 3's own total when it was never typed.
+
+    Returns the stored figure if there is one; otherwise 3.15, computed from the
+    manual blob the same way the screen computes it.
+    """
+    if row is None:
+        return None
+    stored = row["s54_cash_book_value"]
+    if stored is not None:
+        return stored
+    # Not every caller hands us a full row - some pass a freshly-built one that
+    # has the readings but no manual blob yet.
+    try:
+        keys = set(row.keys())
+    except AttributeError:
+        return None
+    if "manual_json" not in keys:
+        return None
+    try:
+        manual = json.loads(row["manual_json"] or "{}")
+    except (TypeError, ValueError):
+        return None
+    if not manual:
+        return None
+    # section3.total15 does not depend on net worth, so a zero is safe here.
+    try:
+        return derive_manual(manual, 0.0, 0.0)["section3"]["total15"] or None
+    except Exception:
+        return None
+
+
 def _context(conn: sqlite3.Connection, shift_date: str, row: sqlite3.Row | None) -> dict:
     """Pull Section 3 consumption (Daily Sales Summary), Buy rates, testing deduction."""
     summary = build_summary(conn, shift_date)
@@ -154,7 +186,18 @@ def _context(conn: sqlite3.Connection, shift_date: str, row: sqlite3.Row | None)
         testing_deduction=testing,
         testing_deduction_hs=None if nozzles is None else testing_hs,
         testing_deduction_ms=None if nozzles is None else testing_ms,
-        cash_book_value=row["s54_cash_book_value"] if row else None,
+        # 6.1 Today's Actual Reported SVR Cash/Book Value is NOT a second place to
+        # type the day's cash. The sheet computes it: SEP15!D72 = D52, which is
+        # 4.4, which is 3.15's total.
+        #
+        # It had its own field, and an operator who filled Section 3 but left that
+        # one blank got Net Worth = 0 + Stock. That is exactly what the client saw
+        # on 2026-09-24 - 8.9 and 8.13 reading 1,009,926.14, the stock value
+        # alone - and it dragged 7.4, 7.5 and 8.14 wrong with it, because every
+        # one of them is measured from Net Worth.
+        #
+        # A stored value still wins, so days already recorded are unchanged.
+        cash_book_value=_cash_book_or_section3(row),
     )
     return {
         "data": data,
@@ -544,6 +587,73 @@ def get_trial_balance(
     conn: sqlite3.Connection = Depends(get_db),
 ) -> dict:
     return _view(conn, shift_date)
+
+
+@router.post("/{shift_date}/calc")
+def calc_trial_balance(
+    shift_date: str,
+    body: TrialBalanceUpsert,
+    _: Principal = Depends(require("Sales", "Manager", "Owner")),
+    conn: sqlite3.Connection = Depends(get_db),
+) -> dict:
+    """Recompute a day WITHOUT saving it, so the screen can answer as it is typed.
+
+    Client, 2026-09-24: 7.1 was keyed in and 7.3 went on showing the figure from
+    the last save. The derived lines only refreshed on Load or Save, so the
+    operator was reading a calculation of the PREVIOUS state while entering the
+    current one - and had no way to tell.
+
+    Daily Sales Entry has had this since the start (POST /daily-sales-entry/calc);
+    the Trial Balance never did, and it is the form where a stale derived figure
+    matters most, because half its lines are derived from the other half.
+
+    Nothing is written. A finalized day recomputes here too - looking is not
+    editing.
+    """
+    existing = conn.execute(
+        f"SELECT * FROM {TABLE} WHERE shift_date = ?", (shift_date,)
+    ).fetchone()
+
+    values = {
+        "s1_hs_yesterday": body.s1_hs_yesterday,
+        "s1_hs_current": body.s1_hs_current,
+        "s1_ms_yesterday": body.s1_ms_yesterday,
+        "s1_ms_current": body.s1_ms_current,
+        "s54_cash_book_value": body.s54_cash_book_value,
+    }
+    for k in values:
+        if values[k] is None and existing is not None:
+            values[k] = existing[k]
+
+    manual = json.loads(existing["manual_json"]) if existing else {}
+    manual.update(body.manual or {})
+
+    row = dict(values)
+    row["manual_json"] = json.dumps(manual)
+    ctx = _context(conn, shift_date, row)
+    result = compute(ctx["data"]).to_dict()
+    s1 = result["section1"]
+    result["derived"] = derive_manual(
+        manual,
+        result["section7"]["7_3_total"],
+        ctx["oil_total"],
+        {
+            "hs_deduct_testing": s1["hs"]["deduct_testing"],
+            "ms_deduct_testing": s1["ms"]["deduct_testing"],
+            "hs_computer_pump_diff": s1["hs"]["computer_pump_diff"],
+            "ms_computer_pump_diff": s1["ms"]["computer_pump_diff"],
+            "margin_rate_hs": ctx["margin_rate_hs"],
+            "margin_rate_ms": ctx["margin_rate_ms"],
+            "buy_rate_hs": ctx["buy_rate_hs"],
+            "buy_rate_ms": ctx["buy_rate_ms"],
+            "daily_expenses": ctx["daily_expenses_deduction"],
+        },
+        {
+            "sales_total": ctx["day_sales_total"],
+            "beta_testing": ctx["beta_testing_expense"],
+        },
+    )
+    return {"computed": result}
 
 
 @router.put("/{shift_date}")

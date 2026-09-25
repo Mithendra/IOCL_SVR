@@ -71,6 +71,16 @@ async function saveOrUpdate(page) {
 // is rebuilt per run (global-setup.js), so this is about retries WITHIN a run.
 const SAVED_OR_UPDATED = /Saved|Updated/;
 
+// Close & Sign Off arms on the first press and fires on the second (2026-09-24).
+// It used to ask through window.confirm(), which Electron never shows - so the
+// button did nothing at all in the real app while these tests passed by
+// accepting a dialog that only exists in a browser.
+async function closeAndSignOff(page) {
+  await page.click("#finalize-btn");
+  await expect(page.locator("#finalize-btn")).toContainText("Confirm");
+  await page.click("#finalize-btn");
+}
+
 // Open a date and WAIT for it to have landed. Load gives no signal, so
 // `click("#load-btn")` followed by `fill(...)` is a race: when the GET resolves
 // after the first fill, render() repaints the form from the stored record and
@@ -140,9 +150,16 @@ test("all eleven workbook sections are on the form, not just the computed ones",
   await expect(page.locator("#manual-json")).toHaveCount(0);
   // Representative INPUTS from the sections that used to be JSON-only.
   await expect(page.locator('[data-manual="section3.onhand"]')).toBeVisible();
-  await expect(page.locator('[data-manual="section4.reported"]')).toBeVisible();
-  await expect(page.locator('[data-manual="section7.profit"]')).toBeVisible();
-  await expect(page.locator('[data-manual="section8.f4"]')).toBeVisible();
+  // 4.4, 7.2 and 8.4 are DERIVED since 2026-09-24 - the station's sheet computes
+  // them (SEP15!D52=D47, D77=K4, D85=D52) and typing them again is how the same
+  // number came to disagree with itself. They are still on the form, read-only.
+  // Two elements carry this now, and that is the point: 6.1 IS 4.4 (SEP15!D72 =
+  // D52), so they read from the same derived figure instead of being two boxes
+  // that can disagree.
+  await expect(page.locator('[data-derived="section4.reported"]')).toHaveCount(2);
+  await expect(page.locator('#cash-bv')).toBeDisabled();
+  await expect(page.locator('[data-derived="section7.profit"]')).toBeVisible();
+  await expect(page.locator('[data-derived="section8.f4"]')).toBeVisible();
   await expect(page.locator('[data-manual="section10.hs_new"]')).toBeVisible();
   await expect(page.locator('[data-manual="section11.new_airtel"]')).toBeVisible();
   // ...and the totals between them are CALCULATED, not typed - so there is no
@@ -199,9 +216,9 @@ test("the SEP12 dropdown lists are on the form, and a new value can be added", a
   await expect(
     page.locator('[data-rows="section8.regular_expenses"] tr').first().locator("select option")
   ).toContainText(["Power Bill"]);
-  await expect(
-    page.locator('[data-rows="section8.old_credit_collections"] tr').first().locator("select option")
-  ).toContainText(["Anil/Nani Old Credit Remitted Amt"]);
+  // 8.7 no longer has a list of its own - it is carried from 4.7 (client,
+  // 2026-09-24), so the only place a remittance is chosen is Section 4.
+  await expect(page.locator('[data-rows="section8.old_credit_collections"]')).toHaveCount(0);
 
   // 8.9 sign-off: Prepared by / Verified by / Sent to, each a staff dropdown.
   for (const key of ["verified_by", "sent_by"]) {
@@ -218,7 +235,13 @@ test("the SEP12 dropdown lists are on the form, and a new value can be added", a
 
   // Every list-backed block offers "+ New ..." - a new customer asking for credit
   // has to be enterable the same day (client, 2026-09-12).
-  for (const list of ["creditors", "expenses", "remittance", "old_credit", "staff"]) {
+  //
+  // "old_credit" is no longer among them. It backed 8.7, which is carried from
+  // 4.7 now and has nothing to pick; and the two lists were seeded with the
+  // SAME four values from the same client note, which is its own evidence that
+  // one real-world remittance was being keyed in two places. 4.7's "remittance"
+  // list is the one that remains, "+ New Type" and all.
+  for (const list of ["creditors", "expenses", "remittance", "staff"]) {
     await expect(page.locator(`[data-add-option="${list}"]`).first()).toBeVisible();
   }
 
@@ -348,8 +371,15 @@ test("manual sections save into the record's manual block and survive a reload",
   await openDate(page, MANUAL_DATE);
 
   await page.fill('[data-manual="section3.onhand"]', "12345.67");
-  await page.fill('[data-manual="section4.reported"]', "98765.43");
+  // 4.4 is derived now; 4.1 is what the operator still types here.
   await page.fill('[data-manual="section11.new_airtel"]', "500");
+  // Section 10 is a GRID block, not fields/rows - its own binding, and the only
+  // section on the form built that way. Client, 2026-09-24: "10. Load/Unload
+  // Details - Entered Details are missing."
+  await page.fill('[data-manual="section10.hs_afterunload"]', "4321");
+  await page.fill('[data-manual="section10.hs_old"]', "1000");
+  await page.fill('[data-manual="section10.hs_new"]', "6000");
+  await page.fill('[data-manual="section10.hs_load"]', "5100");
   // A repeating row, including its dropdown.
   const creditRows = page.locator('[data-rows="section3.new_credits"] tr');
   await creditRows.first().locator("select").selectOption("AirTel Hari New Credit");
@@ -363,10 +393,53 @@ test("manual sections save into the record's manual block and survive a reload",
   await page.fill("#tb-date", MANUAL_DATE);
   await page.click("#load-btn");
   await expect(page.locator('[data-manual="section3.onhand"]')).toHaveValue("12345.67");
-  await expect(page.locator('[data-manual="section4.reported"]')).toHaveValue("98765.43");
+  // 4.4 comes back from 3.15, not from what was typed into it.
+  await expect(page.locator('[data-derived="section4.reported"]').first()).toBeVisible();
   await expect(page.locator('[data-manual="section11.new_airtel"]')).toHaveValue("500.00");
+  await expect(page.locator('[data-manual="section10.hs_afterunload"]')).toHaveValue("4321.00");
+  await expect(page.locator('[data-manual="section10.hs_old"]')).toHaveValue("1000.00");
+  await expect(page.locator('[data-manual="section10.hs_new"]')).toHaveValue("6000.00");
+  await expect(page.locator('[data-manual="section10.hs_load"]')).toHaveValue("5100.00");
+  // Total = New - Old = 5000; Lost = IOCL Load - Total = 100.
+  await expect(page.locator('[data-derived="section10.hs.total"]')).toHaveValue("5000.00");
+  await expect(page.locator('[data-derived="section10.hs.lost"]')).toHaveValue("100.00");
   await expect(creditRows.first().locator("select")).toHaveValue("AirTel Hari New Credit");
   await expect(creditRows.first().locator('[data-col="amount"]')).toHaveValue("2500.00");
+});
+
+// Client, 2026-09-24, restated after the first pass renamed the line but left
+// the figures independent: "8.7 Old Credit Remittances is NOT Cary forward from
+// 4.7 Credit Remittance."
+test("8.7 Old Credit Remittances is carried from 4.7, not typed again", async ({
+  page,
+}) => {
+  // Reuses the date the test above already created. ADR-2 refuses a NEW date
+  // while an earlier one is open, and a fresh early date here would block every
+  // test after it - which is exactly what it did the first time.
+  const D = "2026-10-25";
+  await login(page, "mmanager");
+  await page.goto(SCREEN);
+  await expect(page.locator("#body")).toBeVisible();
+  await openDate(page, D);
+
+  // 8.7 has no inputs and no "+ Add row" - there is nothing to key here.
+  const mirror = page.locator('[data-mirror-rows="section8.old_credit_rows"]');
+  await expect(mirror).toHaveCount(1);
+  await expect(mirror.locator("input")).toHaveCount(0);
+  await expect(mirror).toContainText("Nothing carried yet");
+
+  // Enter a remittance in 4.7 and it appears in 8.7, with the total.
+  const rem = page.locator('[data-rows="section4.remittance"] tr').first();
+  await rem.locator("select").selectOption("Sajja Old Credit Remitted Amt");
+  await rem.locator('[data-col="amount"]').fill("4500.25");
+  await saveOrUpdate(page);
+  await expect(page.locator("#save-status")).toContainText(SAVED_OR_UPDATED);
+
+  await expect(mirror).toContainText("Sajja Old Credit Remitted Amt");
+  await expect(mirror).toContainText("4500.25");
+  await expect(
+    page.locator('[data-derived="section8.old_credit_total"]')
+  ).toHaveValue("4500.25");
 });
 
 test("Section 2 shows the day's real per-pump figures, pulled not typed", async ({ page }) => {
@@ -527,7 +600,10 @@ test("Manager enters Section 1, sees computed columns + pulled Section 3, then f
 
   await page.fill("#hs-y", "100");
   await page.fill("#hs-c", "60");
-  await page.fill("#cash-bv", "500000");
+  // 6.1 is no longer typed - it derives from 4.4, which derives from 3.15. So
+  // the day's cash comes in through Section 3, where the operator actually
+  // counts it, rather than being keyed a second time here.
+  await page.fill('[data-manual="section3.onhand"]', "500000");
   await saveOrUpdate(page);
   await expect(page.locator("#save-status")).toContainText("recalculated");
 
@@ -547,8 +623,7 @@ test("Manager enters Section 1, sees computed columns + pulled Section 3, then f
   const s73 = Number(await page.locator("#s7-3").inputValue());
   expect(s73).toBeCloseTo(500000 + s72, 2);
 
-  page.once("dialog", (d) => d.accept());
-  await page.click("#finalize-btn");
+  await closeAndSignOff(page);
   await expect(page.locator("#status-tag")).toHaveText("finalized");
   await expect(page.locator("#hs-c")).toBeDisabled();
   await expect(page.locator("#save-btn")).toBeDisabled();
@@ -906,14 +981,23 @@ test("Query pulls up a given day and says what it found", async ({ page }) => {
   await expect(page.locator("#hs-c")).toHaveValue("60.00");
 });
 
-test("the whole sheet can be snapshotted for WhatsApp", async ({ page }) => {
+// Client, 2026-09-24: "snapshot whole sheet to clipboard instead save as PDF
+// document to send via what's app." A clipboard PNG of eleven sections is one
+// enormous strip WhatsApp re-compresses into mush, and it cannot be forwarded,
+// filed or reopened. A document can.
+test("the whole sheet goes out as a PDF document, not a clipboard picture", async ({
+  page,
+}) => {
   await login(page, "mmanager");
   await page.goto(SCREEN);
   await expect(page.locator("#body")).toBeVisible();
-  await expect(page.locator("#sheet-snapshot-btn")).toBeVisible();
+  await expect(page.locator("#sheet-snapshot-btn")).toHaveCount(0);
+  const btn = page.locator("#sheet-pdf-btn");
+  await expect(btn).toBeVisible();
+  await expect(btn).toContainText("PDF");
 
   // Page mode has no Electron bridge, so it must say so and point at the export.
-  await page.click("#sheet-snapshot-btn");
+  await btn.click();
   await expect(page.locator("#s8-send-status")).toHaveClass(/err/);
   await expect(page.locator("#s8-send-status")).toContainText("installed SVR app");
   await expect(page.locator("#s8-send-status")).toContainText("Export Trial Balance to Excel");
@@ -947,13 +1031,9 @@ test("posting gates Close & Sign Off, and the list carries days forward", async 
   await expect(page.locator("#save-status")).toContainText("recalculated");
 
   // Both of this day's lines show as Not Posted, and sign-off is refused.
-  // Close & Sign Off confirms first, and Playwright dismisses dialogs unless
-  // told otherwise - an unaccepted confirm returns early and leaves the status
-  // line blank.
   await expect(mine).toHaveCount(2);
   await expect(mine.first()).toContainText("Not Posted");
-  page.once("dialog", (d) => d.accept());
-  await page.click("#finalize-btn");
+  await closeAndSignOff(page);
   await expect(page.locator("#finalize-status")).toContainText("not posted");
 
   // Post them, and sign-off goes through.
@@ -961,8 +1041,7 @@ test("posting gates Close & Sign Off, and the list carries days forward", async 
   await expect(page.locator("#post-status")).toContainText("Posted 2 line(s)");
   await expect(mine.filter({ hasText: "Not Posted" })).toHaveCount(0);
   await expect(mine.filter({ hasText: "Posted" })).toHaveCount(2);
-  page.once("dialog", (d) => d.accept());
-  await page.click("#finalize-btn");
+  await closeAndSignOff(page);
   await expect(page.locator("#finalize-status")).toContainText(/Closed|Signed/i);
 
   // The posted expense can be cleared straight away (client: "if they post it to

@@ -154,6 +154,15 @@ def _n(value: Number) -> float:
     return 0.0 if is_blank(value) else parse_amt(value)
 
 
+def _rows_as_list(rows: object) -> list[dict]:
+    """The dict rows out of a repeating block, blank starter rows dropped."""
+    if not isinstance(rows, list):
+        return []
+    return [r for r in rows if isinstance(r, dict) and any(
+        v not in (None, "") for v in r.values()
+    )]
+
+
 def _rows_total(rows: object, field: str = "amount") -> float:
     if not isinstance(rows, list):
         return 0.0
@@ -236,21 +245,84 @@ def derive_manual(
     )
 
     # --- Section 4: Projected = Yesterday + Today's sale; Diff = Reported - Projected.
+    #
+    # 4.4 is NOT typed. The station's sheet computes it: SEP15!D52 = D47, the
+    # Section 3 total. Asking the operator to key it again is asking the same
+    # number to be right twice - and when it disagreed, 4.5 went on showing a
+    # difference of minus the entire day (client, 2026-09-24).
+    #
+    # A typed value still wins if one is present, so days already saved with a
+    # hand-keyed 4.4 keep reading exactly as they were recorded.
+    s4_reported_typed = _n(s4.get("reported")) if not is_blank(s4.get("reported")) else None
+    s4_reported = s4_reported_typed if s4_reported_typed is not None else s3_total15
     s4_total3 = round4(_n(s4.get("yesterday")) + s4_todaysale)
-    s4_diff = round4(_n(s4.get("reported")) - s4_total3)
+    s4_diff = round4(_n(s4_reported) - s4_total3)
 
     # --- Section 7: Projected = Yesterday's TB + Today's profit; the Actual
     #     Reported figure is Section 6's own total, never retyped.
-    s7_total3 = round4(_n(s7.get("yesterday")) + total_sale_amt)
+    #
+    # 7.2 comes from Section 1, not the keyboard: SEP15!D77 = K4, Total Sale Amt
+    # (client, 2026-09-24). It was a typed field the engine then ignored - so the
+    # figure on screen and the figure in the arithmetic could differ, which is
+    # the worst of both.
+    s7_profit = total_sale_amt
+    s7_total3 = round4(_n(s7.get("yesterday")) + s7_profit)
     s7_diff = round4(net_worth - s7_total3)
 
     # --- Section 8: the same five lines as Section 4 (the sheet says so outright:
     #     "Duplicate Section for mgmt Reporting 4.Cash Reconciliation"), plus the
     #     management summary block below it.
-    s8_f3 = round4(_n(s8.get("f1")) + _n(s8.get("f2")))
-    s8_f5 = round4(_n(s8.get("f4")) - s8_f3)
-    s8_projected_networth = round4(_n(s8.get("mgmt_yesterday_tb")) + total_sale_amt)
+    # 8.1, 8.2 and 8.4 repeat 4.1, 4.2 and 4.4 - the sheet says so in its own
+    # words, and computes them: D82 = D49, D83 = D50, D85 = D52. Three more
+    # chances for the same number to be typed differently. Derived now, with a
+    # typed value still winning so recorded days are unchanged.
+    s8_f1 = _n(s8.get("f1")) if not is_blank(s8.get("f1")) else _n(s4.get("yesterday"))
+    s8_f2 = _n(s8.get("f2")) if not is_blank(s8.get("f2")) else s4_todaysale
+    s8_f4 = _n(s8.get("f4")) if not is_blank(s8.get("f4")) else _n(s4_reported)
+    s8_f3 = round4(s8_f1 + s8_f2)
+    s8_f5 = round4(s8_f4 - s8_f3)
+    # 8.10, 8.11 and 8.15 (client, 2026-09-24, and the sheet agrees):
+    #   D97 = 'SEP14'!D80  - yesterday's Trial Balance, the same figure as 7.1
+    #   D98 = K4           - the same figure as 7.2
+    #   D102 = D98 - 300 - 1666.66 - 666.66 - 666.66
+    #
+    # That last chain is the electricity bill, the manager's daily salary and two
+    # salesmen's - 3,299.98 in total, which is exactly the daily_expenses
+    # parameter this engine is already given. Written as the parameter rather
+    # than four literals so a change of salary is one figure in one place.
+    s8_mgmt_yesterday = (
+        _n(s8.get("mgmt_yesterday_tb"))
+        if not is_blank(s8.get("mgmt_yesterday_tb"))
+        else _n(s7.get("yesterday"))
+    )
+    s8_mgmt_profit = total_sale_amt
+    s8_projected_networth = round4(s8_mgmt_yesterday + s8_mgmt_profit)
+
+    # 8.7 Old Credit Remittances carries from 4.7 Credit Remittance (client,
+    # 2026-09-24, restated after the first pass renamed the line but left the
+    # figures independent).
+    #
+    # NOTE, deliberately recorded: the station's own workbook does NOT link
+    # these - SEP15!D91 = SUM(D88:D90) and 8.7's rows read "N/A to write". The
+    # client has confirmed the sheet is what is out of date, not the ask: a
+    # remittance is one real-world event, and Section 8 is a management
+    # restatement of Section 4, exactly as 8.1/8.2/8.4 already are.
+    #
+    # Typed rows still win, so a day recorded before today reads back as it was
+    # written and nothing already signed off changes underneath anyone.
+    s8_old_credit_typed = _rows_as_list(s8.get("old_credit_collections"))
+    if s8_old_credit_typed:
+        s8_old_credit_rows = s8_old_credit_typed
+        s8_old_credit_source = "typed"
+    else:
+        s8_old_credit_rows = [
+            {"type": r.get("type"), "amount": r.get("amount")}
+            for r in _rows_as_list(s4.get("remittance"))
+        ]
+        s8_old_credit_source = "carried"
+    s8_old_credit_total = _rows_total(s8_old_credit_rows)
     s8_networth_diff = round4(net_worth - s8_projected_networth)
+    s8_actual_profit = round4(s8_mgmt_profit - _n(ctx.get("daily_expenses")))
 
     # --- Section 10: Total = New Computer - Old Reading; Lost = IOCL Load - Total.
     def load_line(prefix: str) -> dict:
@@ -276,6 +348,8 @@ def derive_manual(
             "total15": s3_total15,
         },
         "section4": {
+            "reported": s4_reported,
+            "reported_source": "typed" if s4_reported_typed is not None else "computed",
             "todaysale": s4_todaysale,
             "todaysale_computed": s4_todaysale_computed,
             "todaysale_typed": s4_todaysale_typed,
@@ -309,20 +383,30 @@ def derive_manual(
         },
         "section7": {
             # D77 = K4 - Today's Profit Including 2T Sales is section 1's own
-            # Total Sale Amt, not a separately typed number.
-            "profit": total_sale_amt,
+            # Total Sale Amt, not a separately typed number. The engine has
+            # emitted this all along; until 2026-09-24 the FORM showed 7.2 as a
+            # typed box and ignored it, so the screen and the arithmetic could
+            # disagree.
+            "profit": s7_profit,
             "total3": s7_total3,
             "diff": s7_diff,
             "total5": round4(net_worth),
         },
         "section8": {
-            # D102 = D98 - 300 - 1666.66 - 666.66 - 666.66, the "Rs3300" in the
-            # label. Today's Profit here is K4, the same figure section 7.2 uses.
-            "mgmt_actual_profit": round4(total_sale_amt - _n(ctx.get("daily_expenses"))),
+            "f1": s8_f1,
+            "f2": s8_f2,
             "f3": s8_f3,
+            "f4": s8_f4,
             "f5": s8_f5,
             "regular_expenses_total": _rows_total(s8.get("regular_expenses")),
-            "old_credit_total": _rows_total(s8.get("old_credit_collections")),
+            "old_credit_total": s8_old_credit_total,
+            # The rows themselves, so the form, the snapshot and the workbook
+            # all show WHICH remittances make up the total, not just its size.
+            "old_credit_rows": s8_old_credit_rows,
+            "old_credit_source": s8_old_credit_source,
+            "mgmt_yesterday_tb": s8_mgmt_yesterday,
+            "mgmt_profit": s8_mgmt_profit,
+            "mgmt_actual_profit": s8_actual_profit,
             "mgmt_actual_networth": round4(net_worth),
             "mgmt_projected_networth": s8_projected_networth,
             "mgmt_networth_diff": s8_networth_diff,

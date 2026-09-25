@@ -11,6 +11,8 @@ formula asserted here is one the tab itself computes.
 
 from __future__ import annotations
 
+import json
+
 from svr_backend.calc.daily_trial_balance import (
     Section1Input,
     TrialBalanceInput,
@@ -322,6 +324,49 @@ def test_section8_mirrors_section4_and_the_mgmt_summary():
     assert round(d["mgmt_networth_diff"], 4) == round(9199.421500000171, 4)
 
 
+def test_section8_old_credit_remittances_carry_from_4_7():
+    """8.7 is 4.7 restated for management, not a second place to key it.
+
+    Client, 2026-09-24 (restated): "Change the col name from 8.7 Old Credit
+    Collections to Old Credit Remittances and it should Cary forward from 4.7
+    Credit Remittance."
+
+    Recorded plainly because it DIVERGES from the station's own workbook: SEP15
+    computes D91 = SUM(D88:D90) from rows that read "N/A to write", keeping the
+    two independent. The client has confirmed the sheet is the thing out of date.
+    """
+    manual = json.loads(json.dumps(MANUAL))
+    manual["section4"]["remittance"] = [
+        {"type": "Anil Old Credit", "given_on": "2026-09-10", "amount": 5000},
+        {"type": "AirTel Hari Remittance", "given_on": "2026-09-11", "amount": 2500.55},
+        {},  # the blank starter row the form always leaves behind
+    ]
+    d = derive_manual(manual, NET_WORTH, CASH_BOOK_VALUE)
+
+    assert round(d["section4"]["remittance_total"], 2) == 7500.55
+    assert d["section8"]["old_credit_source"] == "carried"
+    assert round(d["section8"]["old_credit_total"], 2) == 7500.55
+    # The rows themselves travel, not just the total - the snapshot and the
+    # workbook have to show WHICH remittances make it up.
+    assert [r["type"] for r in d["section8"]["old_credit_rows"]] == [
+        "Anil Old Credit", "AirTel Hari Remittance",
+    ]
+
+
+def test_a_day_that_typed_8_7_by_hand_still_reads_back_as_recorded():
+    """Typed rows win, exactly as typed 8.1/8.2/8.4 do. A day already signed off
+    must not change underneath anyone because the rule changed afterwards."""
+    manual = json.loads(json.dumps(MANUAL))
+    manual["section4"]["remittance"] = [{"type": "Anil Old Credit", "amount": 5000}]
+    manual["section8"]["old_credit_collections"] = [
+        {"type": "Recorded By Hand", "amount": 1234.5}
+    ]
+    d = derive_manual(manual, NET_WORTH, CASH_BOOK_VALUE)["section8"]
+    assert d["old_credit_source"] == "typed"
+    assert d["old_credit_total"] == 1234.5
+    assert [r["type"] for r in d["old_credit_rows"]] == ["Recorded By Hand"]
+
+
 def test_section10_load_unload():
     d = _derived()["section10"]
     assert d["hs"]["total"] == 9872   # 12079 - 2207
@@ -390,8 +435,66 @@ def test_section8_exports_to_excel_with_its_own_figures(client, auth_headers):
     assert round(cells["8.5 Difference - Actual Reported Minus Projected"], 4) == round(
         8516.147799999919, 4
     )
-    assert cells["Prepared by"] == "Gopi"          # 8.9 sign-off rides along
+    assert cells["Prepared by"] == "Gopi"          # 8.16 sign-off rides along
     assert cells["8.4 Actual Reported SVR Cash/Book Value"] == CASH_BOOK_VALUE
+    # Every management line numbered the way the form numbers it (client,
+    # 2026-09-24: "requested for Section 8.1 like line item numbers in the excel
+    # sheet"). These four were unnumbered and unreferenceable in a reply.
+    assert round(cells["8.9 Today's Actual Reported Trial Balance / SVR Net Worth"], 4) == round(
+        NET_WORTH, 4
+    )
+    # 8.10/8.11/8.15 are DERIVED now (from 7.1, 7.2 and the daily-expenses
+    # parameter). Reading the manual blob for them shipped a workbook with the
+    # headline lines blank (client, 2026-09-24). Asserted as the relationships
+    # the sheet states, so the test does not depend on this date having Daily
+    # Sales Entries behind it.
+    for line in ("8.10 Yesterday's Actual Reported Trial Balance",
+                 "8.11 Daily Profit Including 2T Sales",
+                 "8.12 Projected SVR Net Worth",
+                 "8.13 Actual Reported SVR Net Worth",
+                 "8.14 Difference - Actual Reported Minus Projected",
+                 "8.15 Actual Profit after all Daily Expenses"):
+        assert cells[line] is not None, f"{line} exported blank"
+    assert round(cells["8.12 Projected SVR Net Worth"], 4) == round(
+        cells["8.10 Yesterday's Actual Reported Trial Balance"]
+        + cells["8.11 Daily Profit Including 2T Sales"], 4
+    )
+    assert round(cells["8.13 Actual Reported SVR Net Worth"], 4) == round(NET_WORTH, 4)
+    assert round(cells["8.14 Difference - Actual Reported Minus Projected"], 4) == round(
+        cells["8.13 Actual Reported SVR Net Worth"]
+        - cells["8.12 Projected SVR Net Worth"], 4
+    )
+    assert "8.7 Old Credit Remittances" in cells       # renamed, and carried below
+
+
+def test_the_section8_workbook_lists_the_remittances_carried_from_4_7(
+    client, auth_headers
+):
+    """The carried rows, not just the total - a manager reading the workbook has
+    to see which remittances make it up (client, 2026-09-24)."""
+    import io as _io
+
+    from openpyxl import load_workbook
+
+    h = auth_headers("Manager")
+    manual = json.loads(json.dumps(MANUAL))
+    manual["section4"]["remittance"] = [
+        {"type": "Anil Old Credit", "given_on": "2026-09-10", "amount": 5000},
+        {"type": "AirTel Hari Remittance", "given_on": "2026-09-11", "amount": 2500.55},
+    ]
+    client.put("/daily-trial-balance/2026-09-02", json={
+        "s1_hs_yesterday": HS_IOCL_LAST, "s1_hs_current": HS_IOCL_CURRENT,
+        "s1_ms_yesterday": MS_IOCL_LAST, "s1_ms_current": MS_IOCL_CURRENT,
+        "s54_cash_book_value": CASH_BOOK_VALUE, "manual": manual,
+    }, headers=h)
+
+    r = client.get("/daily-trial-balance/2026-09-02/export-section8", headers=h)
+    assert r.status_code == 200
+    ws = load_workbook(_io.BytesIO(r.content)).active
+    cells = {row[0]: row[1] for row in ws.iter_rows(min_row=5, max_col=2, values_only=True)}
+    assert cells["   Anil Old Credit"] == 5000
+    assert cells["   AirTel Hari Remittance"] == 2500.55
+    assert round(cells["Total Old Credit Remittances"], 2) == 7500.55
 
 
 def test_section8_whatsapp_message_carries_the_same_numbers(client, auth_headers):

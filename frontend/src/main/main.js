@@ -10,7 +10,7 @@
 // resources/backend/svr-backend.exe. In dev (`npm start`) there is no bundled exe;
 // a dev backend on :8756 is assumed and the renderer loads regardless.
 
-const { app, BrowserWindow, Menu, clipboard, ipcMain } = require("electron");
+const { app, BrowserWindow, Menu, clipboard, ipcMain, shell } = require("electron");
 const path = require("path");
 const http = require("http");
 const fs = require("fs");
@@ -161,6 +161,54 @@ async function captureSection(sourceWebContents, rect) {
   await fs.promises.writeFile(file, image.toPNG());
   return { file, copied: true };
 }
+
+// The whole sheet as a PDF, saved where it can be attached.
+//
+// It used to be a clipboard PNG, the same route as the Section 8 snapshot, and
+// that is right for Section 8 - a short block someone pastes into a chat. It is
+// wrong for the whole Trial Balance: it is a long, wide sheet, the PNG came out
+// as one enormous strip that WhatsApp re-compresses into something unreadable,
+// and a clipboard image cannot be forwarded, filed or opened again later. The
+// client asked for a document instead (2026-09-24), and a PDF is what a phone
+// opens without anything installed.
+//
+// Orientation is settled by CSS, not by this option.
+//
+// app.css pins `@page { size: A4 portrait }` for the DSR form - correct there,
+// and it would slice this sheet down the middle. Passing landscape:true here
+// with preferCSSPageSize:false was NOT enough: Chromium still laid the page out
+// portrait (measured - the MediaBox came back 595.92 x 842.88). So the caller
+// injects a later, winning `@page { size: A4 landscape }` rule for the duration
+// of the export and asks for cssPageSize, which is what actually turns the
+// page. `landscape` is still passed for the non-CSS path.
+async function saveSheetPdf(sourceWebContents, opts) {
+  const o = opts || {};
+  const pdf = await sourceWebContents.printToPDF({
+    pageSize: "A4",
+    landscape: o.landscape !== false,
+    printBackground: true,
+    preferCSSPageSize: o.cssPageSize === true,
+    margins: { top: 0.2, bottom: 0.2, left: 0.2, right: 0.2 },
+  });
+  const safe = String(o.fileName || "").replace(/[^A-Za-z0-9._-]/g, "");
+  const file = path.join(
+    app.getPath("downloads"),
+    `${safe || `SVR-Sheet-${Date.now()}`}.pdf`
+  );
+  await fs.promises.writeFile(file, pdf);
+  // Open it so the operator sees what they are about to send before they send
+  // it; the file stays on disk either way, unlike the print preview's temp copy.
+  // `open: false` is for the smoke test, which checks the bytes on disk and has
+  // no business launching the machine's PDF viewer.
+  if (o.open !== false) shell.openPath(file).catch(() => {});
+  return { file };
+}
+
+ipcMain.handle("svr:save-pdf", (event, opts) =>
+  saveSheetPdf(event.sender, opts || {}).catch((err) => {
+    throw new Error(err && err.message ? err.message : String(err));
+  })
+);
 
 ipcMain.handle("svr:capture-section", (event, rect) =>
   captureSection(event.sender, rect || {}).catch((err) => {

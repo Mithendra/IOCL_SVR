@@ -21,4 +21,8 @@ contextBridge.exposeInMainWorld("svr", {
   // a file. Used for the Section 8 snapshot that goes to management on
   // WhatsApp - see captureSection() in main.js for why a picture.
   captureSection: (rect) => ipcRenderer.invoke("svr:capture-section", rect),
+  // Render the current page to an A4 PDF and SAVE it in Downloads (then open
+  // it). Used for the whole Trial Balance sheet, which goes to management as a
+  // document rather than a pasted picture (client, 2026-09-24).
+  savePdf: (opts) => ipcRenderer.invoke("svr:save-pdf", opts),
 });

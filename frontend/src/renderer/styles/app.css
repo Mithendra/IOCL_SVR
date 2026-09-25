@@ -420,9 +420,17 @@ td select {
   border-radius: 3px;
   font-size: 12px;
 }
-td input:disabled {
-  background: #f4f6fb;
-  color: #55627d;
+/* A locked cell has to LOOK locked. #f4f6fb is a hair off white, so a field
+   nobody may type in was indistinguishable from one they must fill - and the
+   operator learns that only by clicking it. Client, 2026-09-24: Last Shift
+   Reading "should be grey out"; when it has to change, that is the Owner reset's
+   job. */
+td input:disabled,
+input:disabled {
+  background: #e3e6ec;
+  color: #5b6474;
+  border-color: #c3c8d2;
+  cursor: not-allowed;
 }
 /* ---- Daily Trial Balance -------------------------------------------------
    That form is ~70 label/amount rows. Left to stretch the full sheet width it
@@ -537,6 +545,25 @@ td input:disabled {
 .tb-rows td:nth-last-child(2),
 .tb-rows th:nth-last-child(2) {
   width: 150px;
+}
+/* A carried block (8.7) has no delete column, so the width reserved for one
+   would crush its last real column instead. */
+.tb-mirror td:last-child,
+.tb-mirror th:last-child {
+  width: 150px;
+}
+.tb-mirror td:nth-last-child(2),
+.tb-mirror th:nth-last-child(2) {
+  width: auto;
+}
+.tb-mirror-num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.tb-mirror-empty {
+  font-size: 11px;
+  font-style: italic;
+  color: var(--io-blue-dark);
 }
 .tb-wide td:not(:first-child),
 .tb-wide th:not(:first-child) {
@@ -744,6 +771,15 @@ td input:disabled {
   #editing-note,
   #save-status,
   #toolbar-hint {
+    display: none !important;
+  }
+  /* Only for the whole-sheet PDF: the panels that are controls rather than
+     content. Scoped to .pdf-export so the printed entry form is unaffected. */
+  .pdf-export #browse-panel,
+  .pdf-export #s8-snapshot-view,
+  .pdf-export .tb-actions,
+  .pdf-export .export-btn,
+  .pdf-export #q-results {
     display: none !important;
   }
   @page {
@@ -1232,5 +1268,123 @@ td input:disabled {
   /* The form carries its own A4 page box; anything else would fight it. */
   body.dsr-mode #dsr-preview-body .dsr-page {
     margin: 0 !important;
+  }
+}
+
+/* The "move this day to another date" bar. Its layout is here, not inline, so
+   the [hidden] attribute can still hide it - an inline `display` wins over
+   [hidden]{display:none} and the bar sat there permanently. */
+.move-bar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 12px;
+  background: #fff4e5;
+  border: 1px solid #d08a00;
+  border-radius: 4px;
+  padding: 5px 8px;
+  margin: 0 0 8px;
+}
+.move-bar[hidden] {
+  display: none !important;
+}
+
+/* Same trap as .move-bar: .oil-newbox is display:flex, so the panel needs its
+   own block layout AND a rule that lets [hidden] win. Inline display:block did
+   the first and broke the second - the Owner reset panel stood open from the
+   moment the screen loaded. */
+.reset-panel {
+  display: block;
+}
+.reset-panel[hidden] {
+  display: none !important;
+}
+
+
+/* Client, 2026-09-24: "make column values bold in text, all columns."
+   The figures are what the operator reads back to check a day; the labels around
+   them are scaffolding. Bold the values, leave the chrome alone - bolding
+   everything would be the same as bolding nothing. Applies on screen only: the
+   printed DSR carries its own type, measured from the station's own form. */
+td input,
+td select,
+.meta-grid input,
+.meta-grid select,
+.summary-row input,
+.field input {
+  font-weight: 700;
+}
+/* A computed total is already bold by its row; a disabled cell stays legible
+   without shouting. */
+td input:disabled,
+input:disabled {
+  font-weight: 600;
+}
+
+
+/* The Difference reconciliation panel, shown the way the station's own sheet
+   shows it: one line on a day that balances, the whole block on a day with a
+   bank return or a salary to explain. */
+details.tb-collapsible {
+  margin: 6px 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: #fbfcff;
+  padding: 4px 8px;
+}
+details.tb-collapsible > summary {
+  cursor: pointer;
+  font-weight: 700;
+  font-size: 12px;
+  padding: 2px 0;
+}
+details.tb-collapsible .tb-collapse-hint {
+  font-weight: 400;
+  color: var(--io-blue-dark);
+}
+details.tb-collapsible[open] > summary {
+  margin-bottom: 6px;
+}
+
+
+/* The Section 8 snapshot's own controls. It used to open with no way to close
+   it, so the form simply stayed expanded (client, 2026-09-24). */
+.snap-bar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin: 6px 0;
+}
+@media print {
+  .snap-bar { display: none !important; }
+}
+
+/* A button waiting for its second press. Electron shows no window.confirm(), so
+   an irreversible action arms itself visibly instead of asking in a dialog
+   nobody ever sees. */
+.export-btn.armed {
+  background: var(--io-red, #c00000);
+  border-color: var(--io-red, #c00000);
+  color: #fff;
+  font-weight: 700;
+}
+
+/* Hints and block notes on the Trial Balance. Sized relative to whatever they
+   sit in, so they shrink with the table when the sheet prints or is saved as a
+   PDF - at a fixed 10px they came out LARGER than the 8px label beside them. */
+.tb-hint {
+  font-weight: 400;
+  font-size: 0.85em;
+  color: var(--io-blue-dark);
+}
+.tb-note-line {
+  font-size: 11px;
+  color: var(--io-blue-dark);
+  margin: 4px 0 0;
+}
+@media print {
+  .tb-note-line {
+    font-size: 7.5px;
+    margin: 1px 0 0;
   }
 }

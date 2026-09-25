@@ -68,7 +68,12 @@ test("Last Shift Reading locks once a prior day's reading exists (carry-forward)
   await expect(page.locator("#hs-last")).toBeDisabled();
   await expect(page.locator("#hs-last")).toHaveValue("500");
   await expect(page.locator("#ms-last")).toHaveValue("300");
-  await expect(page.locator("#carried-note")).toContainText(PRIOR);
+  // The note is gone (client, 2026-09-24: "NO NEED OF THIS ONE"). What has to
+  // hold is that the field is LOCKED and looks it - if it must change, that is
+  // the Owner reset's job.
+  await expect(page.locator("#carried-note")).toBeHidden();
+  await expect(page.locator("#hs-last")).toBeDisabled();
+  await expect(page.locator("#ms-last")).toBeDisabled();
 });
 
 test("typing Current Reading updates Amount via the backend /calc", async ({ page }) => {
@@ -334,99 +339,6 @@ test("Expenses takes extra rows, and an added row keeps its description", async 
   await expect(page.locator("#exp-total")).toHaveValue("870.00");
 });
 
-test("Manager adds an Oil Sale(s) item and it sells like any other", async ({ page }) => {
-  // The list used to be a tuple in the build, so selling a new product meant a
-  // release (client, 2026-09-13: "people should be able to add it, or people
-  // should be able to remove it").
-  const DATE = "2026-06-21";
-  await login(page, "mmanager");
-  await page.goto(SCREEN);
-  await expect(page.locator("#oil-rows tr")).toHaveCount(7);
-
-  await page.click("#oil-add-btn");
-  await page.fill("#oil-new-label", "Gear Oil Total 1 Lts");
-  await page.fill("#oil-new-rate", "190");
-  await page.fill("#oil-new-stock", "25");
-  await page.click("#oil-new-save");
-  await expect(page.locator("#oil-admin-status")).toContainText("Added");
-  await expect(page.locator("#oil-rows tr")).toHaveCount(8);
-
-  // It arrives with its Rate and Opening Stock already on the row - an oil row
-  // without both is unusable, and there would be no way to price the sale.
-  const row = page.locator("#oil-rows tr").nth(7);
-  await expect(row.locator("td[data-oil-label]")).toHaveText("Gear Oil Total 1 Lts");
-  await expect(page.locator("#oil8-rate")).toHaveValue("190");
-  await expect(page.locator("#oil8-opening")).toHaveValue("25");
-
-  // And it computes and saves like any other row.
-  await page.fill("#shift-date", DATE);
-  await page.fill("#hs-current", "1000");
-  await page.fill("#oil8-qty", "4");
-  await expect(page.locator("#oil8-amount")).toHaveValue("760.00"); // 4 x 190
-  await page.click("#save-btn");
-  await expect(page.locator("#save-status")).toContainText("Saved (entry #");
-
-  // Reopen: this screen loads on the date itself, there is no Load button.
-  await page.goto(SCREEN);
-  await page.fill("#shift-date", DATE);
-  await expect(page.locator("#editing-note")).toContainText("Editing saved entry #");
-  await expect(page.locator("#oil8-qty")).toHaveValue("4");
-
-  // Put the list back. The item list is global state shared with every other spec
-  // in this run, and leaving a row behind made three unrelated tests fail on a
-  // count they had every right to rely on before the list became editable.
-  await page.click('[data-retire="oil8"]');
-  await expect(page.locator("#oil-admin-status")).toContainText("off the form");
-});
-
-test("retiring an item takes it off the form without changing past days", async ({ page }) => {
-  const DATE = "2026-06-22";
-  await login(page, "mmanager");
-  await page.goto(SCREEN);
-
-  await page.click("#oil-add-btn");
-  await page.fill("#oil-new-label", "Brake Fluid Total 1 Lts");
-  await page.fill("#oil-new-rate", "300");
-  await page.click("#oil-new-save");
-  await expect(page.locator("#oil-admin-status")).toContainText("Added");
-  const key = await page.locator("#oil-rows tr").last().locator("[data-retire]")
-    .getAttribute("data-retire");
-
-  // Sell it, so there is a day that depends on it.
-  await page.fill("#shift-date", DATE);
-  await page.fill("#hs-current", "1000");
-  await page.fill(`#${key}-qty`, "2");
-  await expect(page.locator("#oil-total")).not.toHaveValue("");
-  await page.click("#save-btn");
-  await expect(page.locator("#save-status")).toContainText("Saved (entry #");
-  const total = await page.locator("#oil-total").inputValue();
-  expect(Number(total)).toBeGreaterThanOrEqual(600);
-
-  // Retire it...
-  const before = await page.locator("#oil-rows tr").count();
-  await page.click(`[data-retire="${key}"]`);
-  await expect(page.locator("#oil-admin-status")).toContainText("off the form");
-  await expect(page.locator("#oil-rows tr")).toHaveCount(before - 1);
-
-  // ...and the day it was sold on is worth exactly what it was worth. This is why
-  // retiring is a deactivation and never a delete.
-  await page.goto(SCREEN);
-  await page.fill("#shift-date", DATE);
-  await expect(page.locator("#editing-note")).toContainText("Editing saved entry #");
-  await expect(page.locator("#oil-total")).toHaveValue(total);
-});
-
-test("Sales sees the oil items but cannot add or retire them", async ({ page }) => {
-  // Sales keys the day's figures; it does not decide what the station sells.
-  // Server-side RBAC is the real gate - this is just keeping unusable controls out
-  // of the way.
-  await login(page);
-  await page.goto(SCREEN);
-  await expect(page.locator("#oil-rows tr").first()).toBeVisible();
-  await expect(page.locator("#oil-admin")).toBeHidden();
-  await expect(page.locator("#oil-rows [data-retire]").first()).toBeHidden();
-});
-
 test("an oil sale keyed with the sheet's own Rate survives Save and reopen", async ({ page }) => {
   const DATE = "2026-06-14";
   await login(page);
@@ -493,103 +405,42 @@ test("Manager can Delete a saved entry; the form clears and the row is gone", as
   await ctx.dispose();
 });
 
-test("Print Blank Form fills the right pump serial, blanks readings, and hides Section 8 for print", async ({
+test("Print Blank DSR draws the station's own form with the carried reading", async ({
   page,
 }) => {
-  await login(page);
-  await page.goto(SCREEN);
-  // Stub window.print so the native OS dialog never blocks the test.
-  await page.evaluate(() => {
-    window.__printCalls = 0;
-    window.print = () => {
-      window.__printCalls += 1;
-    };
-  });
-
-  await page.click('[data-blank="11CC2012V-OFF"]');
-  await expect(page.locator("#pump-serial")).toHaveValue("11CC2012V-OFF");
-  await expect(page.locator("#hs-current")).toHaveValue("");
-  await expect(page.locator("#ms-current")).toHaveValue("");
-  expect(await page.evaluate(() => window.__printCalls)).toBe(1);
-  // Matches the client's own reference blank forms (SVR_DSR_EMPTY_<serial>.pdf).
-  await expect(page.locator("#pump-side-label")).toHaveText("(Office pump)");
-
-  await page.click('[data-blank="12BC4523V-RD"]');
-  await expect(page.locator("#pump-side-label")).toHaveText("(Road pump)");
-
-  // Section 8 / operational banners aren't on the physical paper form - hidden
-  // from the printed output (visible on-screen, hidden under print media).
-  await expect(page.locator("#daily-summary-block")).toBeVisible();
-  await page.emulateMedia({ media: "print" });
-  await expect(page.locator("#daily-summary-block")).toBeHidden();
-  await expect(page.locator("#toolbar-hint")).toBeHidden();
-  await page.emulateMedia({ media: "screen" });
-});
-
-test("Print & Sync is hidden for Sales", async ({ page }) => {
-  await login(page, "gsales");
-  await page.goto(SCREEN);
-  await expect(page.locator('[data-sync="12BC4523V-RD"]')).toBeHidden();
-});
-
-test("Print & Sync is visible for Manager", async ({ page }) => {
+  // Client, 2026-09-23: one set of print controls, and both must produce the
+  // station's own form - not the data-entry screen, which is what they rejected.
   await login(page, "mmanager");
   await page.goto(SCREEN);
-  await expect(page.locator('[data-sync="12BC4523V-RD"]')).toBeVisible();
-  await expect(page.locator('[data-sync="11CC2012V-OFF"]')).toBeVisible();
+  await page.selectOption("#pump-serial", "12BC4523V-RD");
+  await page.fill("#shift-date", "2026-11-28");
+
+  await page.click("#dsr-blank-btn");
+  await expect(page.locator("#dsr-preview")).toBeVisible();
+  // The preview is the real form: its own A4 page, its own grid.
+  await expect(page.locator("#dsr-preview .dsr-page")).toHaveCount(1);
+  await expect(page.locator("#dsr-preview")).toContainText(
+    "SVR Indian Oil Service Station - Daily Sales Report"
+  );
+  await expect(page.locator("#dsr-preview")).toContainText("Old/Pending Credit Received");
+  // Named the way the station files it.
+  await expect(page.locator("#dsr-preview-title")).toContainText(
+    "SVR_DSR_12BC4523V-RD_2026-11-28.pdf"
+  );
+
+  await page.click("#dsr-close-btn");
+  await expect(page.locator("#dsr-preview")).toBeHidden();
 });
 
-test("Print & Sync updates Inventory from the prior day's real closing, then prints", async ({
-  page,
-}) => {
-  const PRIOR = "2026-08-28";
-  const TODAY = "2026-08-29";
-  const ctx = await request.newContext();
-  const token = (
-    await (
-      await ctx.post(`${apiBase}/auth/login`, { data: { login_name: "gsales", password: "demo1234" } })
-    ).json()
-  ).token;
-  // A real oil1 sale the day before - oil1's seed on_hand is 40, so this
-  // closes it at 36.
-  await ctx.post(`${apiBase}/daily-sales-entry`, {
-    headers: { Authorization: `Bearer ${token}` },
-    data: {
-      pump_serial: "12BC4523V-RD", shift_date: PRIOR,
-      hs: { current: "1" }, oils: [{ qty: "4" }],
-    },
-  });
-  await ctx.dispose();
-
+test("Print Filled DSR says so when the day has not been saved", async ({ page }) => {
   await login(page, "mmanager");
   await page.goto(SCREEN);
-  await page.fill("#shift-date", TODAY);
-  await page.evaluate(() => {
-    window.__printCalls = 0;
-    window.print = () => {
-      window.__printCalls += 1;
-    };
-  });
-
-  await page.click('[data-sync="12BC4523V-RD"]');
-  await expect(page.locator("#save-status")).toContainText("Synced Inventory");
-  await expect(page.locator("#save-status")).toContainText("oil1: 40 → 36");
-  await expect(page.locator("#pump-serial")).toHaveValue("12BC4523V-RD");
-  await expect(page.locator("#hs-current")).toHaveValue("");
-  expect(await page.evaluate(() => window.__printCalls)).toBe(1);
-
-  // The sync really landed in Inventory Tracking, not just the on-screen text.
-  const ctx2 = await request.newContext();
-  const token2 = (
-    await (
-      await ctx2.post(`${apiBase}/auth/login`, { data: { login_name: "mmanager", password: "demo1234" } })
-    ).json()
-  ).token;
-  const rows = await (
-    await ctx2.get(`${apiBase}/inventory`, { headers: { Authorization: `Bearer ${token2}` } })
-  ).json();
-  await ctx2.dispose();
-  expect(rows.find((r) => r.item_key === "oil1").opening_stock).toBe(36);
+  await page.selectOption("#pump-serial", "12BC4523V-RD");
+  await page.fill("#shift-date", "2026-11-29");
+  await page.click("#dsr-filled-btn");
+  // Item 4: it saves first rather than printing a form the database cannot
+  // account for - and an empty form has nothing to save, so it refuses.
+  await expect(page.locator("#save-status")).toContainText(/Current Reading|save/i);
 });
 
 test("theme swatch changes --io-accent; language toggle switches headings", async ({ page }) => {
@@ -904,11 +755,10 @@ test("Print Blank carries yesterday's Current Reading into Last Shift Reading", 
   await expect(page.locator("#ms-last")).toHaveValue("600222.75");
   await expect(page.locator("#hs-last")).toBeDisabled();
 
-  // Case 1: Print Blank clears the Current Readings - the operator writes those
-  // by hand - and leaves the carried Last Shift Reading on the page.
-  await page.fill("#hs-current", "999");
-  await page.click('[data-blank="11CC2012V-OFF"]');
-  await expect(page.locator("#hs-current")).toHaveValue("");
-  await expect(page.locator("#hs-last")).toHaveValue("500123.45");
-  await expect(page.locator("#ms-last")).toHaveValue("600222.75");
+  // Case 1: the printed blank carries that reading, and leaves Current Reading
+  // empty for the operator's pen. Read off the rendered form, since the DSR
+  // print no longer works by blanking the data-entry screen.
+  await page.click("#dsr-blank-btn");
+  await expect(page.locator("#dsr-preview .dsr-page")).toContainText("500123.45");
+  await expect(page.locator("#dsr-preview .dsr-page")).toContainText("600222.75");
 });

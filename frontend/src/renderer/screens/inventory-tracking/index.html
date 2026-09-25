@@ -50,7 +50,40 @@
           finalization. Status shows "Low" once Closing falls to or below the Reorder Level.
         </p>
 
-        <div class="section-title">2. Restock Entry (adds to stock)</div>
+        <!-- Item 1: On Hand and Reorder Level used to write themselves to the
+             database the moment a cell lost focus. They are edits now, and this
+             writes them. -->
+        <div class="export-bar">
+          <button type="button" class="export-btn" id="save-inv-btn" disabled>Save</button>
+          <button type="button" class="export-btn secondary" id="undo-inv-btn" disabled>Undo changes</button>
+        </div>
+
+        <!-- Item 2: the product catalogue lives here now, not on the daily form.
+             Adding or retiring an item is a decision the Owner makes now and
+             then; Daily Sales Entry is filled in every shift. -->
+        <div class="section-title">2. Oil Items (add or retire a product)</div>
+        <table>
+          <tr><th>Item</th><th>Action</th></tr>
+          <tbody id="oil-item-rows"></tbody>
+        </table>
+        <div class="export-bar">
+          <button type="button" class="export-btn" id="oil-add-btn">+ New Oil Item</button>
+        </div>
+        <div id="oil-new" class="oil-newbox" hidden>
+          <input id="oil-new-label" placeholder="Item name, e.g. Coolant Total 1 Lts" />
+          <input id="oil-new-rate" placeholder="Rate" />
+          <input id="oil-new-stock" placeholder="Opening stock" />
+          <button type="button" class="btn-small" id="oil-new-save">Add</button>
+          <button type="button" class="btn-small secondary" id="oil-new-cancel">Cancel</button>
+        </div>
+        <p id="oil-admin-status" class="status-line"></p>
+        <p style="font-size:11px;max-width:820px">
+          Retiring takes an item off the Daily Sales form. Days already recorded
+          still show it and are worth exactly what they were — add it back by the
+          same name to restore it.
+        </p>
+
+        <div class="section-title">3. Restock Entry (adds to stock)</div>
         <table>
           <tr><th>Date</th><th>Item</th><th>Quantity Received</th><th>Supplier / Invoice Ref</th></tr>
           <tr>

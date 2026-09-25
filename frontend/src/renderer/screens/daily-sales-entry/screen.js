@@ -88,25 +88,16 @@ function buildOilRows() {
 
 // ------------------------------------------------------------- the item list
 
-// Manager and Owner decide what the station sells; Sales keys the day's figures.
-// Server-side RBAC is the real enforcement - this only keeps the controls out of
-// the way of someone who cannot use them.
-function canEditOilItems() {
-  return me && (me.role === "Manager" || me.role === "Owner");
-}
 
+// Item 2: adding and retiring products moved to Inventory Tracking, so the
+// admin column stays hidden here for everyone. The cells are still rendered so a
+// saved day that names a retired item keeps its row and its Oil Total.
 function showOilAdmin() {
-  const on = canEditOilItems();
-  const admin = $("oil-admin");
-  if (admin) admin.hidden = !on;
   ["oil-admin-head", "oil-admin-total", "oil-admin-total2"].forEach((id) => {
-    if ($(id)) $(id).hidden = !on;
+    if ($(id)) $(id).hidden = true;
   });
   document.querySelectorAll(".oil-admin-cell").forEach((td) => {
-    td.hidden = !on;
-  });
-  document.querySelectorAll("[data-retire]").forEach((b) => {
-    b.onclick = () => retireOilItem(b.dataset.retire);
+    td.hidden = true;
   });
 }
 
@@ -120,55 +111,7 @@ async function loadOilItems() {
   OIL_ALIASES = aliases || {};
 }
 
-async function addOilItem() {
-  const st = $("oil-admin-status");
-  const label = val("oil-new-label").trim();
-  if (!label) {
-    st.className = "status-line err";
-    st.textContent = "Give the item a name first.";
-    return;
-  }
-  st.className = "status-line";
-  st.textContent = "Adding…";
-  try {
-    // Rate and Opening Stock go in with it: an oil row is unusable without both,
-    // and the alternative is the operator finding a blank row and no way to price
-    // it. Either can be corrected later in Rate Master / Inventory Tracking.
-    await api.post("/oil-items", {
-      label,
-      rate: Number(val("oil-new-rate")) || 0,
-      opening_stock: Number(val("oil-new-stock")) || 0,
-    });
-    await refreshOilSection();
-    $("oil-new").hidden = true;
-    ["oil-new-label", "oil-new-rate", "oil-new-stock"].forEach((id) => setVal(id, ""));
-    st.className = "status-line ok";
-    st.textContent = `Added "${label}". It is on every Oil Sale(s) row from now on.`;
-  } catch (err) {
-    st.className = "status-line err";
-    st.textContent = err.message || String(err);
-  }
-}
 
-async function retireOilItem(key) {
-  const st = $("oil-admin-status");
-  const label = oilLabels[key] || key;
-  // Deliberately not window.confirm(): Electron blocks it, and it would be the
-  // second dialog this screen silently lost. The message says what retiring does.
-  st.className = "status-line";
-  st.textContent = `Removing "${label}"…`;
-  try {
-    await api.del(`/oil-items/${key}`);
-    await refreshOilSection();
-    st.className = "status-line ok";
-    st.textContent =
-      `"${label}" is off the form. Days already recorded still show it and are ` +
-      `worth exactly what they were - add it again by name to bring it back.`;
-  } catch (err) {
-    st.className = "status-line err";
-    st.textContent = err.message || String(err);
-  }
-}
 
 // Put back a row for any item the saved day names that is no longer on the form -
 // a product retired since. It is appended, read-only, and flagged as retired, so
@@ -200,8 +143,10 @@ function restoreRetiredRows(savedOils) {
   showOilAdmin();
 }
 
-// Rebuild Oil Sale(s) after the list changes, keeping what is already typed in.
-async function refreshOilSection() {
+// Rebuild Oil Sale(s) after the catalogue changes, keeping what is typed in.
+// Exported so a future caller (a reload after Inventory Tracking adds an item)
+// can use it; nothing on this screen changes the catalogue any more.
+export async function refreshOilSection() {
   const typed = Object.fromEntries(
     OIL_KEYS.map((k) => [k, { qty: val(`${k}-qty`), rate: val(`${k}-rate`),
       opening: val(`${k}-opening`) }]),
@@ -227,27 +172,70 @@ async function refreshOilSection() {
 // app saved the amount and silently dropped the name. It was not stored, not
 // exported, not printed back (client, 2026-09-23, from the SEP15 import).
 function addCcRow() {
-  $("cc-rows").appendChild(
-    blankRow(
-      '<td><input class="cc-holder"></td>' +
-        '<td><input class="cc-type"></td>' +
-        '<td><input class="cc-rate"></td>' +
-        '<td><input class="cc-receipt"></td>' +
-        '<td><input class="cc-amount" data-calc></td>'
-    )
+  const tr = blankRow(
+    '<td><input class="cc-holder"></td>' +
+      '<td><input class="cc-type"></td>' +
+      '<td><input class="cc-fuel" placeholder="1 / 2"></td>' +
+      '<td><input class="cc-ltrs" data-calc></td>' +
+      '<td><input class="cc-rate"></td>' +
+      '<td><input class="cc-receipt"></td>' +
+      '<td><input class="cc-amount" data-calc></td>'
   );
+  // Same rule as Section 5 (client, 2026-09-24): a swipe is fuel at the pump
+  // price, so Rate follows the fuel type rather than being typed again.
+  tr.querySelector(".cc-fuel").addEventListener("input", () => {
+    applyRateFromFuel(tr, ".cc-fuel", ".cc-rate");
+  });
+  $("cc-rows").appendChild(tr);
+  return tr;
 }
 function addNcRow() {
-  $("nc-rows").appendChild(
-    blankRow(
-      '<td><input class="nc-name"></td>' +
-        '<td><input class="nc-type" placeholder="1.Diesel / 2.Petrol"></td>' +
-        '<td><input class="nc-ltrs" data-calc></td>' +
-        '<td><input class="nc-rate" data-calc></td>' +
-        '<td><input class="nc-amount" disabled placeholder="auto"></td>' +
-        '<td><input class="nc-sign"></td>'
-    )
+  const tr = blankRow(
+    '<td><input class="nc-name"></td>' +
+      '<td><input class="nc-type" placeholder="1.Diesel / 2.Petrol"></td>' +
+      '<td><input class="nc-ltrs" data-calc></td>' +
+      '<td><input class="nc-rate" data-calc></td>' +
+      '<td><input class="nc-amount" disabled placeholder="auto"></td>' +
+      '<td><input class="nc-sign"></td>'
   );
+  // Client, 2026-09-24: "Rate should be 1. HS 2. MS by default, same as Section 1
+  // Gas Sale(s) rates only." A credit is fuel sold on account - it is the same
+  // litres at the same pump price, so the rate is not a free number and re-typing
+  // it invites a figure that disagrees with the day's own sale.
+  //
+  // Typed, not locked: the operator can still override for the odd case, and a
+  // rate they have deliberately changed is not overwritten.
+  tr.querySelector(".nc-type").addEventListener("input", () => {
+    applyCreditRate(tr);
+  });
+  $("nc-rows").appendChild(tr);
+  return tr;
+}
+
+// "1", "1.Diesel", "Diesel" -> the HS rate; "2", "2.Petrol", "Petrol" -> MS.
+// Shared by New Credits and Credit Cards so the two cannot drift apart.
+function applyRateFromFuel(tr, typeSel, rateSel) {
+  const raw = (tr.querySelector(typeSel).value || "").trim().toLowerCase();
+  if (!raw) return;
+  let rate = null;
+  if (raw.startsWith("1") || raw.includes("diesel") || raw.includes("hs")) {
+    rate = val("hs-rate");
+  } else if (raw.startsWith("2") || raw.includes("petrol") || raw.includes("ms")) {
+    rate = val("ms-rate");
+  }
+  if (rate === null || rate === "") return;
+  const cell = tr.querySelector(rateSel);
+  // Only fill a blank, or replace a rate this function put there itself - so a
+  // deliberate override survives a change of mind about the fuel type.
+  if (cell.value === "" || cell.dataset.fromType === "1") {
+    cell.value = rate;
+    cell.dataset.fromType = "1";
+    refresh();
+  }
+}
+
+function applyCreditRate(tr) {
+  applyRateFromFuel(tr, ".nc-type", ".nc-rate");
 }
 // An extra Expenses row. Unlike the three printed ones its description is typed,
 // so the row carries both a description input and an amount - and readForm()
@@ -268,7 +256,7 @@ function addOcRow() {
     blankRow(
       '<td><input class="oc-customer"></td>' +
         '<td><input class="oc-amount" data-calc></td>' +
-        '<td><input class="oc-given"></td>' +
+        '<td><input class="oc-given" type="date"></td>' +
         '<td><input class="oc-sign"></td>'
     )
   );
@@ -288,6 +276,10 @@ function readForm() {
     pump_status: val("pump-status") || "online",
     shift_date: val("shift-date"),
     entry_mode: entryMode,
+    // Item 5: who verified the day and when. Typed into boxes that read back
+    // nowhere until 2026-09-24.
+    verified_signature: val("verify-signature"),
+    verified_date: val("verify-date"),
     last_reading_override: lastReadingOverride,
     hs: { current: val("hs-current"), last: val("hs-last"), rate: val("hs-rate") },
     ms: { current: val("ms-current"), last: val("ms-last"), rate: val("ms-rate") },
@@ -301,6 +293,8 @@ function readForm() {
     credit_card_rows: [...document.querySelectorAll("#cc-rows tr")].map((tr) => ({
       holder: tr.querySelector(".cc-holder").value,
       card_type: tr.querySelector(".cc-type").value,
+      fuel_type: tr.querySelector(".cc-fuel").value,
+      ltrs: tr.querySelector(".cc-ltrs").value,
       rate: tr.querySelector(".cc-rate").value,
       receipt: tr.querySelector(".cc-receipt").value,
     })),
@@ -385,15 +379,46 @@ function applyResult(r) {
   setNum("ds-ms", r.daily_summary.ms);
 }
 
+// What /calc accepts is the FORM, not the record: no pump, no date, no entry
+// mode. readForm() builds the whole save payload, so those extras have to come
+// off before the authoritative recompute - CalcRequest forbids unknown fields
+// (deliberately: a mistyped field name once silently dropped Rs 2,525).
+//
+// Until 2026-09-24 they were sent anyway and /calc answered 422 every time. The
+// catch below swallowed it, so the screen quietly ran on the renderer mirror
+// alone and nobody saw a thing. The mirror is meant to be a responsive stand-in
+// until the engine answers (SDD 6.4/7.3), not the thing you are reading.
+const CALC_ONLY_STRIP = [
+  "pump_serial", "pump_status", "shift_date", "entry_mode",
+  "last_reading_override", "verified_signature", "verified_date",
+];
+
+function calcPayload(payload) {
+  const out = { ...payload };
+  for (const k of CALC_ONLY_STRIP) delete out[k];
+  return out;
+}
+
 function refresh() {
   const payload = readForm();
   applyResult(mirror.compute(payload)); // instant
   clearTimeout(calcTimer);
   calcTimer = setTimeout(async () => {
     try {
-      applyResult(await api.post("/daily-sales-entry/calc", payload)); // authoritative
-    } catch {
-      /* keep the mirror result on transient failure */
+      applyResult(await api.post("/daily-sales-entry/calc", calcPayload(payload)));
+      const ok = $("calc-note");
+      if (ok) ok.hidden = true;
+    } catch (err) {
+      // Still not fatal - the mirror's figures are on screen - but no longer
+      // invisible. A recompute that never succeeds means the totals you are
+      // reading came from the renderer, and that is worth knowing.
+      const note = $("calc-note");
+      if (note) {
+        note.hidden = false;
+        note.textContent =
+          `Showing locally-calculated totals — the server recompute failed ` +
+          `(${err.message || err}). Save will use the server's figures.`;
+      }
     }
   }, 250);
 }
@@ -422,6 +447,15 @@ let entryMode = "manual";
 // the field is disabled and the backend ignored anything sent for it, so it
 // propagated to every later day with no way to correct it from inside the app.
 let lastReadingOverride = false;
+
+// The out-of-today date the operator has already confirmed, so they are asked
+// once per date rather than on every save.
+// The saved day most recently loaded, so it can still be moved after the date
+// field changes and entryId is cleared.
+let movableEntry = null;
+
+// Set by the first edit after a day is loaded - see offerMove().
+let formTouchedSinceLoad = false;
 
 // ---- Owner's reading-reset form ---------------------------------------------
 // Client, 2026-09-23: "Define a small owner form where you can reset the last
@@ -624,17 +658,35 @@ async function loadPrefill() {
   // one. Close it and ask again rather than carrying the unlock across.
   if ($("reset-body") && !$("reset-body").hidden) closeResetForm();
   syncResetPump();
+  showShiftDateWarning();
   $("hs-last").disabled = hasCarry;
   $("ms-last").disabled = hasCarry;
   $("hs-last").placeholder = hasCarry ? "auto @ 23:59 IST" : "Enter Last Shift Reading (no prior reading on file)";
   $("ms-last").placeholder = $("hs-last").placeholder;
   syncOverrideBtn(hasCarry);
 
+  // Item 9 (client, 2026-09-24). The carry used to happen silently, which is how
+  // a wrong baseline went unnoticed for four days. It still fills the field -
+  // re-keying a seven-digit meter reading every shift is exactly how a digit
+  // gets dropped, and that error re-bases every later day without announcing
+  // itself - but it now SAYS where the number came from, and offers itself as a
+  // button so the operator can put it back after an Owner has edited it.
+  //
+  // The field itself stays locked for everyone but an Owner: client, 2026-09-24,
+  // "Last Shift Reading always not editable except owner feature, that stays as
+  // is."
+  // Client, 2026-09-24: "Last Shift Reading carried from ... - NO NEED OF THIS
+  // ONE and NOT REQUIRED." The field is greyed out and stays that way; when it
+  // has to change, that is what the Owner reset is for. So the note only speaks
+  // up in the one case the operator must act on - no prior reading at all, where
+  // the field is open and they have to type it.
+  $("carried-note").hidden = hasCarry;
   $("carried-note").textContent = hasCarry
-    ? `Last Shift Reading carried from ${p.carried_from} (auto @ 23:59 IST).`
+    ? ""
     : "No prior reading for this pump — enter today's Last Shift Reading manually.";
   refresh();
 }
+
 
 // Save / Update / Delete are distinct toolbar actions (not one relabeled button):
 // Save is only for a new day, Update only for one already bound to a saved row,
@@ -669,9 +721,20 @@ async function loadExisting({ populate = false } = {}) {
   if (!row) {
     entryId = null;
     if (banner) banner.hidden = true;
+    // Item 7 (client, 2026-09-24): "Data Date was set to Sep 24th and not able
+    // to update to Sep 14th - how to correct it?"
+    //
+    // Changing the date used to end here: the screen found nothing on the new
+    // date, forgot the entry it was editing, and the next Save created a SECOND
+    // day - leaving the mis-dated one behind. There was no way to move a day at
+    // all. If we were just editing one on this pump, offer to move it.
+    offerMove(pump, dateStr);
     syncButtonState();
     return;
   }
+  movableEntry = { id: row.id, shift_date: row.shift_date, pump_serial: pump };
+  formTouchedSinceLoad = false;
+  hideMove();
   entryId = row.id;
   if (populate) {
     // Adopt the saved row's provenance. Re-opening an imported day and pressing
@@ -814,6 +877,78 @@ function checkRequired() {
   return { blocked: null };
 }
 
+// Item 6 (client, 2026-09-24). A day keyed for the 14th was filed under the
+// 24th and only surfaced later as "Query cannot find the Sep 14th data". The
+// date defaults to today and looks like every other field, so nothing draws the
+// eye to the one value the whole day is filed under.
+//
+// This WARNS, visibly and permanently, rather than interrupting. It deliberately
+// does not use window.confirm(): Electron blocks confirm() and prompt(), which
+// is how the Trial Balance's "+ New Type" once silently did nothing. A modal
+// that never appears is worse than no modal - the save just stops, for no
+// visible reason.
+function showShiftDateWarning() {
+  const bar = $("date-warning");
+  if (!bar) return;
+  const chosen = val("shift-date");
+  const today = new Date().toISOString().slice(0, 10);
+  const off = Boolean(chosen) && chosen !== today;
+  bar.hidden = !off;
+  if (off) {
+    bar.textContent =
+      `This day will be filed under ${chosen} — not today (${today}). ` +
+      `If that is wrong, change Shift Date before saving.`;
+  }
+}
+
+// ---- Item 7: move a saved day to a different date ---------------------------
+
+function hideMove() {
+  const bar = $("move-entry-bar");
+  if (bar) bar.hidden = true;
+}
+
+function offerMove(pump, newDate) {
+  const bar = $("move-entry-bar");
+  if (!bar) return;
+  // Only when the loaded day's own figures are still on screen. Going back to
+  // key a day that was MISSED is the common case (client, 2026-09-24: "if the
+  // entry was NOT done for some reason on that day they should be able to go
+  // back and do it") - and offering to re-file the previous day in the middle of
+  // that is noise at best and a wrong click at worst. The first keystroke means
+  // a new day is being entered, and the offer withdraws.
+  const can =
+    movableEntry && movableEntry.pump_serial === pump &&
+    movableEntry.shift_date !== newDate && newDate && !formTouchedSinceLoad;
+  bar.hidden = !can;
+  if (can) {
+    $("move-entry-text").textContent =
+      `Entry #${movableEntry.id} is filed under ${movableEntry.shift_date}. ` +
+      `Nothing is saved for ${newDate}.`;
+    $("move-entry-btn").textContent = `Move it to ${newDate}`;
+  }
+}
+
+async function moveEntryDate() {
+  if (!movableEntry) return;
+  const status = $("save-status");
+  const target = val("shift-date");
+  try {
+    const payload = readForm();
+    payload.shift_date = target;
+    const saved = await api.put(`/daily-sales-entry/${movableEntry.id}`, payload);
+    entryId = saved.id;
+    movableEntry = { id: saved.id, shift_date: target, pump_serial: saved.pump_serial };
+    hideMove();
+    status.className = "status-line ok";
+    status.textContent = `Moved entry #${saved.id} to ${target}.`;
+    await loadExisting({ populate: true });
+  } catch (err) {
+    status.className = "status-line err";
+    status.textContent = `Could not move it — ${err.message || err}`;
+  }
+}
+
 async function save() {
   const status = $("save-status");
   const gate = checkRequired();
@@ -831,6 +966,7 @@ async function save() {
       : await api.post("/daily-sales-entry", payload);
     const wasEdit = Boolean(entryId);
     entryId = saved.id;
+    lastSavedSnapshot = JSON.stringify(payload);
     applyResult(saved.result);
     $("last-updated-by").textContent = saved.last_updated_by;
     $("last-updated-time").textContent = new Date(saved.last_updated_at).toLocaleString();
@@ -865,12 +1001,21 @@ function clearOperatorFields() {
     setVal(`${k}-opening`, ""); // loadPrefill() (called right after) refills the default
   });
   ["exp1", "exp2", "exp3"].forEach((id) => setVal(id, ""));
-  document.querySelectorAll(".cc-amount").forEach((el) => (el.value = ""));
-  document.querySelectorAll("#nc-rows tr").forEach((tr) => {
-    tr.querySelector(".nc-ltrs").value = "";
-    tr.querySelector(".nc-rate").value = "";
+  document.querySelectorAll(".exp-desc").forEach((el) => (el.value = ""));
+  // Every cell in the repeating sections, by class rather than by name. Listing
+  // them individually is how the card holder and creditor names survived a pump
+  // change on 2026-09-24 - a cell added later is a cell this function does not
+  // know about, and it carries the previous pump's data with it.
+  const ROW_CELLS = [
+    ".cc-holder", ".cc-type", ".cc-fuel", ".cc-ltrs", ".cc-rate",
+    ".cc-receipt", ".cc-amount",
+    ".nc-name", ".nc-type", ".nc-ltrs", ".nc-rate", ".nc-sign",
+    ".oc-customer", ".oc-amount", ".oc-given", ".oc-sign",
+  ];
+  document.querySelectorAll(ROW_CELLS.join(",")).forEach((el) => {
+    el.value = "";
+    delete el.dataset.fromType;
   });
-  document.querySelectorAll(".oc-amount").forEach((el) => (el.value = ""));
   setVal("pp-settled", "");
   setVal("pp-unsettled", "");
 }
@@ -1003,6 +1148,8 @@ function populateInputs(payload) {
     const d = cardRows[i] || {};
     put(tr.querySelector(".cc-holder"), d.holder);
     put(tr.querySelector(".cc-type"), d.card_type);
+    put(tr.querySelector(".cc-fuel"), d.fuel_type);
+    put(tr.querySelector(".cc-ltrs"), d.ltrs);
     put(tr.querySelector(".cc-rate"), d.rate);
     put(tr.querySelector(".cc-receipt"), d.receipt);
   });
@@ -1029,6 +1176,8 @@ function populateInputs(payload) {
     put(tr.querySelector(".oc-sign"), d.signature);
   });
 
+  setVal("verify-signature", payload.verified_signature);
+  setVal("verify-date", payload.verified_date);
   setVal("pp-settled", payload.phone_pay_settled);
   setVal("pp-unsettled", payload.phone_pay_unsettled);
 }
@@ -1037,7 +1186,8 @@ async function exportExcel() {
   const status = $("save-status");
   if (!entryId) {
     status.className = "status-line";
-    status.textContent = "Save the entry first, then Export to Excel.";
+    status.textContent =
+      "Save the entry first. For a readable copy of the day, use Export DSR (PDF).";
     return;
   }
   try {
@@ -1172,6 +1322,17 @@ function dsrFileName(pumpSerial, shiftDate) {
   return `SVR_DSR_${pumpSerial}_${shiftDate || "blank"}`;
 }
 
+// Has the form changed since it was last saved? Compared as the payload that
+// would be sent, so a reformatted number does not count as an edit.
+let lastSavedSnapshot = null;
+function formIsDirty() {
+  try {
+    return JSON.stringify(readForm()) !== lastSavedSnapshot;
+  } catch {
+    return true; // if it cannot be compared, assume it needs saving
+  }
+}
+
 async function showDsrForm(filled) {
   const status = $("save-status");
   const pump = val("pump-serial");
@@ -1179,8 +1340,17 @@ async function showDsrForm(filled) {
   let data = null;
 
   if (filled) {
-    // Print what is SAVED for the day, not what happens to be on screen: a form
-    // that shows unsaved edits is a form that disagrees with the database.
+    // Item 4 (client, 2026-09-24): "Print is not working as data entered."
+    //
+    // It printed only what was SAVED, on the reasoning that a printed form is a
+    // record and a record that contradicts the database is worse than none. That
+    // reasoning still holds - but the operator has just keyed a day, pressed
+    // Print, and expects to see it. So save first, then print: the expected
+    // result, and the form and the record can never disagree.
+    if (!entryId || formIsDirty()) {
+      await save();
+      if (!entryId) return; // save refused - its own message is on screen
+    }
     try {
       const rows = await api.get(
         `/daily-sales-entry?shift_date=${encodeURIComponent(shiftDate)}` +
@@ -1308,13 +1478,6 @@ async function init() {
     /* leave Oil Sale(s) empty rather than half-built; loadPrefill retries */
   }
   buildOilRows();
-  $("oil-add-btn").addEventListener("click", () => {
-    $("oil-new").hidden = !$("oil-new").hidden;
-  });
-  $("oil-new-save").addEventListener("click", addOilItem);
-  $("oil-new-cancel").addEventListener("click", () => {
-    $("oil-new").hidden = true;
-  });
 
   // Print & Sync writes to Inventory Tracking (Manager/Owner only, same access
   // as that module itself) - a Sales user still has plain Print Blank.
@@ -1330,11 +1493,24 @@ async function init() {
   });
   const reload = async () => {
     entryId = null;
+    // Clear what the operator typed for the PREVIOUS pump/date first.
+    //
+    // Client, 2026-09-24: "when the second pump is selected to enter the data
+    // the form data is not cleared ... had to clean up all rows and columns
+    // manually." That is not only tedious - the Road pump's figures sat on the
+    // Office pump's form, one Save away from being filed under the wrong pump,
+    // and every total on screen was the wrong pump's until they were cleared.
+    //
+    // loadExisting({populate:true}) below puts a saved day back if there is one,
+    // so nothing real is lost: this only discards an unsaved draft for a
+    // pump/date the operator has just navigated away from.
+    clearOperatorFields();
     await loadPrefill();
     await loadExisting({ populate: true }); // open the saved entry for this pump+date, if any
   };
   $("pump-serial").addEventListener("change", reload);
   $("pump-status").addEventListener("change", applyPumpStatus);
+  $("shift-date").addEventListener("input", showShiftDateWarning);
   $("shift-date").addEventListener("change", reload);
   document.querySelectorAll("[data-add]").forEach((btn) => {
     btn.addEventListener("click", () => {
@@ -1378,6 +1554,18 @@ async function init() {
     const el = $(id);
     if (el) el.addEventListener("click", fn);
   };
+  onId("move-entry-btn", moveEntryDate);
+  // Any edit to the day's own figures means a new day is being keyed, not the
+  // loaded one re-filed.
+  document.addEventListener("input", (e) => {
+    const t = e.target;
+    if (!t || t.id === "shift-date" || t.id === "pump-serial") return;
+    if (t.closest && t.closest(".sheet")) {
+      formTouchedSinceLoad = true;
+      hideMove();
+    }
+  });
+  onId("export-dsr-btn", () => showDsrForm(true));
   onId("dsr-blank-btn", () => showDsrForm(false));
   onId("dsr-filled-btn", () => showDsrForm(true));
   onId("dsr-print-btn", printDsr);
