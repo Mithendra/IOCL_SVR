@@ -63,3 +63,44 @@ docs/01-BRD-Requirement-Gathering/ocr-samples/SEP14/AccountStatement-5.pdf
 docs/01-BRD-Requirement-Gathering/ocr-samples/SEP16/Account Statement - SVR INDIANOIL SERVICE STATION.pdf
 docs/01-BRD-Requirement-Gathering/ocr-samples/SEP16/AccountStatement.pdf
 docs/01-BRD-Requirement-Gathering/ocr-samples/SEP16/Account_Statement_Last_10_transactions.pdf
+
+# ---------------------------------------------------------------------------
+# STANDING RULE, set by the owner 2026-09-24:
+#   "Never push Bank statements or IFSC codes or any financial data."
+#   "DO NOT PUSH ANY EXCEL SHEETS OR FINANCIAL DATA."
+#
+# This repo is PUBLIC. Everything below stays on the station PC. Do not remove
+# any of these lines, or narrow them, without the owner saying so in as many
+# words. Blanket patterns on purpose: the per-file list above this block only
+# caught the statements someone happened to notice, and a new file with a new
+# name would have gone straight up.
+# ---------------------------------------------------------------------------
+
+# Every spreadsheet under docs/ - the DSR and Trial Balance workbooks carry the
+# station's daily cash, bank balances, credits and profit.
+docs/**/*.xlsx
+docs/**/*.xlsm
+docs/**/*.xls
+docs/**/*.csv
+
+# Any bank or dealer account statement, whatever it is called or where it sits.
+**/[Aa]ccount[ _-]*[Ss]tatement*
+**/[Ss]tatement*[Oo]f*[Aa]ccount*
+**/AccountStatement*
+
+# The September testing uploads: filled forms, exports and statements. Working
+# material for the testing rounds, not repository content.
+docs/01-BRD-Requirement-Gathering/ocr-samples/SEP14/
+docs/01-BRD-Requirement-Gathering/ocr-samples/SEP15/
+docs/01-BRD-Requirement-Gathering/ocr-samples/SEP16/
+docs/01-BRD-Requirement-Gathering/ocr-samples/SEP24/
+docs/01-BRD-Requirement-Gathering/ocr-samples/Testing_Results_Sep15/
+docs/01-BRD-Requirement-Gathering/ocr-samples/NEW_PRINT_FORMS/
+docs/01-BRD-Requirement-Gathering/ocr-samples/EMPTY_PRINTING_FORMS/
+
+# Uploaded archives of the station's own paperwork (a .zip hides its contents
+# from every pattern above - trailbalance24september2026.zip arrived while this
+# block was being written and would otherwise have been the one thing pushed).
+docs/01-BRD-Requirement-Gathering/ocr-samples/*.zip
+docs/**/[Tt]rail[_ ]*balance*
+docs/**/[Tt]rial[_ ]*balance*
