@@ -167,6 +167,22 @@
             <tr><td>Petrol (MS)</td><td><input id="ms-sl2" disabled placeholder="auto"></td><td><input id="ms-br" disabled placeholder="auto"></td><td><input id="ms-sa" disabled placeholder="auto"></td></tr>
             <tr class="total-row"><td colspan="3">Total Stock Value</td><td><input id="s6-total" disabled placeholder="auto"></td></tr>
           </table>
+          <!-- Ltrs IS Section 1's IOCL Current reading, so with Section 1 blank
+               this whole section is blank and looked broken (client, 2026-09-25:
+               "section 5 is not getting populated"). Say which field it wants. -->
+          <!-- Client, 2026-09-25: "DT not populating many cols like Stock section
+               onwards". It is one missing input, not many broken sections - Ltrs
+               IS Section 1's IOCL Current reading, and Stock Value feeds 6.2,
+               which feeds 6.3 Net Worth, which every figure in 7 and 8 is
+               measured from. Naming all of them here is the difference between
+               an unfinished day and a form that looks broken. -->
+          <p id="s5-waiting" class="status-line err" hidden>
+            Waiting on <b>1. IOCL Stock Readings</b> — Ltrs is the IOCL Current reading, so
+            Stock Value cannot be worked out until <b>IOCL Current</b> is filled in for both
+            fuels and saved. Until then <b>5, 6.2, 6.3 and everything in 7 and 8 that is
+            measured from Net Worth stay blank as well</b> — they are waiting on the same two
+            boxes, not broken.
+          </p>
 
           </div>
 
@@ -221,7 +237,7 @@
           <div class="tb-actions">
             <button type="button" class="export-btn" id="s8-snapshot-btn">Snapshot &rarr; Clipboard</button>
             <button type="button" class="export-btn secondary" id="s8-export-btn">Export Section 8 to Excel</button>
-            <button type="button" class="export-btn secondary" id="sheet-pdf-btn">Whole sheet &rarr; PDF for WhatsApp</button>
+            <button type="button" class="export-btn secondary" id="sheet-pdf-btn">PDF Export</button>
           </div>
           <!-- Management's own layout, built from the live figures and captured as
                the picture they receive daily. Hidden until Snapshot is pressed. -->
@@ -230,19 +246,28 @@
             <b>Snapshot</b> builds the picture management already receives every day and copies it to
             the clipboard, saving a PNG in your Downloads folder too. Open WhatsApp, pick the chat,
             press Ctrl+V, send.
-            <b>Whole sheet &rarr; PDF</b> saves the entire Trial Balance as an A4 landscape PDF in
-            Downloads and opens it — attach that file in WhatsApp. A document, not a pasted picture,
-            so it can be forwarded, filed and reopened.
+            <b>PDF Export</b> saves the entire Trial Balance as an A4 landscape PDF in Downloads
+            and opens it — attach that file in WhatsApp. A document, not a pasted picture, so it can
+            be forwarded, filed and reopened. It keeps the form&#39;s own colours.
           </p>
           <p id="s8-send-status" class="status-line"></p>
           <div id="sec-9"></div>
           <div id="sec-10"></div>
-          <div id="sec-11"></div>
+          <!-- Section 11 "Old/New Credit Sales Details" is gone (client,
+               2026-09-25). It was two typed Airtel balances, and a balance
+               typed here could not agree with the Credit / Remittance Master,
+               which computes the same figure from the credits and remittances
+               actually posted. The master's own numbers are shown in the
+               posting block below instead. -->
 
           <div class="export-bar">
             <button type="button" class="export-btn" id="save-btn">Save</button>
             <button type="button" class="export-btn" id="update-btn" disabled>Update</button>
-            <button type="button" class="export-btn secondary" id="export-btn">Export Trial Balance to Excel</button>
+            <button type="button" class="export-btn secondary" id="export-btn">Export Filled Excel</button>
+            <!-- The same sheet with every input cell empty - a form to fill in
+                 by hand (client, 2026-09-25). Same cell list as the filled
+                 export, so the two cannot drift apart. -->
+            <button type="button" class="export-btn secondary" id="export-blank-btn">Print Empty Excel</button>
           </div>
           <p id="save-status" class="status-line"></p>
 
@@ -253,30 +278,65 @@
             Post to Monthly Expenses &amp; Credit / Remittance Master
             <span style="font-weight:400;font-size:11px">[required before Close &amp; Sign Off]</span>
           </div>
-          <div class="export-bar">
-            <button type="button" class="export-btn" id="post-btn">Post this day&#39;s lines</button>
-            <button type="button" class="export-btn secondary" id="clear-posted-btn">Clear settled lines</button>
-          </div>
-          <p id="post-status" class="status-line"></p>
+          <!-- Every line for the day, whatever it is and wherever it goes. The
+               Type column names it; the buttons UNDER the table act on it
+               (client, 2026-09-25: "All 8 Transaction under the same section,
+               All 5 push should be under the section rather than top"). -->
+          <div class="tb-block-title">Transactions to post</div>
           <table class="tb-rows" id="posting-table">
             <tr>
-              <th style="width:1%"><input type="checkbox" id="post-check-all" title="Select all clearable" /></th>
-              <th>Date</th><th>Category</th><th>Line</th><th>Amount</th><th>Status</th>
+              <th style="width:1%"><input type="checkbox" id="post-check-all" title="Select all" /></th>
+              <th>Date</th><th>Type</th><th>Goes to</th><th>Line</th><th>Amount</th><th>Status</th>
             </tr>
             <tbody id="posting-rows"></tbody>
           </table>
 
-          <div id="finalize-block" class="section-title">Close &amp; Sign Off (Manager / Owner)</div>
-          <div id="finalize-fields" class="meta-grid">
-            <div class="field">
-              <label for="projected-total">Today's Projected Trial Balance (optional, from Section 7)</label>
-              <input id="projected-total" placeholder="leave blank to skip the variance check" />
-            </div>
-            <div class="field">
-              <label for="finalize-reason">Reason (required only if the difference exceeds ±₹50)</label>
-              <input id="finalize-reason" placeholder="e.g. power bill paid from till today" />
-            </div>
+          <!-- ONE row, not two (client, 2026-09-25: "STILL 2 ROWS SHOWS UP").
+               nowrap keeps them on the line; the bar scrolls sideways on a
+               narrow window rather than folding, so the order never changes. -->
+          <div class="post-bar post-bar-one">
+            <button type="button" class="export-btn" id="post-credits-btn">Post Credit/Remittances</button>
+            <button type="button" class="export-btn" id="post-expenses-btn">Post Expenses</button>
+            <span class="post-bar-sep"></span>
+            <button type="button" class="export-btn secondary" id="clear-remittances-btn">Clear Remittances</button>
+            <button type="button" class="export-btn secondary" id="clear-expenses-btn">Clear Expenses</button>
+            <span class="post-bar-sep"></span>
+            <button type="button" class="add-row-btn" id="post-pick-unposted">Select all unposted</button>
+            <button type="button" class="add-row-btn" id="post-pick-all">Select all</button>
+            <button type="button" class="add-row-btn" id="post-pick-none">Select none</button>
           </div>
+          <p style="font-size:11px;color:var(--io-blue-dark);margin:0 0 6px">
+            <b>Credits</b> and <b>Remittances</b> go to the Credit / Remittance Master;
+            <b>Expenses</b> go to Monthly Expenses. Tick lines to act on just those — with
+            nothing ticked, each button takes every line of its own kind for the day.
+          </p>
+          <p id="post-status" class="status-line"></p>
+
+          <!-- The creditor-balance panel that stood here is GONE (client,
+               2026-09-25: "you remove those two lines and then I add via
+               Credit/Remittance master manually").
+
+               It began as Section 11's two typed Airtel balances, became a
+               computed summary, and neither reading was right: a BALANCE is not
+               a transaction, so it could not be posted, and a panel that cannot
+               be posted has no business under a heading that says "required
+               before Close & Sign Off". The opening balances are keyed straight
+               into the Credit/Remittance Master now, where every other credit
+               and remittance already lives, and the Trial Balance stops carrying
+               a second copy of a figure it does not own. -->
+          <div id="finalize-block" class="section-title">Close &amp; Sign Off (Manager / Owner)</div>
+          <!-- Both boxes that used to live here are gone (client, 2026-09-25).
+               "Today's Projected Trial Balance" was 7.3, which the form already
+               computes. "Reason" duplicated the Special Note - "the Special note
+               covers it" - so the escalation reason is now READ from the day's
+               Special Note instead of asked for twice. The ±₹50 check still
+               refuses sign-off; it just looks in the right place for the
+               explanation. -->
+          <p id="finalize-hint" style="font-size:11px;color:var(--io-blue-dark);margin:0 0 6px">
+            If the day is out by more than ±₹50, write why in a <b>Special Note</b> above
+            (Section 4 or Section 8) — that is what gets recorded against the sign-off.
+          </p>
+          <div id="finalize-fields" hidden></div>
           <div class="export-bar">
             <button type="button" class="export-btn secondary" id="finalize-btn">Close &amp; Sign Off</button>
             <!-- Owner only. A closed day was locked forever with no way back,

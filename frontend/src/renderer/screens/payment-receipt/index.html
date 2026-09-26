@@ -23,12 +23,13 @@
         <table>
           <tr><td>Date</td><td><input type="date" id="r-date" /></td></tr>
           <tr><td>Time</td><td><input type="time" id="r-time" /></td></tr>
-          <tr><td>Pump Serial#</td><td><input id="r-pump" placeholder="12BC4523V-RD / 11CC2012V-OFF" /></td></tr>
+          <tr><td>Pump Serial#</td><td><select id="r-pump"></select></td></tr>
           <tr><td>Attendant</td><td><input id="r-attendant" /></td></tr>
           <tr><td>Vehicle No. (optional)</td><td><input id="r-vehicle" /></td></tr>
           <tr><td>Fuel Type</td><td><select id="r-fuel"><option>Diesel</option><option>Petrol</option></select></td></tr>
           <tr><td>Liters</td><td><input id="r-liters" /></td></tr>
-          <tr><td>Rate (₹/L)</td><td><input id="r-rate" placeholder="auto (Sell Rate) if blank" /></td></tr>
+          <tr><td>Rate (₹/L)</td><td><input id="r-rate" placeholder="auto (Sell Rate) if blank" />
+            <span id="r-rate-note" style="font-size:11px;color:var(--io-blue-dark)"></span></td></tr>
           <tr><td>Payment Mode</td><td>
             <select id="r-mode"><option>Cash</option><option>Card</option><option>UPI</option><option>Credit</option></select>
           </td></tr>
@@ -41,13 +42,9 @@
         </div>
         <p id="issue-status" class="status-line"></p>
 
-        <div class="summary-box" id="issued-card" style="display:none">
-          <h3>Receipt <span id="ic-no"></span></h3>
-          <div id="ic-body"></div>
-          <div class="export-bar">
-            <button type="button" class="export-btn secondary" onclick="window.print()">Print Receipt</button>
-          </div>
-        </div>
+        <!-- Rendered by showIssued(); it is its own document, not the generic
+             summary box (client, 2026-09-25). -->
+        <div id="issued-card" style="display:none"></div>
 
         <div class="section-title">2. Recent Receipts</div>
         <table>

@@ -45,9 +45,14 @@ test("combine two submissions, verify both, then upload", async ({ page }) => {
   await expect(page.locator("#gate-status")).toContainText("must be verified");
   await expect(page.locator("#upload-btn")).toBeDisabled();
 
-  // Verify both pumps.
+  // Verify both pumps. Since 2026-09-25 this takes a Save - it used to write the
+  // moment a dropdown changed, with no press and no undo (client: "Save, update
+  // buttons are missing", the same thing they rejected on Inventory Master).
   await page.selectOption("#off-verified", "1");
   await page.selectOption("#road-verified", "1");
+  await expect(page.locator("#gate-status")).toContainText("must be verified");  // not yet
+  await page.click("#save-sum-btn");
+  await expect(page.locator("#save-sum-status")).toContainText("Saved");
   await expect(page.locator("#gate-status")).toContainText("ready to upload");
   await expect(page.locator("#upload-btn")).toBeEnabled();
 

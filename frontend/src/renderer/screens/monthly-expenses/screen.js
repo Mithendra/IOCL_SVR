@@ -26,16 +26,56 @@ function filterQuery() {
 }
 
 function renderList(items) {
+  // Date, amount and description are editable in place. A posted expense that
+  // went in with the wrong figure had no correction path at all - only Delete,
+  // which loses the audit trail with it (client, 2026-09-25: "save and update
+  // buttons as well"). Category stays read-only: a line posted from the Trial
+  // Balance is filed under its own wording, and re-pointing it here would put
+  // the two out of step.
   $("expense-rows").innerHTML = items
     .map(
       (e) =>
-        `<tr><td>${e.expense_date}</td><td>${e.category}</td><td>${e.kind}</td>` +
-        `<td>${e.description || ""}</td><td>${fmt2(e.amount)}</td>` +
-        `<td><button type="button" class="add-row-btn" style="margin:0" data-del="${e.id}">Delete</button></td></tr>`
+        `<tr data-row="${e.id}">` +
+        `<td><input type="date" data-f="expense_date" value="${e.expense_date}"></td>` +
+        `<td>${e.category}</td><td>${e.kind}</td>` +
+        `<td><input data-f="description" value="${(e.description || "").replace(/"/g, "&quot;")}"></td>` +
+        `<td><input data-f="amount" style="text-align:right" value="${fmt2(e.amount)}"></td>` +
+        `<td style="white-space:nowrap">` +
+        `<button type="button" class="add-row-btn" style="margin:0" data-upd="${e.id}">Update</button> ` +
+        `<button type="button" class="add-row-btn" style="margin:0" data-del="${e.id}">Delete</button>` +
+        `</td></tr>`
     )
     .join("");
   for (const b of document.querySelectorAll("[data-del]")) {
     b.addEventListener("click", () => del(b.dataset.del));
+  }
+  for (const b of document.querySelectorAll("[data-upd]")) {
+    b.addEventListener("click", () => update(b.dataset.upd));
+  }
+}
+
+async function update(id) {
+  const st = $("form-status");
+  const tr = document.querySelector(`tr[data-row="${id}"]`);
+  const get = (f) => tr.querySelector(`[data-f="${f}"]`).value.trim();
+  const amount = parseFloat(get("amount"));
+  if (isNaN(amount)) {
+    st.className = "status-line err";
+    st.textContent = "Amount must be a number.";
+    return;
+  }
+  try {
+    await api.put(`/expenses/${id}`, {
+      expense_date: get("expense_date") || null,
+      description: get("description") || null,
+      amount,
+    });
+    st.className = "status-line ok";
+    st.textContent = "Updated.";
+    await load();
+  } catch (err) {
+    st.className = "status-line err";
+    st.textContent = `Update failed — ${err.message || err}`;
   }
 }
 

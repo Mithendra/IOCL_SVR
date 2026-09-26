@@ -45,7 +45,10 @@ from svr_backend.core.audit import record_write
 from svr_backend.core.db import transaction
 from svr_backend.core.rbac import get_db, require
 from svr_backend.core.session import Principal
-from svr_backend.excel.trial_balance_full import build_full_workbook
+from svr_backend.excel.trial_balance_full import (
+    build_blank_workbook,
+    build_full_workbook,
+)
 from svr_backend.excel.trial_balance_section8 import (
     build_section8_workbook,
     section8_message,
@@ -321,6 +324,41 @@ def _earliest_open_before(conn: sqlite3.Connection, before_date: str) -> sqlite3
     ).fetchone()
 
 
+_S10_KEYS = ("afterunload", "old", "new", "load")
+
+
+def _last_load(conn: sqlite3.Connection, shift_date: str) -> dict | None:
+    """The most recent IOCL delivery on or before this date, with its own date.
+
+    Section 10 only gets filled when IOCL actually delivers - roughly every ten
+    days - and until 2026-09-25 the block simply went blank on every day in
+    between, so the readings from the last delivery were unreachable without
+    reopening that day. Client: "This data should be there until the next load
+    comes in which is typically 10 days old need to keep."
+
+    Carried for DISPLAY only. The day the load arrived owns the record; copying
+    it into every following day would put a delivery on the books nine more
+    times. The form marks it as carried and does not save it back.
+    """
+    rows = conn.execute(
+        f"SELECT shift_date, manual_json FROM {TABLE} WHERE shift_date <= ? "
+        "ORDER BY shift_date DESC LIMIT 60",
+        (shift_date,),
+    ).fetchall()
+    for row in rows:
+        try:
+            manual = json.loads(row["manual_json"] or "{}")
+        except (TypeError, ValueError):
+            continue
+        s10 = manual.get("section10")
+        if not isinstance(s10, dict):
+            continue
+        if any(not is_blank(s10.get(f"{fuel}_{k}"))
+               for fuel in ("hs", "ms") for k in _S10_KEYS):
+            return {"shift_date": row["shift_date"], "values": s10}
+    return None
+
+
 def _view(conn: sqlite3.Connection, shift_date: str) -> dict:
     row = conn.execute(f"SELECT * FROM {TABLE} WHERE shift_date = ?", (shift_date,)).fetchone()
     ctx = _context(conn, shift_date, row)
@@ -363,6 +401,14 @@ def _view(conn: sqlite3.Connection, shift_date: str) -> dict:
             "s54_cash_book_value": row["s54_cash_book_value"] if row else None,
         },
         "manual": manual,
+        # The last delivery, so Section 10 still shows it on the days between
+        # loads. Only sent when THIS day has none of its own.
+        "last_load": (
+            None
+            if any(not is_blank((manual.get("section10") or {}).get(f"{fuel}_{k}"))
+                   for fuel in ("hs", "ms") for k in _S10_KEYS)
+            else _last_load(conn, shift_date)
+        ),
         "pulled": {
             "s3_source": ctx["s3_source"],
             "s3_hs_consumption": ctx["s3_hs_consumption"],
@@ -418,6 +464,21 @@ OPTION_LISTS = (
     "offload_testers",  # 0034 - who performed the off-load testing
     "yes_no",           # 0034 - Density Reports updated?
     "banks",            # 0035 - Indian Bank / Yes Bank / IOCL Spana, names only
+    # 0040 - the Daily Sales Entry form's own lists. They live in the same table
+    # because it is the station's option store, not the Trial Balance's: one
+    # table, one API, one "+ New" pattern.
+    "card_types",       # Xtra Power / Visa / Master
+    "card_holders",     # whose card was swiped
+    "customers",        # Sections 5 and 6 - credit given, and old credit repaid
+    # 0041 - Section 6's collection details. Registered here as well as seeded,
+    # because a list that can be read but not added to is a dead end: the station
+    # takes a fourth payment mode one day and there is nowhere to put it.
+    "payment_type",     # Full / Partial - whether the customer still owes
+    "payment_modes",    # Cash / Phone Pay / Credit Card
+    # 0042 - who collected an old credit. Deliberately NOT 'staff': that list
+    # holds pairs ("Gopi & Girish") because a shift is signed off by two people,
+    # and one person collects a credit.
+    "collectors",
 )
 
 
@@ -462,6 +523,13 @@ def get_options(
 
     Declared BEFORE /{shift_date} so "options" is not swallowed by the date route.
     """
+    return _option_lists(conn)
+
+
+def _option_lists(conn: sqlite3.Connection) -> dict[str, list[str]]:
+    """The same lists, for callers that are not the HTTP route - the Excel
+    exports build their Data Validation dropdowns from these, so the workbook's
+    dropdowns and the screen's cannot drift apart."""
     out: dict[str, list[str]] = {k: [] for k in OPTION_LISTS}
     for row in conn.execute(
         "SELECT list_key, value FROM trial_balance_option ORDER BY list_key, sort_order, id"
@@ -516,7 +584,71 @@ def add_option(
     return get_options(principal, conn)
 
 
+@router.post("/options/remove")
+def remove_option(
+    body: OptionCreate,
+    principal: Principal = Depends(require("Sales", "Manager", "Owner")),
+    conn: sqlite3.Connection = Depends(get_db),
+) -> dict[str, list[str]]:
+    """Take a value out of one of the dropdowns (client, 2026-09-26: "-Delete
+    option is needed to delete a selected drop down list").
+
+    A POST, not a DELETE, for one practical reason: TestClient.delete() refuses a
+    JSON body, so a DELETE here could not be covered by the suite the way every
+    other write is.
+
+    Open to the same three roles as adding. A list nobody can tidy fills up with
+    the typos that were added to it, and the maker who made the typo is the one
+    looking at it.
+
+    Removing an OPTION does not touch any RECORD. Every saved entry stores the
+    text that was chosen, not a reference to this table, so yesterday's credit
+    still names the person who took it even after they leave the station. That
+    is the whole reason this is safe to expose.
+    """
+    key = body.list_key.strip()
+    value = " ".join(body.value.split())
+    if key not in OPTION_LISTS:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"Unknown list '{key}' - expected one of {', '.join(OPTION_LISTS)}",
+        )
+    row = conn.execute(
+        "SELECT id FROM trial_balance_option WHERE list_key = ? AND value = ?", (key, value)
+    ).fetchone()
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f'"{value}" is not in that list')
+
+    with transaction(conn):
+        conn.execute("DELETE FROM trial_balance_option WHERE id = ?", (row["id"],))
+        record_write(
+            conn, table="trial_balance_option", record_id=row["id"], action="delete",
+            actor=principal.login_name, old={"list_key": key, "value": value},
+        )
+    return get_options(principal, conn)
+
+
 _XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+
+@router.get("/export-excel-blank")
+def export_blank(
+    _: Principal = Depends(require("Sales", "Manager", "Owner")),
+    conn: sqlite3.Connection = Depends(get_db),
+) -> Response:
+    """The station's own sheet with every input cell empty - a form to fill in.
+
+    Registered ABOVE /{shift_date}/export-excel: a literal path has to win, or
+    "export-excel-blank" is read as a shift_date.
+    """
+    labels = [item.label for item in oil_items.active_items(conn)]
+    return Response(
+        content=build_blank_workbook(labels, _option_lists(conn)),
+        media_type=_XLSX,
+        headers={
+            "Content-Disposition": 'attachment; filename="SVR-TrialBalance-BLANK.xlsx"'
+        },
+    )
 
 
 @router.get("/{shift_date}/export-excel")
@@ -528,7 +660,7 @@ def export_full(
     """The whole day's Trial Balance - all eleven sections - as one .xlsx."""
     view = _view(conn, shift_date)
     view["day_sales"] = _day_sales(conn, shift_date)
-    data = build_full_workbook(view)
+    data = build_full_workbook(view, _option_lists(conn))
     return Response(
         content=data,
         media_type=_XLSX,
@@ -757,9 +889,16 @@ def upsert_trial_balance(
     return _view(conn, shift_date)
 
 
+class PostRequest(BaseModel):
+    """Which lines to post. Empty or omitted means all of the day's unposted."""
+
+    ids: list[int] | None = None
+
+
 @router.post("/{shift_date}/post")
 def post_to_masters(
     shift_date: str,
+    body: PostRequest | None = None,
     principal: Principal = Depends(require("Manager", "Owner")),
     conn: sqlite3.Connection = Depends(get_db),
 ) -> dict:
@@ -775,7 +914,8 @@ def post_to_masters(
     if row is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No Trial Balance for this date yet")
     with transaction(conn):
-        out = posting.post_day(conn, shift_date, principal.login_name)
+        ids = body.ids if body and body.ids else None
+        out = posting.post_day(conn, shift_date, principal.login_name, ids)
     return {"shift_date": shift_date, **out, "lines": posting.open_lines(conn)}
 
 
@@ -935,15 +1075,64 @@ def finalize_trial_balance(
     reported_total = result.get("section7", {}).get("7_3_total")
     ctx_for_finalize = _context(conn, shift_date, row)
     threshold = get_param(conn, "trial_balance_alert_threshold", 100.0, as_of=shift_date)
+    #
+    # The Projected figure is NOT typed any more. It is 7.3, which derive_manual
+    # computes from the day's own entries, so asking the operator for it was
+    # asking the same number to be right twice - and the client asked for the box
+    # to go (2026-09-25). A typed value is still honoured if an older client
+    # sends one, so nothing that already works breaks.
+    #
+    # Recorded, not enforced. The check that REFUSES sign-off is the one on 4.10
+    # Total Difference below - the client's own escalation rule - and their sheet
+    # reads 7.4 as "report to mgmt", not as a gate. Turning a figure that used to
+    # be optional into a new way to be blocked is not what "remove this box" asked
+    # for.
+    # Derived only when 7.1 was actually entered. 7.3 = 7.1 + 7.2, so with 7.1
+    # blank the "projected" figure is just today's profit, and comparing that to
+    # Net Worth is meaningless - it would refuse to close every day whose 7.1 had
+    # not been typed, which is a new way to be blocked and not what "remove this
+    # box" asked for. Blank 7.1, no check: the same outcome the blank box used to
+    # give, now decided by whether the data exists rather than by whether someone
+    # filled in a second copy of it.
+    manual_s7 = (json.loads(row["manual_json"] or "{}").get("section7") or {})
+    derived_projected = None
+    if not is_blank(manual_s7.get("yesterday")):
+        derived_projected = (
+            (_view(conn, shift_date).get("computed") or {}).get("derived") or {}
+        ).get("section7", {}).get("total3")
+    projected = (
+        body.projected_total if body.projected_total is not None else derived_projected
+    )
+    # The escalation reason is the day's Special Note. It used to be a separate
+    # box on the sign-off block, which asked for the same sentence twice -
+    # client, 2026-09-25: "Reason (required only if the difference exceeds +/-50)
+    # - not needed, the Special note covers it". A reason posted explicitly still
+    # wins, so an older client or a script is unaffected.
+    manual_all = json.loads(row["manual_json"] or "{}")
+    note_reason = next(
+        (
+            str(n).strip()
+            for n in (
+                (manual_all.get("section8") or {}).get("special_note"),
+                (manual_all.get("section8") or {}).get("mgmt_note"),
+                (manual_all.get("section4") or {}).get("special_note"),
+                (manual_all.get("section3") or {}).get("special_note"),
+            )
+            if n not in (None, "") and str(n).strip()
+        ),
+        None,
+    )
+    reason = (body.reason or "").strip() or note_reason
     variance = None
-    if body.projected_total is not None and reported_total is not None:
-        variance = round(reported_total - body.projected_total, 4)
-        if abs(variance) > threshold and not (body.reason and body.reason.strip()):
+    if projected is not None and reported_total is not None:
+        variance = round(reported_total - projected, 4)
+        if abs(variance) > threshold and not reason:
             raise HTTPException(
                 status.HTTP_422_UNPROCESSABLE_ENTITY,
                 "Difference - Actual Reported Minus Projected is "
                 f"{variance:+.2f}, beyond the +/-{threshold:.0f} threshold. "
-                "Enter a reason to sign off anyway.",
+                "Write why in a Special Note (Section 4 or Section 8) and save, "
+                "then Close & Sign Off.",
             )
 
     # The day's own source data has to be signed off before the day built on it
@@ -980,15 +1169,12 @@ def finalize_trial_balance(
     cash_diff, cash_line = _cash_book_difference(
         fresh.get("computed") or {}, fresh.get("manual") or {}
     )
-    if (
-        cash_diff is not None
-        and abs(cash_diff) > threshold
-        and not (body.reason and body.reason.strip())
-    ):
+    if cash_diff is not None and abs(cash_diff) > threshold and not reason:
         raise HTTPException(
             status.HTTP_422_UNPROCESSABLE_ENTITY,
             f"{cash_line} is {cash_diff:+.2f}, beyond the +/-{threshold:.0f} "
-            "threshold. Enter a reason to sign off anyway.",
+            "threshold. Write why in a Special Note (Section 4 or Section 8) and "
+            "save, then Close & Sign Off.",
         )
 
     now = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
@@ -1010,12 +1196,12 @@ def finalize_trial_balance(
         conn.execute(
             f"UPDATE {TABLE} SET status = 'finalized', finalized_by = ?, finalized_at = ?, "
             f"last_updated_by = ?, variance_amount = ?, variance_reason = ? WHERE shift_date = ?",
-            (principal.login_name, now, principal.login_name, variance, body.reason, shift_date),
+            (principal.login_name, now, principal.login_name, variance, reason, shift_date),
         )
         record_write(
             conn, table=TABLE, record_id=row["id"], action="update", actor=principal.login_name,
             old={"status": "draft"},
-            new={"status": "finalized", "variance_amount": variance, "reason": body.reason},
+            new={"status": "finalized", "variance_amount": variance, "reason": reason},
         )
 
         # ADR-2 Decision step 3: create tomorrow's draft now, seeded from today's own
@@ -1038,8 +1224,36 @@ def finalize_trial_balance(
             #
             # Seeded only when today actually has a 4.4; a day closed without one
             # leaves tomorrow blank rather than carrying a confident zero.
+            # Seed from the DERIVED figures, not the manual blob.
+            #
+            # 4.4 stopped being typed on 2026-09-24 - it comes from 3.15 - so
+            # `manual["section4"]["reported"]` is empty on every day entered
+            # since, and this seeded nothing at all. SEP15's draft was created
+            # with a blank 4.1 while SEP14 closed on 2,305,795.10, which is
+            # exactly the hand-typed cross-day reference ADR-2 exists to abolish.
+            # Same class of bug as the Section 8 export and the 8.7 rows: a field
+            # became derived and a consumer went on reading where it used to sit.
+            #
+            # 7.1 is deliberately NOT seeded, though the sheet does carry it
+            # (SEP15!D76 = 'SEP14'!D80) and the app can now work it out.
+            #
+            # Seeding it switches the ADR-2 escalation check ON for every day -
+            # the check is skipped while 7.1 is blank, because 7.3 collapses to
+            # today's profit and comparing that to Net Worth is meaningless. Fed
+            # the client's real SEP15 -> SEP16 figures it gives 7.4 = -170,354.42
+            # and refuses sign-off until someone writes a Special Note, every
+            # single day. Their own sheet annotates 7.4 "# Report to mgmt", not
+            # "stop", and the gate they designed is 4.10 Total Difference.
+            #
+            # So this stays a typed field until the client says otherwise. Fixing
+            # 4.1 was repairing a break; carrying 7.1 would be changing how the
+            # day closes, which is not mine to decide.
+            todays = _view(conn, shift_date)
+            derived = (todays.get("computed") or {}).get("derived") or {}
             todays_manual = json.loads(row["manual_json"] or "{}")
-            todays_reported = (todays_manual.get("section4") or {}).get("reported")
+            todays_reported = (derived.get("section4") or {}).get("reported")
+            if todays_reported in (None, ""):
+                todays_reported = (todays_manual.get("section4") or {}).get("reported")
             next_manual = (
                 json.dumps({"section4": {"yesterday": todays_reported}})
                 if todays_reported not in (None, "")

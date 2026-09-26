@@ -525,6 +525,15 @@ input:disabled {
   display: flex;
   flex-direction: column;
 }
+/* A block sub-heading - "8.6 Regular Expenses", "3.14 New Credit / Salary
+   Advance", "Special Note". It had no size of its own, so it inherited the body
+   and printed at roughly twice the height of the section band above it. */
+.tb-block-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--io-blue-dark);
+  margin: 8px 0 3px;
+}
 .tb-notepanel .tb-block-title {
   margin: 0 0 4px;
 }
@@ -863,6 +872,10 @@ input:disabled {
     font-size: 9px;
     line-height: 1.15;
   }
+  .tb-block-title {
+    font-size: 8.5px;
+    margin: 3px 0 1px;
+  }
   th {
     font-size: 7.5px;
     padding: 0 3px;
@@ -931,22 +944,29 @@ input:disabled {
   }
 
   /* 2. Black and white, as asked. The orange section bands and blue rules cost
-        colour toner and add nothing to a form that gets written on. */
-  .sheet,
-  .sheet * {
+        colour toner and add nothing to a form that gets written on.
+
+        NOT for the PDF Export, which is a different job: it is a document sent
+        to management on WhatsApp, read on a phone and never written on, and the
+        client asked for it to "maintain all color codes ... use form colors"
+        (2026-09-25). Guarded with body:not(.print-color) rather than overridden
+        afterwards, because these rules are !important and there is no way to
+        restore an arbitrary original colour once they have flattened it. */
+  body:not(.print-color) .sheet,
+  body:not(.print-color) .sheet * {
     color: #000 !important;
     background: #fff !important;
     box-shadow: none !important;
   }
-  .sheet .section-title,
-  .sheet th {
+  body:not(.print-color) .sheet .section-title,
+  body:not(.print-color) .sheet th {
     border-bottom: 1px solid #000 !important;
     font-weight: 700;
   }
-  .sheet *,
-  .sheet table,
-  .sheet td,
-  .sheet th {
+  body:not(.print-color) .sheet *,
+  body:not(.print-color) .sheet table,
+  body:not(.print-color) .sheet td,
+  body:not(.print-color) .sheet th {
     border-color: #000 !important;
   }
 
@@ -982,8 +1002,8 @@ input:disabled {
 
   /* 3. Row heights. Every write-in cell becomes a ruled box tall enough to hold
         handwriting, sized from the reference rather than guessed. */
-  td input,
-  td select {
+  body:not(.print-color) td input,
+  body:not(.print-color) td select {
     height: 19px !important;       /* 5.0mm - the Oil list, a little over the
                                       reference's 4.6mm now there is room */
     line-height: 19px !important;
@@ -992,8 +1012,8 @@ input:disabled {
     border-radius: 0 !important;
     background: #fff !important;
   }
-  .write-in td input,
-  .write-in td select {
+  body:not(.print-color) .write-in td input,
+  body:not(.print-color) .write-in td select {
     height: 25px !important;       /* 6.6mm - Gas, Expenses, Credits, Signatures */
     line-height: 25px !important;
   }
@@ -1002,7 +1022,7 @@ input:disabled {
   }
   /* A computed total is never written into, so it keeps the compact height and
      gives its millimetres to the rows that are. */
-  td input:disabled {
+  body:not(.print-color) td input:disabled {
     height: 15px !important;
     line-height: 15px !important;
     border: none !important;
@@ -1388,3 +1408,468 @@ details.tb-collapsible[open] > summary {
     margin: 1px 0 0;
   }
 }
+
+/* A figure carried from another day (Section 10's last IOCL delivery). Greyed
+   and italic so it cannot be mistaken for something recorded against today. */
+.tb-carried-cell {
+  font-style: italic;
+  color: var(--io-blue-dark);
+  background: #f4f6fb;
+}
+.tb-carried {
+  font-size: 11px;
+  color: var(--io-blue-dark);
+}
+
+/* Printing in colour. Two jobs want it and the black-and-white rules above are
+   !important, so they are skipped rather than fought: the Trial Balance PDF that
+   goes to management, and a receipt handed to a customer. The DSR form someone
+   writes on is untouched and still prints black and white. */
+@media print {
+  /* A receipt prints the issued card alone - not the entry form above it, the
+     recent-receipts list below it, or its own Print button. */
+  .receipt-print .body-pad > *:not(#issued-card) {
+    display: none !important;
+  }
+  /* A4 portrait, receipt on the TOP HALF so a normal sheet can be cut in two
+     (client, 2026-09-25: "make it A4 Potrait Half Size paper"). The @page rule
+     the sheet already carries is A4 portrait; this sizes the receipt to half of
+     it and rules a cut line across the fold. */
+  .receipt-print #issued-card {
+    display: block !important;
+    width: 128mm;
+    max-width: 128mm;
+  }
+  .receipt-print .rc {
+    max-width: 128mm;
+    min-height: 118mm;        /* half of A4's 297mm, less the page margins */
+    font-size: 11px;
+  }
+  .receipt-print .rc-logo {
+    height: 40px;
+  }
+  /* The fold. Printed as a guide, not as part of the receipt. */
+  .receipt-print #issued-card::after {
+    content: "— — — — — — — — — — — —  cut here  — — — — — — — — — — — —";
+    display: block;
+    margin-top: 6mm;
+    width: 128mm;
+    text-align: center;
+    font-size: 9px;
+    letter-spacing: 0.04em;
+    color: #999;
+  }
+  .receipt-print #issued-card .export-bar {
+    display: none !important;
+  }
+  .receipt-print .summary-box {
+    border: 1px solid var(--io-blue, #0033a0) !important;
+  }
+}
+
+/* ---- Payment Receipt: the document handed to a customer --------------------
+   Client, 2026-09-25: "Logo is very small and look and feel is not good as well
+   ... that should have SVR address on it." It used to borrow the generic
+   summary-box - dashed rules, a 16px logo up in the page header, no address. */
+.rc {
+  max-width: 420px;
+  border: 1px solid var(--io-blue, #0033a0);
+  border-radius: 3px;
+  padding: 0 0 12px;
+  background: #fff;
+  font-size: 12px;
+}
+.rc-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border-bottom: 2px solid var(--io-orange, #f26f21);
+}
+.rc-logo {
+  height: 46px;            /* the header's is 16px - this is the customer's copy */
+  width: auto;
+  flex: 0 0 auto;
+}
+.rc-name {
+  font-weight: 700;
+  font-size: 14px;
+  color: var(--io-blue, #0033a0);
+  line-height: 1.25;
+}
+.rc-addr {
+  font-size: 10.5px;
+  color: #444;
+  line-height: 1.35;
+}
+.rc-title {
+  margin: 10px 14px 0;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-size: 11px;
+  color: var(--io-orange, #f26f21);
+}
+.rc-no {
+  margin: 0 14px 8px;
+  font-size: 16px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.rc-grid {
+  margin: 0 14px 10px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2px 16px;
+}
+.rc-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  border-bottom: 1px solid #eef1f5;
+  padding: 2px 0;
+}
+.rc-k { color: #666; }
+.rc-v { font-weight: 600; text-align: right; }
+.rc-sale {
+  width: calc(100% - 28px);
+  margin: 0 14px;
+  border-collapse: collapse;
+}
+.rc-sale th,
+.rc-sale td {
+  border: 1px solid var(--line, #cdd6e4);
+  padding: 4px 6px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.rc-sale th:first-child,
+.rc-sale td:first-child { text-align: left; }
+.rc-sale th {
+  background: #eef1f5;
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.rc-total {
+  display: flex;
+  justify-content: space-between;
+  margin: 8px 14px 0;
+  padding-top: 6px;
+  border-top: 2px solid var(--io-blue, #0033a0);
+  font-size: 16px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.rc-paid {
+  margin: 4px 14px 0;
+  font-size: 11px;
+  color: #444;
+}
+.rc-foot {
+  margin: 10px 14px 0;
+  padding-top: 6px;
+  border-top: 1px dashed var(--line, #cdd6e4);
+  font-size: 10.5px;
+  color: #666;
+  text-align: center;
+}
+
+/* The browser's own [hidden] rule is `display: none` at the LOWEST precedence,
+   so any class that sets `display` beats it. That has now produced the same bug
+   four times in this app - a permanently visible move bar, an always-open reset
+   panel, a "+ New" box that would not close, and an Owner passphrase field shown
+   to Managers - each fixed with its own one-off selector. This is the rule those
+   were standing in for: if something carries `hidden`, it is hidden.
+
+   Anything that needs to show must remove the attribute, which is what every
+   caller already does. */
+[hidden] {
+  display: none !important;
+}
+
+/* The posting controls: one left-aligned bar sitting over the table they act on.
+   They were in an .export-bar, which is justify-content:flex-end, so the select
+   buttons ended up at the far right edge of a very wide sheet, nowhere near the
+   rows (client, 2026-09-25). */
+.post-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 10px 0 4px;
+}
+/* .add-row-btn carries `margin: 6px 0 0 auto` - it is normally a lone button
+   pushed to the right under its own table. Inside this bar that auto margin
+   shoves every button as far right as it will go, which is exactly the spread
+   the client photographed. */
+.post-bar .add-row-btn,
+.post-bar .export-btn {
+  margin: 0;
+}
+.post-bar label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0;
+}
+/* All of the posting buttons on ONE line (client, 2026-09-25). They wrap by
+   default, which put the three select buttons on a second row. */
+.post-bar-one {
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+.post-bar-one > button {
+  white-space: nowrap;
+  flex: 0 0 auto;
+}
+.post-bar-sep {
+  width: 1px;
+  align-self: stretch;
+  background: var(--line, #cdd6e4);
+  margin: 0 4px;
+}
+
+/* ---- The management snapshot (8.18 Snapshot -> Clipboard) ------------------
+   The picture management receives every day. None of these classes had any CSS,
+   so the block rendered as a plain unstyled table and went out black-on-white -
+   client, 2026-09-25. Styled in the IOCL palette the rest of the app uses
+   (client, same day: "Use IOCL colour codes for snapshot --> Clipboard"), not
+   the green of the old spreadsheet: this is the app's report now, and a picture
+   that arrives in the station's own colours is recognisable as theirs.
+
+   The capture takes the live pixels, so styling it here IS the fix. */
+.snap-wrap {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  background: #fff;
+  padding: 10px;
+}
+.snap {
+  border-collapse: collapse;
+  font-size: 12px;
+  flex: 1 1 auto;
+}
+.snap td {
+  border: 1px solid #c8d4ea;
+  padding: 3px 8px;
+  vertical-align: top;
+  color: var(--io-blue-dark);
+}
+/* The figure column: right-aligned and lined up digit for digit. */
+.snap .snap-val {
+  text-align: right;
+  color: var(--io-blue);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  min-width: 110px;
+}
+.snap .snap-mid {
+  color: #555;
+  font-size: 11px;
+  white-space: nowrap;
+}
+.snap .snap-note {
+  color: var(--io-orange);
+  font-size: 10.5px;
+  font-style: italic;
+}
+/* A section band - IOCL orange, as on every section title in the app. */
+.snap tr.snap-band td {
+  background: var(--io-orange);
+  font-weight: 700;
+  color: #fff;
+  border-color: #d95f14;
+}
+/* A line management is meant to stop at. */
+.snap tr.snap-red td {
+  background: #fdeceb;
+  font-weight: 700;
+  border-color: #f3b7b4;
+}
+.snap tr.snap-red .snap-val {
+  color: var(--io-red);
+}
+.snap-name {
+  color: var(--io-blue);
+  letter-spacing: 0.02em;
+}
+.snap-side {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  flex: 0 0 auto;
+}
+.snap-panel {
+  border-collapse: collapse;
+  font-size: 11.5px;
+}
+.snap-panel td {
+  border: 1px solid #c8d4ea;
+  padding: 3px 8px;
+}
+.snap-panel td:first-child {
+  background: var(--io-blue);
+  font-weight: 700;
+  color: #fff;
+  border-color: #002a86;
+}
+.snap-panel td:last-child {
+  text-align: right;
+  color: var(--io-blue);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  min-width: 96px;
+}
+
+
+/* When this screen's files were last changed. Small and out of the way, but
+   present - a window opened before a restart is otherwise indistinguishable
+   from a fix that did not work, which cost three rounds of testing. */
+.build-stamp {
+  margin-left: auto;
+  font-size: 10px;
+  color: #6b7a99;
+  font-variant-numeric: tabular-nums;
+}
+@media print {
+  .build-stamp { display: none !important; }
+}
+
+/* A dropdown with "+" beside it, on the Daily Sales Entry rows. The select takes
+   the width; the button stays square so a row of them lines up. */
+.list-cell {
+  white-space: nowrap;
+}
+.list-cell select {
+  width: calc(100% - 26px);
+  min-width: 90px;
+}
+.list-cell .list-add {
+  margin: 0 0 0 2px;
+  padding: 2px 6px;
+  vertical-align: middle;
+}
+.list-new {
+  display: inline-flex;
+  gap: 3px;
+  align-items: center;
+  margin-left: 4px;
+}
+.list-new .list-new-input {
+  width: 130px;
+}
+@media print {
+  .list-cell .list-add,
+  .list-new {
+    display: none !important;
+  }
+}
+
+/* ---- Daily Sales Entry sections 4/5/6: fixed columns ----------------------
+   Client, 2026-09-25: the "+ +" buttons under every dropdown "make the form
+   looks very ugly", Signature is not needed on 5 and 6, and the numeric columns
+   should be cut to the widest figure each can hold - In Ltrs 999999.99, Rate
+   999999.999, Amount 999999999.99, Old Credit Given Date 09/MAR/2026.
+
+   table-layout: fixed is what makes the widths stick. Without it the browser
+   hands the money columns whatever the name columns leave over, which is how
+   Amount came to be clipped while Signature sat half empty. */
+.write-in.tight { table-layout: fixed; width: 100%; }
+.write-in.tight .w-name     { width: 158px; }
+/* Holds "I.O.C.L ExtraPower" in full - the longest card type the station uses
+   (client, 2026-09-26). A truncated card type on a swipe row is unreadable at
+   exactly the moment it matters. */
+.write-in.tight .w-cardtype { width: 168px; }
+/* A dropdown, not a typed "1" - so it has to fit HS/MS plus the arrow. */
+.write-in.tight .w-type     { width: 64px; }
+.write-in.tight .w-ltrs     { width: 84px; }
+.write-in.tight .w-rate     { width: 78px; }
+.write-in.tight .w-amt      { width: 110px; }
+.write-in.tight .w-txn      { width: 110px; }
+.write-in.tight .w-date     { width: 150px; }
+.write-in.tight .w-new      { width: 148px; }
+/* Section 6's four collection columns (client, 2026-09-25). Each is a short
+   list, so each is sized to its own longest value rather than to its heading -
+   the headings wrap, the values must not. */
+.write-in.tight .w-pay      { width: 84px; }
+.write-in.tight .w-remit    { width: 100px; }
+.write-in.tight .w-collect  { width: 108px; }
+.write-in.tight .w-mode     { width: 108px; }
+/* Nine columns is more than Sections 4 and 5 carry, so this one table buys the
+   room back from the wide text columns rather than letting the row run off the
+   edge of the sheet and clip its own "+ New". */
+/* Every one of these holds a dropdown whose empty state reads "- select -", so
+   none of them can go below about 92px however short the values are. The room
+   comes out of the three text columns instead. */
+.write-in.tight-oc .w-name    { width: 134px; }
+.write-in.tight-oc .w-amt     { width: 92px; }
+.write-in.tight-oc .w-date    { width: 134px; }
+.write-in.tight-oc .w-pay     { width: 100px; }
+.write-in.tight-oc .w-remit   { width: 98px; }
+.write-in.tight-oc .w-collect { width: 102px; }
+.write-in.tight-oc .w-mode    { width: 102px; }
+/* Carries no data. It exists so a row keeps its shape rather than the browser
+   stretching the money columns across the width of the sheet. */
+.write-in.tight .spacer     { width: auto; }
+.write-in.tight td input,
+.write-in.tight td select { width: 100%; box-sizing: border-box; }
+/* Figures right-aligned so the decimal points line up down the column. */
+.write-in.tight td.num input { text-align: right; font-variant-numeric: tabular-nums; }
+/* One "+ New" per row, in a column of its own at the end of it. .add-row-btn
+   carries `margin: 6px 0 0 auto`, which inside a cell shoves the button down and
+   to the right - exactly the straggling look the client crossed out. */
+.write-in.tight td.rownew {
+  text-align: center;
+  white-space: nowrap;
+  display: flex;
+  gap: 4px;
+  justify-content: center;
+}
+.write-in.tight td.rownew .add-row-btn {
+  display: inline-block;
+  margin: 0;
+  padding: 3px 7px;
+  width: auto;
+  font-size: 11px;
+}
+/* Delete is the destructive one and has to look like it, without shouting on a
+   form where it sits on every single row. */
+.write-in.tight td.rownew .row-del {
+  color: var(--io-red);
+  border-color: var(--io-red);
+}
+.dse-delbox { border-color: var(--io-red); }
+.dse-delbox .del-one {
+  color: var(--io-red);
+  border-color: var(--io-red);
+}
+
+/* "Add new ..." is the last entry in each dropdown, in place of the "+" button
+   that used to hang under it. Choosing it opens this strip on that row. */
+.dse-newrow td { background: #fff; padding: 6px 4px 8px; }
+.dse-newbox {
+  background: #f4f7fd;
+  border: 1px solid var(--io-blue);
+  border-left-width: 4px;
+  border-radius: 4px;
+  padding: 9px 12px;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+  font-size: 12px;
+}
+.dse-newbox input { width: 150px; }
+.dse-newbox .add-row-btn { display: inline-block; margin: 0; }
+
+/* Option B for Old Credit Given Date: the box reads DD/MMM/YYYY, and the
+   calendar is a button beside it rather than Windows' own date control - which
+   can only ever print 03/09/2026 and leaves March and September ambiguous. */
+.dse-datecell { display: flex; gap: 4px; align-items: center; }
+.dse-datecell input { width: 100% !important; }
+.dse-datecell input.bad { border-color: var(--io-red); background: #fdf1f0; }
+.dse-datecell .cal-btn { display: inline-block; margin: 0; padding: 3px 7px; flex: none; }

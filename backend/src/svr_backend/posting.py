@@ -17,6 +17,7 @@ are not part of the next day's accounting.
 
 from __future__ import annotations
 
+import re
 import sqlite3
 from datetime import UTC, datetime
 
@@ -39,6 +40,31 @@ BLOCKS: dict[str, tuple[str, str]] = {
 }
 
 _LABEL_FIELDS = ("category", "type", "label")
+
+# A salary, a bi-weekly or month-end salary run, or a staff advance is an
+# EXPENSE - wherever on the form it was typed (client, 2026-09-25: "Any Salary or
+# Bi-weekly Salary or Month end salary entered in Daily Trial balance as Expense
+# ... should appear in Monthly Expenses. Any kind of expense in trail can be
+# posted to Monthly expenses").
+#
+# It has to be decided from the LABEL, not from the block. Section 3.14 is called
+# "New Credit / Salary Advance" and feeds the credit master, so "Salary Advance
+# Reavindra" picked there posted as a creditor - it showed up under New Credit in
+# the Credit/Remittance Master, owing the station 10,000, and never reached
+# Monthly Expenses at all (client, 2026-09-25, with the screenshot). Migration
+# 0028 had already moved salary advances off the creditors list for exactly this
+# reason; someone re-added one through "+ New Name", and a list is not a rule.
+#
+# None of the station's real creditors - AirTel Hari, Anil/Nani, Sajja Function
+# Hall - carry either word, so this cannot capture a genuine fuel credit.
+_SALARY_WORDS = re.compile(r"salar|advance", re.I)
+
+
+def category_for(block_category: str, label: str) -> str:
+    """The master form a line really belongs to, by what it says it is."""
+    if block_category == "credit" and _SALARY_WORDS.search(label or ""):
+        return "expense"
+    return block_category
 
 
 def _now() -> str:
@@ -79,7 +105,8 @@ def lines_from_manual(manual: dict | None) -> list[dict]:
             if not label or amount == 0:
                 continue
             out.append({
-                "block": block, "index": i, "category": category,
+                "block": block, "index": i,
+                "category": category_for(category, label),
                 "label": label, "amount": amount,
                 "given_on": row.get("given_on"),
             })
@@ -111,10 +138,14 @@ def sync_lines(conn: sqlite3.Connection, shift_date: str, manual: dict | None,
                  line["label"], line["amount"], actor),
             )
         elif existing["status"] == "not_posted":
+            # category travels too: a line typed before this rule existed, or
+            # re-picked as a salary advance, must re-route on the next save
+            # rather than keep the master form it was first filed under.
             conn.execute(
-                f"UPDATE {TABLE} SET label = ?, amount = ?, last_updated_by = ?, "
-                "last_updated_at = ? WHERE id = ?",
-                (line["label"], line["amount"], actor, _now(), existing["id"]),
+                f"UPDATE {TABLE} SET label = ?, amount = ?, category = ?, "
+                "last_updated_by = ?, last_updated_at = ? WHERE id = ?",
+                (line["label"], line["amount"], line["category"], actor, _now(),
+                 existing["id"]),
             )
     for row in conn.execute(
         f"SELECT id, source_block, row_index FROM {TABLE} "
@@ -197,14 +228,32 @@ def post_line(conn: sqlite3.Connection, row: sqlite3.Row, actor: str) -> tuple[s
     return target
 
 
-def post_day(conn: sqlite3.Connection, shift_date: str, actor: str) -> dict:
-    """Post every unposted line for a day, then settle what the remittances pay.
+def post_day(conn: sqlite3.Connection, shift_date: str, actor: str,
+             ids: list[int] | None = None) -> dict:
+    """Post unposted lines for a day, then settle what the remittances pay.
+
+    ``ids`` posts only those lines; omitted, it posts the lot. The operator asked
+    to be able to pick (client, 2026-09-25) - a day can carry a line that is
+    genuinely not ready to leave the Trial Balance yet, and posting was all or
+    nothing.
+
+    ``already`` is returned alongside ``posted`` because the count on its own
+    read as a fault: three lines posted earlier plus one added afterwards
+    reported "Posted 1 line(s)" against four lines on screen, which looks like
+    three went missing.
 
     A remittance marks that creditor's outstanding credits PAID, oldest first,
     which is how a part-payment behaves: it clears what it covers and leaves the
     rest outstanding.
     """
     rows = unposted(conn, shift_date)
+    already = conn.execute(
+        f"SELECT COUNT(*) c FROM {TABLE} WHERE shift_date = ? AND status != 'not_posted'",
+        (shift_date,),
+    ).fetchone()["c"]
+    if ids is not None:
+        wanted = set(ids)
+        rows = [r for r in rows if r["id"] in wanted]
     now = _now()
     for row in rows:
         table, target_id = post_line(conn, row, actor)
@@ -215,7 +264,12 @@ def post_day(conn: sqlite3.Connection, shift_date: str, actor: str) -> dict:
             (table, target_id, actor, now, actor, now, row["id"]),
         )
     settled = _settle_remittances(conn, shift_date, actor, now)
-    return {"posted": len(rows), "settled": settled}
+    return {
+        "posted": len(rows),
+        "already_posted": already,
+        "still_unposted": len(unposted(conn, shift_date)),
+        "settled": settled,
+    }
 
 
 def _settle_remittances(conn: sqlite3.Connection, shift_date: str, actor: str,

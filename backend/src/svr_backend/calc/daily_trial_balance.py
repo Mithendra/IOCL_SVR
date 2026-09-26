@@ -215,9 +215,19 @@ def derive_manual(
         _n(s3.get("onhand")) + _n(s3.get("night")) + _n(s3.get("morning"))
         + _n(s3.get("daytotal")) + _n(s3.get("oldcredit"))
     )
+    # "Phone Pay Settled Amt" is NOT added. It was, and it was a double count:
+    # settled Phone Pay has already landed in the Indian Bank statement by 6:30
+    # AM, which is 3.9 above - the row's own note said so while the formula added
+    # it again. The client removed the row on 2026-09-25 ("this amt already
+    # settled in the Indian bank statement by 6:30 AM so remove it").
+    #
+    # Harmless until now only because the station left the cell blank: it is
+    # blank on both recorded days, and on their own SEP24 tab. A day that had
+    # filled it in would have overstated Total Cash/Book by that amount, and
+    # 4.4, 4.5, 6.1 and Net Worth with it.
     s3_total13 = round4(
         s3_total6 + _n(s3.get("iocl")) + _n(s3.get("indianbank"))
-        + _n(s3.get("yesbank")) + _n(s3.get("ppunsettled")) + _n(s3.get("ppsettled"))
+        + _n(s3.get("yesbank")) + _n(s3.get("ppunsettled"))
     )
     s3_new_credits = _rows_total(s3.get("new_credits"))
     s3_total15 = round4(s3_total13 + s3_new_credits)

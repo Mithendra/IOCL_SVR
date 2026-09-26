@@ -119,7 +119,7 @@ test("Sales sees the Daily Trial Balance nav link (maker) but not the Close & Si
   await expect(page.locator("#save-btn")).toBeVisible();
 });
 
-test("all eleven workbook sections are on the form, not just the computed ones", async ({
+test("every workbook section is on the form, not just the computed ones", async ({
   page,
 }) => {
   await login(page, "mmanager");
@@ -140,7 +140,6 @@ test("all eleven workbook sections are on the form, not just the computed ones",
     "8. Daily Management Reporting",
     "9. Daily Mgr Calculation",
     "10. Load/Unload Details",
-    "11. Old/New Credit Sales Details",
   ]) {
     await expect(page.locator(".section-title, .summary-box h3").filter({ hasText: title }))
       .toHaveCount(1);
@@ -161,7 +160,16 @@ test("all eleven workbook sections are on the form, not just the computed ones",
   await expect(page.locator('[data-derived="section7.profit"]')).toBeVisible();
   await expect(page.locator('[data-derived="section8.f4"]')).toBeVisible();
   await expect(page.locator('[data-manual="section10.hs_new"]')).toBeVisible();
-  await expect(page.locator('[data-manual="section11.new_airtel"]')).toBeVisible();
+  // Section 11 "Old/New Credit Sales Details" is gone, and so is the computed
+  // creditor-balance panel that briefly replaced it (client, 2026-09-25: "you
+  // remove those two lines and then I add via Credit/Remittance master
+  // manually"). A balance is not a transaction: it could never be posted, and a
+  // block that cannot be posted did not belong under a heading reading
+  // "required before Close & Sign Off". The Airtel opening balances are keyed
+  // straight into the Credit/Remittance Master now.
+  await expect(page.locator('[data-manual="section11.new_airtel"]')).toHaveCount(0);
+  await expect(page.locator("#creditor-balances")).toHaveCount(0);
+  await expect(page.locator("#creditor-block")).toHaveCount(0);
   // ...and the totals between them are CALCULATED, not typed - so there is no
   // input for them at all, only a read-only cell. A total you can type over is a
   // total that can silently disagree with its own inputs.
@@ -372,7 +380,7 @@ test("manual sections save into the record's manual block and survive a reload",
 
   await page.fill('[data-manual="section3.onhand"]', "12345.67");
   // 4.4 is derived now; 4.1 is what the operator still types here.
-  await page.fill('[data-manual="section11.new_airtel"]', "500");
+  await page.fill('[data-manual="section10.ms_load"]', "500");
   // Section 10 is a GRID block, not fields/rows - its own binding, and the only
   // section on the form built that way. Client, 2026-09-24: "10. Load/Unload
   // Details - Entered Details are missing."
@@ -395,7 +403,7 @@ test("manual sections save into the record's manual block and survive a reload",
   await expect(page.locator('[data-manual="section3.onhand"]')).toHaveValue("12345.67");
   // 4.4 comes back from 3.15, not from what was typed into it.
   await expect(page.locator('[data-derived="section4.reported"]').first()).toBeVisible();
-  await expect(page.locator('[data-manual="section11.new_airtel"]')).toHaveValue("500.00");
+  await expect(page.locator('[data-manual="section10.ms_load"]')).toHaveValue("500.00");
   await expect(page.locator('[data-manual="section10.hs_afterunload"]')).toHaveValue("4321.00");
   await expect(page.locator('[data-manual="section10.hs_old"]')).toHaveValue("1000.00");
   await expect(page.locator('[data-manual="section10.hs_new"]')).toHaveValue("6000.00");
@@ -775,7 +783,7 @@ test("buttons sit under their own block, not floated to the far right", async ({
   await page.goto(SCREEN);
   await expect(page.locator("#body")).toBeVisible();
 
-  for (const id of ["sec-3", "sec-4", "sec-7", "sec-8", "sec-10", "sec-11"]) {
+  for (const id of ["sec-3", "sec-4", "sec-7", "sec-8", "sec-10"]) {
     await expect(page.locator(`#${id}`)).toHaveAttribute("data-w", /std|half|wide|full/);
   }
 
@@ -922,7 +930,7 @@ test("every section heading bar runs the full width of the form", async ({ page 
   await expect(page.locator("#body")).toBeVisible();
 
   const ref = await page.locator("#finalize-block").boundingBox();
-  for (const id of ["sec-3", "sec-4", "sec-7", "sec-8", "sec-10", "sec-11"]) {
+  for (const id of ["sec-3", "sec-4", "sec-7", "sec-8", "sec-10"]) {
     const bar = await page.locator(`#${id} .section-title`).first().boundingBox();
     expect(Math.abs(bar.width - ref.width)).toBeLessThanOrEqual(2);
   }
@@ -981,6 +989,41 @@ test("Query pulls up a given day and says what it found", async ({ page }) => {
   await expect(page.locator("#hs-c")).toHaveValue("60.00");
 });
 
+// The PDF that goes to management keeps the form's colours; the paper DSR form
+// someone writes on still prints black and white (client, 2026-09-25: "maintain
+// all color codes ... use form colors").
+//
+// Asserted through print-media emulation, which is the exact thing that broke:
+// app.css flattens .sheet and every descendant to black-on-white inside
+// @media print, and the PDF export opts out of that with body.print-color. A
+// pixel check on the output would catch it too, but only in the Electron test -
+// this catches it in the stylesheet, where the mistake is made.
+test("the PDF export keeps the form's colours; the paper form stays black and white", async ({
+  page,
+}) => {
+  await login(page, "mmanager");
+  await page.goto(SCREEN);
+  await expect(page.locator("#body")).toBeVisible();
+  await page.emulateMedia({ media: "print" });
+
+  const bandBg = () =>
+    page.locator(".section-title").first().evaluate(
+      (el) => getComputedStyle(el).backgroundColor
+    );
+
+  // Printing the form: flattened to white, as the station asked for paper.
+  expect(await bandBg()).toBe("rgb(255, 255, 255)");
+
+  // The PDF export: the band keeps its own colour.
+  await page.evaluate(() => document.body.classList.add("pdf-export", "print-color"));
+  const colour = await bandBg();
+  expect(colour).not.toBe("rgb(255, 255, 255)");
+  const [r, g, b] = colour.match(/\d+/g).map(Number);
+  expect(Math.max(r, g, b) - Math.min(r, g, b)).toBeGreaterThan(25); // a hue, not a grey
+
+  await page.emulateMedia({ media: null });
+});
+
 // Client, 2026-09-24: "snapshot whole sheet to clipboard instead save as PDF
 // document to send via what's app." A clipboard PNG of eleven sections is one
 // enormous strip WhatsApp re-compresses into mush, and it cannot be forwarded,
@@ -1036,18 +1079,42 @@ test("posting gates Close & Sign Off, and the list carries days forward", async 
   await closeAndSignOff(page);
   await expect(page.locator("#finalize-status")).toContainText("not posted");
 
-  // Post them, and sign-off goes through.
-  await page.click("#post-btn");
-  await expect(page.locator("#post-status")).toContainText("Posted 2 line(s)");
+  // Post them, and sign-off goes through. Posting is split by destination since
+  // 2026-09-25 - expenses go to Monthly Expenses, credits and remittances to the
+  // Credit / Remittance Master - so this day's expense and credit take a button
+  // each. One button used to take the lot, which meant an operator ready to file
+  // the expenses but not the credits had to file both or neither.
+  await page.click("#post-expenses-btn");
+  await expect(page.locator("#post-status")).toContainText("Expense line(s)");
+  await page.click("#post-credits-btn");
+  await expect(page.locator("#post-status")).toContainText("Credit/Remittance line(s)");
   await expect(mine.filter({ hasText: "Not Posted" })).toHaveCount(0);
   await expect(mine.filter({ hasText: "Posted" })).toHaveCount(2);
   await closeAndSignOff(page);
   await expect(page.locator("#finalize-status")).toContainText(/Closed|Signed/i);
 
-  // The posted expense can be cleared straight away (client: "if they post it to
-  // expenses you can clear off those right away on the same day"); the unpaid
-  // credit cannot, so it carries no tick box at all.
-  await expect(mine.locator(".post-pick")).toHaveCount(1);
+  // Every line carries a tick box now (client, 2026-09-25: "each entry should
+  // have select all or Select one by one option"). What CAN be done to it is
+  // still decided by its status, so the box is on both rows...
+  await expect(mine.locator(".post-pick")).toHaveCount(2);
+  // ...and only the posted expense is clearable (client: "if they post it to
+  // expenses you can clear off those right away on the same day"). The unpaid
+  // credit is exactly what has to keep showing.
+  await expect(mine.locator('.post-pick[data-clearable="1"]')).toHaveCount(1);
+
+  // ...and the row carries its TYPE and where posting sent it, so an operator
+  // does not have to know which master form a line belongs to.
+  await expect(mine.filter({ hasText: "3. Expense" })).toHaveCount(1);
+  await expect(mine.filter({ hasText: "Monthly Expenses" })).toHaveCount(1);
+  await expect(mine.filter({ hasText: "Credit / Remittance Master" })).toHaveCount(1);
+
+  // Ticking only the unpaid credit and pressing Clear Remittances says so,
+  // rather than silently doing nothing - which is what an ignored tick looks
+  // like from the other side of the screen.
+  await mine.locator('.post-pick:not([data-clearable="1"])').first().check();
+  await page.click("#clear-remittances-btn");
+  await expect(page.locator("#post-status")).toHaveClass(/err/);
+  await expect(page.locator("#post-status")).toContainText("can be cleared yet");
 });
 
 

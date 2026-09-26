@@ -54,6 +54,31 @@ async function mount() {
   }
   document.body.prepend(buildSidebar(me.role));
   document.body.classList.add("shell-mode");
+  showBuildStamp();
+}
+
+// Stamp every screen with when its own files were last changed.
+//
+// Three rounds of testing went on changes that were already live: a window
+// opened before a restart looks exactly like a fix that did not work, and there
+// was no way to tell them apart from a screenshot. Now there is.
+async function showBuildStamp() {
+  if (!window.svr || typeof window.svr.buildStamp !== "function") return;
+  let stamp;
+  try {
+    stamp = await window.svr.buildStamp();
+  } catch {
+    return;
+  }
+  if (!stamp) return;
+  const bar = document.querySelector(".last-updated-bar");
+  if (!bar) return;
+  const tag = document.createElement("span");
+  tag.className = "build-stamp";
+  tag.title = "When this screen's files were last changed. If it is older than " +
+    "the change you are looking for, reload the window (Ctrl+R).";
+  tag.textContent = `build ${stamp}`;
+  bar.appendChild(tag);
 }
 
 mount();

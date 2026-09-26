@@ -91,10 +91,15 @@ async function request(method, path, body) {
   return data;
 }
 
-// Multipart upload (Excel/OCR import). Returns parsed JSON.
-async function upload(path, file) {
+// Multipart upload (Excel/OCR import, stock-purchase invoices). Returns parsed
+// JSON. `fields` rides alongside the file for endpoints that take Form() values
+// as well - the invoice date, supplier and amount on a stock purchase.
+async function upload(path, file, fields) {
   const fd = new FormData();
   fd.append("file", file, file.name || "upload");
+  for (const [k, v] of Object.entries(fields || {})) {
+    if (v !== undefined && v !== null && v !== "") fd.append(k, v);
+  }
   const res = await fetch(apiBase + path, { method: "POST", headers: authHeaders(), body: fd });
   const text = await res.text();
   const data = text ? JSON.parse(text) : null;
@@ -138,6 +143,7 @@ export const api = {
   get: (p) => request("GET", p),
   post: (p, b) => request("POST", p, b),
   put: (p, b) => request("PUT", p, b),
+  patch: (p, b) => request("PATCH", p, b),
   del: (p) => request("DELETE", p),
   upload,
   download,

@@ -266,7 +266,16 @@ function gridBlock(sectionKey, block) {
   const note = block.note
     ? `<p class="tb-note-line">${block.note}</p>`
     : "";
-  return `<table class="tb-grid"><tr><th></th>${head}</tr>${body}</table>${note}`;
+  return (
+    `<table class="tb-grid" data-grid="${esc(sectionKey)}"><tr><th></th>${head}</tr>` +
+    `${body}</table>` +
+    (block.carryFrom
+      ? `<div class="tb-actions"><span class="tb-carried" data-carried-note hidden></span>` +
+        `<button type="button" class="add-row-btn" data-new-load hidden>New Load</button>` +
+        `</div>`
+      : "") +
+    note
+  );
 }
 
 function signoffBlock(sectionKey, block) {
@@ -453,6 +462,16 @@ function applyComputed(computed) {
     txt(`${f}-sa`, s.stock_amount);
   }
   txt("s6-total", computed.section6.total);
+  // Section 5 is Section 1's IOCL Current x Buy Rate. With Section 1 blank the
+  // rates show and everything else does not, which reads as a broken section
+  // rather than an unfinished one.
+  const waiting = $("s5-waiting");
+  if (waiting) {
+    const haveLtrs =
+      !is_blank_value(computed.section1.hs.stock_ltrs) ||
+      !is_blank_value(computed.section1.ms.stock_ltrs);
+    waiting.hidden = haveLtrs;
+  }
   txt("s7-2", computed.section7["7_2_stock_value"]);
   txt("s7-3", computed.section7["7_3_total"]);
   if (computed.derived) fillDerived(computed.derived);
@@ -559,6 +578,64 @@ function fillManual(manual) {
   openConditionalBlocks();
 }
 
+// Section 10 between deliveries.
+//
+// IOCL delivers roughly every ten days. On the days in between the block used to
+// be blank, so the last delivery's readings were unreachable without reopening
+// that day (client, 2026-09-25). The last load is shown instead, greyed and
+// labelled with the date it arrived, and "New Load" clears it for a fresh one.
+//
+// Shown, not stored: readManual() skips a carried cell, so only the day the load
+// actually arrived carries the record.
+function fillCarriedLoad(view) {
+  const grid = document.querySelector('[data-grid="section10"]');
+  if (!grid) return;
+  const note = document.querySelector("[data-carried-note]");
+  const btn = document.querySelector("[data-new-load]");
+  const cells = grid.querySelectorAll('[data-manual^="section10."]');
+  const carried = view && view.last_load;
+
+  cells.forEach((el) => {
+    el.dataset.carried = "";
+    el.disabled = currentStatus === "finalized";
+    el.classList.remove("tb-carried-cell");
+  });
+  if (note) note.hidden = true;
+  if (btn) btn.hidden = true;
+  if (!carried) return;
+
+  const values = carried.values || {};
+  cells.forEach((el) => {
+    const field = el.dataset.manual.split(".")[1];
+    el.value = money(values[field]);
+    el.dataset.carried = "1";
+    el.disabled = true;
+    el.classList.add("tb-carried-cell");
+  });
+  if (note) {
+    note.hidden = false;
+    note.textContent =
+      `Showing the load delivered on ${carried.shift_date} — nothing is recorded ` +
+      `against this day unless you press New Load.`;
+  }
+  if (btn && currentStatus !== "finalized") {
+    btn.hidden = false;
+    btn.onclick = () => {
+      cells.forEach((el) => {
+        el.value = "";
+        el.dataset.carried = "";
+        el.disabled = false;
+        el.classList.remove("tb-carried-cell");
+      });
+      note.hidden = true;
+      btn.hidden = true;
+      cells[0].focus();
+    };
+  }
+}
+
+const is_blank_value = (v) => v === null || v === undefined || v === "";
+
 function fillDerived(derived) {
   const dig = (path) =>
     path.split(".").reduce((acc, part) => (acc == null ? acc : acc[part]), derived || {});
@@ -627,6 +704,10 @@ function readManual() {
   const out = {};
   const bucket = (key) => (out[key] = out[key] || {});
   document.querySelectorAll("[data-manual]").forEach((el) => {
+    // A carried figure belongs to the day it was recorded on, not to this one.
+    // Section 10 shows the last IOCL delivery for the ten days after it; saving
+    // that back would put the same delivery on the books once a day.
+    if (el.dataset.carried === "1") return;
     const [sectionKey, fieldKey] = el.dataset.manual.split(".");
     const v = el.value.trim();
     if (v !== "") bucket(sectionKey)[fieldKey] = v;
@@ -1139,6 +1220,24 @@ async function queryDate() {
     : `No Trial Balance saved for ${wanted}. Enter it, then Save.`;
 }
 
+// The station's own sheet with nothing in it, to print and fill in by hand.
+async function exportBlank() {
+  const st = $("save-status");
+  st.className = "status-line";
+  st.textContent = "Building the blank form…";
+  try {
+    const name = await api.download(
+      "/daily-trial-balance/export-excel-blank",
+      "SVR-TrialBalance-BLANK.xlsx"
+    );
+    st.className = "status-line ok";
+    st.textContent = `Exported ${name} — every cell empty, ready to fill in.`;
+  } catch (err) {
+    st.className = "status-line err";
+    st.textContent = `Export failed — ${err.message || err}`;
+  }
+}
+
 async function exportFull() {
   const st = $("save-status");
   st.className = "status-line";
@@ -1184,7 +1283,9 @@ async function exportSheetPdf() {
   // already strip the buttons and the sidebar. This class covers the things
   // that are only noise in a DOCUMENT - the open snapshot panel and the browse
   // results - without touching what the entry form prints.
-  document.body.classList.add("pdf-export");
+  // pdf-export hides the on-screen controls; print-color keeps the form's own
+  // colours, which the paper-form print rules would otherwise flatten.
+  document.body.classList.add("pdf-export", "print-color");
   // app.css pins @page to A4 PORTRAIT for the printed DSR form, and Chromium
   // honours it even when printToPDF is told landscape - the page came out
   // portrait with the sheet cut down the middle. A later @page rule wins, so
@@ -1207,7 +1308,7 @@ async function exportSheetPdf() {
     st.className = "status-line err";
     st.textContent = `PDF failed — ${err.message || err}`;
   } finally {
-    document.body.classList.remove("pdf-export");
+    document.body.classList.remove("pdf-export", "print-color");
     pageRule.remove();
   }
 }
@@ -1233,6 +1334,7 @@ function render(view) {
   // otherwise the two could show different numbers for the same line.
   if (!$("cash-bv").value) $("cash-bv").value = money(i.s54_cash_book_value);
   fillManual(lastManual);
+  fillCarriedLoad(view);
   fillDerived(view.computed.derived);
   stampSection8(); // the heading carries the loaded day's date, so re-stamp here
 
@@ -1298,8 +1400,6 @@ function render(view) {
   $("update-btn").disabled = locked || !onFile;
   if (canFinalize()) {
     $("finalize-btn").disabled = locked;
-    $("projected-total").disabled = locked;
-    $("finalize-reason").disabled = locked;
   }
   $("body").style.display = "block";
 }
@@ -1387,24 +1487,44 @@ function clearable(line) {
   return line.status === "paid" || (line.status === "posted" && line.category === "expense");
 }
 
+
+// How each kind of line is named on screen, and where posting sends it. The
+// client asked for the types to be numbered and told apart (2026-09-25:
+// "Type column like 1.Credit 2.Remittance 3.Expense"), and for the destination
+// to be visible rather than something you have to know.
+const TYPE_LABEL = {
+  credit: "1. Credit",
+  remittance: "2. Remittance",
+  expense: "3. Expense",
+};
+const TYPE_TARGET = {
+  credit: "Credit / Remittance Master",
+  remittance: "Credit / Remittance Master",
+  expense: "Monthly Expenses",
+};
+
 function renderPostings(lines) {
   const body = $("posting-rows");
   if (!body) return;
   body.innerHTML = "";
   if (!lines.length) {
     body.innerHTML =
-      '<tr><td colspan="6" style="color:var(--io-blue-dark)">' +
+      '<tr><td colspan="7" style="color:var(--io-blue-dark)">' +
       "Nothing outstanding — every line has been posted and cleared.</td></tr>";
     return;
   }
   for (const line of lines) {
     const tr = document.createElement("tr");
-    const tick = clearable(line)
-      ? `<input type="checkbox" class="post-pick" value="${line.id}">`
-      : "";
+    const tick =
+      `<input type="checkbox" class="post-pick" value="${line.id}" ` +
+      `data-status="${esc(line.status)}" data-category="${esc(line.category)}" ` +
+      `data-clearable="${clearable(line) ? "1" : ""}">`;
     tr.innerHTML =
       `<td>${tick}</td><td>${esc(line.shift_date)}</td>` +
-      `<td>${esc(line.category)}</td><td>${esc(line.label)}</td>` +
+      `<td>${esc(TYPE_LABEL[line.category] || line.category)}</td>` +
+      `<td style="font-size:11px;color:var(--io-blue-dark)">` +
+      `${esc(TYPE_TARGET[line.category] || "")}</td>` +
+      `<td>${esc(line.label)}</td>` +
       `<td style="text-align:right">${fmt2(line.amount)}</td>` +
       `<td style="color:${STATUS_COLOUR[line.status] || ""};font-weight:600">` +
       `${STATUS_TEXT[line.status] || line.status}</td>`;
@@ -1422,7 +1542,17 @@ async function loadPostings() {
   }
 }
 
-async function postDay() {
+// Posting, split by where the lines are going (client, 2026-09-25: "Post
+// Expenses means expenses goes Monthly Expenses Form, add one button Post
+// Credit/Remittances means Credit/Remittances for Credit/Remittance Master").
+//
+// One button used to take the whole day, which meant an operator who was ready
+// to file the day's expenses but not its credits had to file both or neither.
+//
+// `kinds` is what this button is allowed to touch. Ticked lines of that kind
+// win; with nothing ticked it takes every unposted line of that kind for the
+// day, which is what the single button used to do.
+async function postKinds(kinds, what) {
   const date = val("tb-date");
   const status = $("post-status");
   if (!date) {
@@ -1430,16 +1560,42 @@ async function postDay() {
     status.textContent = "Pick a Shift Date first.";
     return;
   }
+  const mine = (c) => kinds.includes(c.dataset.category);
+  const checked = [...document.querySelectorAll(".post-pick:checked")];
+  const picked = checked
+    .filter((c) => mine(c) && c.dataset.status === "not_posted")
+    .map((c) => Number(c.value));
+  if (checked.length && !picked.length) {
+    status.className = "status-line err";
+    status.textContent = checked.some(mine)
+      ? `Every ticked ${what} line is already posted — nothing to post.`
+      : `Nothing of that kind is ticked. This button posts ${what} only.`;
+    return;
+  }
+  // Nothing ticked: take the day's unposted lines of this kind.
+  const ids = picked.length
+    ? picked
+    : [...document.querySelectorAll('.post-pick[data-status="not_posted"]')]
+        .filter(mine)
+        .map((c) => Number(c.value));
+  if (!ids.length) {
+    status.className = "status-line ok";
+    status.textContent = `Nothing left to post for ${what}.`;
+    return;
+  }
   status.className = "status-line";
   status.textContent = "Posting…";
   try {
-    const out = await api.post(`/daily-trial-balance/${date}/post`, {});
+    const out = await api.post(`/daily-trial-balance/${date}/post`, { ids });
     status.className = "status-line ok";
-    status.textContent =
-      out.posted === 0
-        ? "Nothing left to post for this day."
-        : `Posted ${out.posted} line(s)` +
-          (out.settled ? `, and ${out.settled} credit(s) marked Paid.` : ".");
+    // Say what happened to the WHOLE day, not just to this press - "Posted 1
+    // line(s)" against four rows on screen read as three going missing.
+    const bits = [`Posted ${out.posted} ${what} line(s)`];
+    if (out.already_posted) bits.push(`${out.already_posted} already posted`);
+    if (out.still_unposted) bits.push(`${out.still_unposted} still not posted`);
+    if (out.settled) bits.push(`${out.settled} credit(s) marked Paid`);
+    status.textContent = `${bits.join(" · ")}.`;
+    if (out.still_unposted) status.className = "status-line err";
     renderPostings(out.lines || []);
   } catch (e) {
     status.className = "status-line err";
@@ -1447,24 +1603,37 @@ async function postDay() {
   }
 }
 
-async function clearPosted() {
-  const ids = [...document.querySelectorAll(".post-pick:checked")].map((c) => Number(c.value));
+// Clearing, split the same way. Only a PAID credit or a posted expense can be
+// cleared - an unpaid credit is exactly what has to keep showing.
+async function clearKinds(kinds, what) {
   const status = $("post-status");
+  const checked = [...document.querySelectorAll(".post-pick:checked")];
+  const mine = (c) => kinds.includes(c.dataset.category) && c.dataset.clearable === "1";
+  const ids = (checked.length
+    ? checked
+    : [...document.querySelectorAll(".post-pick")]
+  )
+    .filter(mine)
+    .map((c) => Number(c.value));
   if (!ids.length) {
     status.className = "status-line err";
-    status.textContent = "Tick the settled lines you want to clear.";
+    status.textContent = checked.length
+      ? `None of the ticked lines is a ${what} that can be cleared yet — only a ` +
+        "posted expense, or a credit that has been paid."
+      : `Nothing under ${what} is ready to clear.`;
     return;
   }
   try {
     const out = await api.post("/daily-trial-balance/postings/clear", { ids });
     status.className = "status-line ok";
-    status.textContent = `Cleared ${out.cleared} line(s).`;
+    status.textContent = `Cleared ${out.cleared} ${what} line(s).`;
     renderPostings(out.lines || []);
   } catch (e) {
     status.className = "status-line err";
     status.textContent = e.message || "Could not clear.";
   }
 }
+
 
 // Close & Sign Off is armed by the first click and fires on the second.
 //
@@ -1505,12 +1674,11 @@ async function finalize() {
     return;
   }
   disarmFinalize();
-  const projectedRaw = $("projected-total").value.trim();
-  const reasonRaw = $("finalize-reason").value.trim();
-  const body = {
-    projected_total: projectedRaw ? Number(projectedRaw) : null,
-    reason: reasonRaw || null,
-  };
+  // Neither a projected total nor a reason is sent any more. 7.3 is computed by
+  // the form, and the escalation reason is the day's Special Note - the client
+  // asked for both boxes to go (2026-09-25: "the Special note covers it"). The
+  // backend reads the note off the record it is closing.
+  const body = {};
   try {
     // Save what is on the form FIRST. Close & Sign Off never carried the manual
     // blob, so anything typed since the last Save - a whole Section 10, a whole
@@ -1628,24 +1796,47 @@ async function init() {
   } else {
     $("role-tag").textContent = "Checker — can Close & Sign Off";
     $("finalize-btn").addEventListener("click", finalize);
-    $("post-btn").addEventListener("click", postDay);
+    $("post-credits-btn").addEventListener("click", () =>
+      postKinds(["credit", "remittance"], "Credit/Remittance"));
+    $("post-expenses-btn").addEventListener("click", () =>
+      postKinds(["expense"], "Expense"));
+    $("clear-remittances-btn").addEventListener("click", () =>
+      clearKinds(["credit", "remittance"], "Credit/Remittance"));
+    $("clear-expenses-btn").addEventListener("click", () =>
+      clearKinds(["expense"], "Expense"));
     // Reopen is Owner-only; the server refuses anyone else regardless.
     if (me && me.role === "Owner") {
       $("reopen-btn").addEventListener("click", reopen);
     } else {
       $("reopen-btn").style.display = "none";
     }
-    $("clear-posted-btn").addEventListener("click", clearPosted);
     $("post-check-all").addEventListener("change", (e) => {
       for (const c of document.querySelectorAll(".post-pick")) c.checked = e.target.checked;
+    });
+    $("post-pick-unposted").addEventListener("click", () => {
+      for (const c of document.querySelectorAll(".post-pick")) {
+        c.checked = c.dataset.status === "not_posted";
+      }
+    });
+    $("post-pick-all").addEventListener("click", () => {
+      for (const c of document.querySelectorAll(".post-pick")) c.checked = true;
+    });
+    $("post-pick-none").addEventListener("click", () => {
+      for (const c of document.querySelectorAll(".post-pick")) c.checked = false;
+      $("post-check-all").checked = false;
     });
   }
   // Sales sees the list - an unpaid credit is theirs to chase too - but only a
   // checker posts or clears.
   if (!canFinalize()) {
-    $("post-btn").style.display = "none";
-    $("clear-posted-btn").style.display = "none";
+    for (const id of ["post-credits-btn", "post-expenses-btn",
+                      "clear-remittances-btn", "clear-expenses-btn"]) {
+      $(id).style.display = "none";
+    }
     $("post-check-all").style.display = "none";
+    for (const id of ["post-pick-unposted", "post-pick-all", "post-pick-none"]) {
+      $(id).style.display = "none";
+    }
   }
   loadPostings();
 
@@ -1654,6 +1845,7 @@ async function init() {
   $("save-btn").addEventListener("click", save);
   $("update-btn").addEventListener("click", save);
   $("export-btn").addEventListener("click", exportFull);
+  $("export-blank-btn").addEventListener("click", exportBlank);
   $("q-search-btn").addEventListener("click", searchDates);
   $("query-btn").addEventListener("click", queryDate);
   $("sheet-pdf-btn").addEventListener("click", exportSheetPdf);

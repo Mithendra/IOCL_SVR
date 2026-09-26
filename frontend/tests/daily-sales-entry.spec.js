@@ -762,3 +762,359 @@ test("Print Blank carries yesterday's Current Reading into Last Shift Reading", 
   await expect(page.locator("#dsr-preview .dsr-page")).toContainText("500123.45");
   await expect(page.locator("#dsr-preview .dsr-page")).toContainText("600222.75");
 });
+
+// Client, 2026-09-25: Card Type, Card Holder Name, Creditor and Customer should
+// be dropdowns with a "+ Add", "instead of Manully adding and writing the text".
+//
+// Typed by hand the same customer arrives as "Airtel Hari", "AirTel hari" and
+// "airtel", and the Creditor Balance Summary groups by name - so one customer
+// becomes three, each owing a third.
+test("card and credit names are picked from a list, not typed", async ({ page }) => {
+  await login(page, "gsales");
+  await page.goto(SCREEN);
+  await expect(page.locator("#cc-rows tr").first()).toBeVisible();
+
+  const holder = page.locator("#cc-rows tr").first().locator("select.cc-holder");
+  const cardType = page.locator("#cc-rows tr").first().locator("select.cc-type");
+  const creditor = page.locator("#nc-rows tr").first().locator("select.nc-name");
+  const customer = page.locator("#oc-rows tr").first().locator("select.oc-customer");
+
+  await expect(holder.locator("option")).toContainText(["AirTel Hari", "I.O.C.L", "B.S.N.L"]);
+  await expect(cardType.locator("option")).toContainText(["Xtra Power", "Visa", "Master"]);
+  await expect(creditor.locator("option")).toContainText(["Anil/Nani"]);
+  await expect(customer.locator("option")).toContainText(["Anil/Nani"]);
+
+  // The header says what the column is now: a name, not a terminal id.
+  await expect(page.locator("#cc-rows").locator("xpath=ancestor::table"))
+    .toContainText("Card Holder Name");
+});
+
+test("a new customer is taken on from the row's own + New button", async ({ page }) => {
+  // The "+" beside every dropdown came off on 2026-09-25 ("No more + symbols
+  // ... for sure at the end of each row +New"). The job it did has to survive
+  // the change: a new customer is still taken on at the pump.
+  await login(page, "gsales");
+  await page.goto(SCREEN);
+  await page.click('[data-add="cc"]');          // a second row, to prove both update
+  const rows = page.locator("#cc-rows tr");
+  const first = rows.first();
+
+  // Not a single "+" left inside any of the three tables.
+  for (const body of ["#cc-rows", "#nc-rows", "#oc-rows"]) {
+    await expect(page.locator(`${body} [data-list-add]`)).toHaveCount(0);
+  }
+
+  const HOLDER = `Sri Chaithanya ${Date.now()}`;
+  const CARD = `RuPay ${Date.now()}`;
+  // One button per row, at the end of it - not one under each dropdown.
+  await expect(first.locator("td.rownew .row-new")).toHaveCount(1);
+  await first.locator(".row-new").click();
+  await page.fill(".dse-newbox .nb-a", HOLDER);
+  await page.fill(".dse-newbox .nb-b", CARD);
+  await page.click(".dse-newbox .nb-ok");
+
+  // Both land, on the row that asked for them...
+  await expect(first.locator("select.cc-holder")).toHaveValue(HOLDER);
+  await expect(first.locator("select.cc-type")).toHaveValue(CARD);
+  // ...and are offered on every other row of the same list, not just that one.
+  await expect(rows.last().locator("select.cc-type option")).toContainText([CARD]);
+  await expect(rows.last().locator("select.cc-holder option")).toContainText([HOLDER]);
+  // The strip closes behind itself.
+  await expect(page.locator(".dse-newrow")).toHaveCount(0);
+
+  // And it survives a reload: saved server-side, not just in this page.
+  await page.reload();
+  await expect(page.locator("#cc-rows tr").first().locator("select.cc-type option"))
+    .toContainText([CARD]);
+});
+
+test("Signature is off Sections 5 and 6, and the columns are sized to the money", async ({ page }) => {
+  await login(page, "gsales");
+  await page.goto(SCREEN);
+  await expect(page.locator("#nc-rows .nc-sign")).toHaveCount(0);
+  await expect(page.locator("#oc-rows .oc-sign")).toHaveCount(0);
+  // Amount must hold 999999999.99 without clipping - the reason the column was
+  // widened in the first place.
+  const amount = page.locator("#oc-rows tr").first().locator(".oc-amount");
+  await amount.fill("999999999.99");
+  const fits = await amount.evaluate((el) => el.scrollWidth <= el.clientWidth + 1);
+  expect(fits).toBe(true);
+});
+
+test("Type is HS or MS from a dropdown, and an old 1/2 entry still reads back", async ({ page }) => {
+  // Client, 2026-09-26: "Type instead of 1 & 2 replace with HS or MS ... the
+  // idea is less keyed-in values whenever and whereever possible".
+  await login(page, "gsales");
+  await page.goto(SCREEN);
+  for (const sel of ["#cc-rows tr >> nth=0 >> select.cc-fuel", "#nc-rows tr >> nth=0 >> select.nc-type"]) {
+    await expect(page.locator(sel)).toHaveCount(1);
+    await expect(page.locator(sel).locator("option")).toContainText(["HS", "MS"]);
+  }
+  // Choosing HS still pulls the day's own Diesel rate onto the row. #hs-rate is
+  // locked from Rate Master, so read it rather than typing over it.
+  const hsRate = await page.locator("#hs-rate").inputValue();
+  expect(hsRate).not.toBe("");
+  await page.locator("#nc-rows tr").first().locator("select.nc-type").selectOption("HS");
+  await expect(page.locator("#nc-rows tr").first().locator(".nc-rate")).toHaveValue(hsRate);
+});
+
+test("no format captions are printed under any heading", async ({ page }) => {
+  // Client, 2026-09-26: "Remove the sub-headings like format spec across all
+  // fields in this form which is not needed and never requested for it".
+  await login(page, "gsales");
+  await page.goto(SCREEN);
+  await expect(page.locator(".maxhint")).toHaveCount(0);
+  for (const text of ["999999.99", "999999.999", "999999999.99", "1 / 2"]) {
+    await expect(page.locator(".sheet")).not.toContainText(text);
+  }
+});
+
+test("Section 5 Amount computes itself but can be overridden", async ({ page }) => {
+  // Client, 2026-09-26: "Amount col is greyed out Auto Cal is fine also should
+  // be editable".
+  await login(page, "gsales");
+  await page.goto(SCREEN);
+  const row = page.locator("#nc-rows tr").first();
+  const amount = row.locator(".nc-amount");
+  await expect(amount).toBeEnabled();
+
+  await row.locator(".nc-ltrs").fill("10");
+  await row.locator(".nc-rate").fill("105.36");
+  await expect(amount).toHaveValue("1053.60");
+
+  // A typed figure is not recomputed away on the next keystroke elsewhere.
+  await amount.fill("1000");
+  await row.locator(".nc-ltrs").fill("11");
+  await expect(amount).toHaveValue("1000");
+  // Clearing it hands the row back to the calculation.
+  await amount.fill("");
+  await row.locator(".nc-ltrs").fill("12");
+  await expect(amount).toHaveValue("1264.32");
+});
+
+test("a value can be removed from a dropdown, and it goes everywhere", async ({ page }) => {
+  // Client, 2026-09-26: "In addition to +New also -Delete option is needed".
+  await login(page, "gsales");
+  await page.goto(SCREEN);
+  const first = page.locator("#cc-rows tr").first();
+
+  const CARD = `Scratch ${Date.now()}`;
+  await first.locator(".row-new").click();
+  await page.fill(".dse-newbox .nb-b", CARD);
+  await page.click(".dse-newbox .nb-ok");
+  await expect(first.locator("select.cc-type")).toHaveValue(CARD);
+
+  // Delete names what it is about to remove rather than guessing - two presses,
+  // which is also the confirmation Electron cannot show as a dialog.
+  await first.locator(".row-del").click();
+  const strip = page.locator(".dse-delbox");
+  await expect(strip).toContainText(CARD);
+  await strip.locator(".del-one", { hasText: CARD }).click();
+
+  await expect(page.locator(".dse-delbox")).toHaveCount(0);
+  await expect(first.locator("select.cc-type option")).not.toContainText([CARD]);
+  // Gone for good, not just in this page.
+  await page.reload();
+  await expect(page.locator("#cc-rows tr").first().locator("select.cc-type option"))
+    .not.toContainText([CARD]);
+});
+
+test("Delete works on a row where several dropdowns are selected", async ({ page }) => {
+  // Client, 2026-09-26: "Drop down values are not getting deleted when two cols
+  // are selected". The strip indexed back into the live row, which had already
+  // been re-rendered by the time the button was pressed.
+  await login(page, "gsales");
+  await page.goto(SCREEN);
+  const row = page.locator("#cc-rows tr").first();
+
+  const HOLDER = `Holder ${Date.now()}`;
+  const CARD = `Card ${Date.now()}`;
+  await row.locator(".row-new").click();
+  await page.fill(".dse-newbox .nb-a", HOLDER);
+  await page.fill(".dse-newbox .nb-b", CARD);
+  await page.click(".dse-newbox .nb-ok");
+  // BOTH selected on the row - this is the case that failed.
+  await expect(row.locator("select.cc-holder")).toHaveValue(HOLDER);
+  await expect(row.locator("select.cc-type")).toHaveValue(CARD);
+
+  await row.locator(".row-del").click();
+  await expect(page.locator(".dse-delbox .del-one")).toHaveCount(2);
+  await page.locator(".dse-delbox .del-one", { hasText: CARD }).click();
+  await expect(page.locator(".dse-delbox")).toHaveCount(0);
+  await expect(row.locator("select.cc-type option")).not.toContainText([CARD]);
+  // The other one is untouched - only the value that was named goes.
+  await expect(row.locator("select.cc-holder option")).toContainText([HOLDER]);
+});
+
+test("+ New still adds the new value when the other box is already on the list", async ({
+  page,
+}) => {
+  // Client, 2026-09-26: "Not able to add new Values not working". Typing a known
+  // customer beside a brand new card type aborted on the customer's 409 and
+  // never reached the card type - which is the commonest case there is.
+  await login(page, "gsales");
+  await page.goto(SCREEN);
+  const row = page.locator("#cc-rows tr").first();
+  const EXISTING = await row.locator("select.cc-holder option").nth(1).textContent();
+  const CARD = `Fresh ${Date.now()}`;
+
+  await row.locator(".row-new").click();
+  await page.fill(".dse-newbox .nb-a", EXISTING.trim());
+  await page.fill(".dse-newbox .nb-b", CARD);
+  await page.click(".dse-newbox .nb-ok");
+
+  await expect(page.locator(".dse-newbox")).toHaveCount(0);
+  await expect(row.locator("select.cc-holder")).toHaveValue(EXISTING.trim());
+  await expect(row.locator("select.cc-type")).toHaveValue(CARD);
+});
+
+test("+ New and - Delete work in Sections 5 and 6 too", async ({ page }) => {
+  // Client, 2026-09-26: "This is happening across all sections 4,5 and 6 cross
+  // check it".
+  await login(page, "gsales");
+  await page.goto(SCREEN);
+  for (const [body, select] of [["#nc-rows", "select.nc-name"], ["#oc-rows", "select.oc-customer"]]) {
+    const row = page.locator(`${body} tr`).first();
+    const NAME = `Person ${body} ${Date.now()}`;
+    await row.locator(".row-new").click();
+    await page.fill(".dse-newbox .nb-a", NAME);
+    await page.click(".dse-newbox .nb-ok");
+    await expect(row.locator(select)).toHaveValue(NAME);
+
+    await row.locator(".row-del").click();
+    await page.locator(".dse-delbox .del-one", { hasText: NAME }).click();
+    await expect(page.locator(".dse-delbox")).toHaveCount(0);
+    await expect(row.locator(`${select} option`)).not.toContainText([NAME]);
+  }
+});
+
+test("Section 4 Amount computes from Ltrs x Rate, and can still be overridden", async ({
+  page,
+}) => {
+  // Client, 2026-09-26: "When entered Type, lts, Amt Auto Calc is not working".
+  // Section 4 collected litres and a rate from 2026-09-24 and then never used
+  // them - the Amount was only ever whatever was typed into it.
+  await login(page, "gsales");
+  await page.goto(SCREEN);
+  const row = page.locator("#cc-rows tr").first();
+  await row.locator("select.cc-fuel").selectOption("HS");
+  await row.locator(".cc-ltrs").fill("10");
+  // The rate arrives with the prefill, which is a round trip - wait for it
+  // rather than reading whatever happens to be there.
+  await expect(row.locator(".cc-rate")).not.toHaveValue("");
+  const rate = await row.locator(".cc-rate").inputValue();
+  await expect(row.locator(".cc-amount")).toHaveValue(
+    (10 * Number(rate)).toFixed(2));
+  await expect(page.locator("#cc-total")).toHaveValue((10 * Number(rate)).toFixed(2));
+
+  await row.locator(".cc-amount").fill("999");
+  await row.locator(".cc-ltrs").fill("11");
+  await expect(row.locator(".cc-amount")).toHaveValue("999");
+});
+
+test("Amount fills in even while the operator is sitting in the box", async ({ page }) => {
+  // From the client's own screenshot, 2026-09-26: Type MS, Ltrs 1, Rate 105.36,
+  // Amount empty with the cursor in it. Clicking into Amount to watch for the
+  // figure was the very thing stopping it arriving.
+  await login(page, "gsales");
+  await page.goto(SCREEN);
+  const row = page.locator("#cc-rows tr").first();
+  await expect(page.locator("#hs-rate")).not.toHaveValue("");
+
+  await row.locator("select.cc-fuel").selectOption("HS");
+  await row.locator(".cc-amount").click();          // cursor parked in Amount
+  await row.locator(".cc-ltrs").fill("10");
+  await row.locator(".cc-amount").click();          // and back into it again
+  const hsRate = await page.locator("#hs-rate").inputValue();
+  await expect(row.locator(".cc-amount")).toHaveValue((10 * Number(hsRate)).toFixed(2));
+});
+
+test("changing Type from HS to MS moves the Rate with it", async ({ page }) => {
+  // The screenshot showed Type MS sitting beside 105.36, which is the Diesel
+  // rate - so the switch has to carry the rate across, not leave the old one.
+  await login(page, "gsales");
+  await page.goto(SCREEN);
+  await expect(page.locator("#ms-rate")).not.toHaveValue("");
+  const hsRate = await page.locator("#hs-rate").inputValue();
+  const msRate = await page.locator("#ms-rate").inputValue();
+  expect(hsRate).not.toBe(msRate);
+
+  for (const [body, typeSel, rateSel] of [
+    ["#cc-rows", "select.cc-fuel", ".cc-rate"],
+    ["#nc-rows", "select.nc-type", ".nc-rate"],
+  ]) {
+    const row = page.locator(`${body} tr`).first();
+    await row.locator(typeSel).selectOption("HS");
+    await expect(row.locator(rateSel)).toHaveValue(hsRate);
+    await row.locator(typeSel).selectOption("MS");
+    await expect(row.locator(rateSel)).toHaveValue(msRate);
+  }
+});
+
+test("- Delete removes a value in Sections 4, 5 and 6 alike", async ({ page }) => {
+  // The client asked for this to be confirmed section by section rather than
+  // taken on trust, 2026-09-26.
+  await login(page, "gsales");
+  await page.goto(SCREEN);
+  const cases = [
+    ["#cc-rows", "select.cc-holder"],
+    ["#nc-rows", "select.nc-name"],
+    ["#oc-rows", "select.oc-customer"],
+  ];
+  const used = [];
+  for (const [body, select] of cases) {
+    const row = page.locator(`${body} tr`).first();
+    const NAME = `Del ${body.slice(1, 3)} ${Date.now()}`;
+    used.push([select, NAME]);
+    await row.locator(".row-new").click();
+    await page.fill(".dse-newbox .nb-a", NAME);
+    await page.click(".dse-newbox .nb-ok");
+    await expect(row.locator(select)).toHaveValue(NAME);
+
+    await row.locator(".row-del").click();
+    await page.locator(".dse-delbox .del-one", { hasText: NAME }).click();
+    await expect(page.locator(".dse-delbox")).toHaveCount(0);
+    await expect(row.locator(`${select} option`)).not.toContainText([NAME]);
+  }
+  // and it stuck - not just hidden in this page. Checked by exact name: a
+  // prefix would also match anything a previously failed run left behind, which
+  // is how this assertion goes green or red for the wrong reason.
+  await page.reload();
+  await expect(page.locator("#cc-rows select.cc-holder option").first()).toBeAttached();
+  for (const [select, name] of used) {
+    await expect(page.locator(`${select} option`, { hasText: name })).toHaveCount(0);
+  }
+});
+
+test("Collected by lists people, never the two-name pairings", async ({ page }) => {
+  // Client, 2026-09-26: "No Combinations names". The pairings stay in the
+  // 'staff' list, which the Trial Balance's 8.16 sign-off still needs.
+  await login(page, "gsales");
+  await page.goto(SCREEN);
+  const collector = page.locator("#oc-rows tr").first().locator("select.oc-collector");
+  await expect(collector.locator("option"))
+    .toContainText(["Sriharsha", "Girish", "Ravindra", "Ashok", "Vijay"]);
+  for (const pair of ["Gopi & Girish", "Girish/Sriharsha"]) {
+    await expect(collector.locator("option")).not.toContainText([pair]);
+  }
+});
+
+test("Old Credit Given Date reads back as 09/MAR/2026, whatever is typed", async ({ page }) => {
+  // Client, 2026-09-25. Windows' own date box can only ever print 03/09/2026,
+  // which is March or September depending on who reads it.
+  await login(page, "gsales");
+  await page.goto(SCREEN);
+  const given = page.locator("#oc-rows tr").first().locator(".oc-given");
+
+  for (const typed of ["9/3/26", "09-03-2026", "9 mar 26", "09/MAR/2026"]) {
+    await given.fill(typed);
+    await given.blur();
+    await expect(given).toHaveValue("09/MAR/2026");
+  }
+
+  // A date nobody can read is flagged, never guessed at.
+  await given.fill("31/2/26");
+  await given.blur();
+  await expect(given).toHaveValue("31/2/26");
+  await expect(given).toHaveClass(/bad/);
+});

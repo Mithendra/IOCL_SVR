@@ -20,6 +20,7 @@ from svr_backend import oil_items
 from svr_backend.calc.amounts import is_blank
 from svr_backend.core.audit import record_write
 from svr_backend.core.db import transaction
+from svr_backend.rates import latest_effective_rates
 
 
 def _sold_today(conn: sqlite3.Connection, shift_date: str) -> dict[str, float]:
@@ -52,6 +53,13 @@ def _received_today(conn: sqlite3.Connection, on_date: str) -> dict[str, float]:
 def stock_levels(conn: sqlite3.Connection, as_of: str) -> list[dict]:
     sold = _sold_today(conn, as_of)
     received = _received_today(conn, as_of)
+    # Buy and Sell Rate come from rate_master, resolved for THIS date - never a
+    # column on inventory_item (client, 2026-09-25: "add two columns like Buy
+    # Rate & Sell Rate"). rate_master is append-only by effective_date and is
+    # what Daily Sales Entry and the Trial Balance already read, so a second
+    # copy here would be a second thing to keep in step - the exact shape of
+    # every figure that has gone wrong on this job (4.4, 8.7, 4.1).
+    rates = latest_effective_rates(conn, as_of)
     out = []
     for item in conn.execute("SELECT * FROM inventory_item ORDER BY item_key"):
         key = item["item_key"]
@@ -69,6 +77,17 @@ def stock_levels(conn: sqlite3.Connection, as_of: str) -> list[dict]:
                 "closing_stock": closing,
                 "reorder_level": item["reorder_level"],
                 "status": "low" if closing <= item["reorder_level"] else "ok",
+                # latest_effective_rates() hands back sqlite3.Row, which has no
+                # .get() - index it, and only when the item has a rate at all.
+                "buy_rate": rates[key]["buy_rate"] if key in rates else None,
+                "sell_rate": rates[key]["sell_rate"] if key in rates else None,
+                # Who last touched this row, and when. Client, 2026-09-25:
+                # "Every Row should have updated by and updated On". The columns
+                # were already on the table and written on every save - they had
+                # simply never been shown, so the audit trail existed and nobody
+                # could see it.
+                "last_updated_by": item["last_updated_by"],
+                "last_updated_at": item["last_updated_at"],
             }
         )
     return out

@@ -170,9 +170,15 @@ def test_workflow_2_daily_summary_transfers_into_trial_balance_automatically(
 
 def test_workflow_3_inventory_tracking_accepts_real_data_from_sep_10(client, auth_headers):
     hm = auth_headers("Manager")
+    # Every edit on the Inventory Master carries the Owner passphrase since
+    # 2026-09-25 - a Manager may make the change, but not without it.
+    secret = "readiness-2026"
+    assert client.post("/owner-reset/secret", json={"new_passphrase": secret},
+                       headers=auth_headers("Owner")).status_code in (200, 400)
     r = client.post(
         "/inventory/restock",
-        json={"item_key": "oil1", "quantity": 10, "restock_date": "2026-09-10"},
+        json={"item_key": "oil1", "quantity": 10, "restock_date": "2026-09-10",
+              "passphrase": secret},
         headers=hm,
     )
     assert r.status_code == 201, r.text

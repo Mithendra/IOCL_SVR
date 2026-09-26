@@ -104,6 +104,10 @@ class OilRow:
 class NewCreditRow:
     ltrs: Number = None
     rate: Number = None
+    # Client, 2026-09-26: "Amount col is greyed out Auto Cal is fine also should
+    # be editable". Blank means compute it; a figure means the operator has
+    # overridden it and that figure is what the day is worth.
+    amount: Number = None
 
 
 @dataclass
@@ -113,8 +117,13 @@ class DailySalesEntryInput:
     oils: list[OilRow] = field(default_factory=list)
     # Section 3 - free-text expressions allowed per row (parse_amt handles them).
     expenses: list[Number] = field(default_factory=list)
-    # Section 4 - one Amount per swipe row.
+    # Section 4 - one Amount per swipe row, and the litres/rate behind it. A
+    # swipe is fuel sold at the pump price (client, 2026-09-24), so the Amount is
+    # ltrs x rate unless the operator types over it - the same rule as Section 5.
+    # Until 2026-09-26 the litres and rate were collected on screen and then
+    # ignored here, so Amount stayed blank however much was keyed in.
     credit_card_amounts: list[Number] = field(default_factory=list)
+    credit_card_rows: list[NewCreditRow] = field(default_factory=list)
     # Section 5 - Amount computed per row as ltrs * rate.
     new_credits: list[NewCreditRow] = field(default_factory=list)
     # Section 6 - not part of today's total; summed for reference only.
@@ -144,8 +153,13 @@ class DailySalesEntryInput:
             oils=oils,
             expenses=list(payload.get("expenses") or []),
             credit_card_amounts=list(payload.get("credit_card_amounts") or []),
-            new_credits=[
+            credit_card_rows=[
                 NewCreditRow(ltrs=r.get("ltrs"), rate=r.get("rate"))
+                for r in (payload.get("credit_card_rows") or [])
+            ],
+            new_credits=[
+                NewCreditRow(ltrs=r.get("ltrs"), rate=r.get("rate"),
+                             amount=r.get("amount"))
                 for r in (payload.get("new_credits") or [])
             ],
             old_credit_amounts=list(payload.get("old_credit_amounts") or []),
@@ -184,6 +198,7 @@ class DailySalesEntryResult:
     gas_oil_total: float = 0.0
 
     expenses_total: float = 0.0
+    credit_card_amounts: list[float] = field(default_factory=list)
     credit_cards_total: float = 0.0
     new_credit_amounts: list[float] = field(default_factory=list)
     new_credits_total: float = 0.0
@@ -213,6 +228,7 @@ class DailySalesEntryResult:
             "oil_total": self.oil_total,
             "gas_oil_total": self.gas_oil_total,
             "expenses_total": self.expenses_total,
+            "credit_card_amounts": self.credit_card_amounts,
             "credit_cards_total": self.credit_cards_total,
             "new_credit_amounts": self.new_credit_amounts,
             "new_credits_total": self.new_credits_total,
@@ -279,14 +295,34 @@ def compute(data: DailySalesEntryInput) -> DailySalesEntryResult:
     expenses_total = sum(trunc2(parse_amt(x)) for x in data.expenses)
     result.expenses_total = trunc2(expenses_total)
 
-    # 4. Credit Cards Swiping(s)
-    credit_cards_total = sum(trunc2(parse_amt(x)) for x in data.credit_card_amounts)
+    # 4. Credit Cards Swiping(s) - Amount = In Ltrs * Rate per row, overridable.
+    # The two lists are index-aligned: credit_card_amounts is what was typed,
+    # credit_card_rows carries the litres and rate beside it. A row with neither
+    # contributes nothing rather than a zero, so a blank row cannot pull the
+    # total down.
+    credit_cards_total = 0.0
+    rows4 = data.credit_card_rows
+    for i, typed in enumerate(data.credit_card_amounts):
+        row = rows4[i] if i < len(rows4) else None
+        if not is_blank(typed):
+            amt = trunc2(parse_amt(typed))
+        elif row is not None and not is_blank(row.ltrs) and not is_blank(row.rate):
+            amt = trunc2(parse_amt(row.ltrs) * parse_amt(row.rate))
+        else:
+            amt = 0.0
+        result.credit_card_amounts.append(amt)
+        credit_cards_total += amt
     result.credit_cards_total = trunc2(credit_cards_total)
 
     # 5. Today New Credit(s) - Amount = In Ltrs * Rate per row
     new_credits_total = 0.0
     for nc in data.new_credits:
-        amt = trunc2(parse_amt(nc.ltrs) * parse_amt(nc.rate))
+        # A typed Amount wins over litres x rate. Rounding a part-payment, or a
+        # credit agreed at a figure rather than at the pump price, is a real case
+        # the sheet allows for; recomputing over the top of it would quietly
+        # change what the customer owes.
+        amt = (trunc2(parse_amt(nc.amount)) if not is_blank(nc.amount)
+               else trunc2(parse_amt(nc.ltrs) * parse_amt(nc.rate)))
         result.new_credit_amounts.append(amt)
         new_credits_total += amt
     result.new_credits_total = trunc2(new_credits_total)

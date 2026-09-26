@@ -85,10 +85,16 @@ test("the Trial Balance renders to an A4 landscape PDF, signed in", async () => 
   await expect(window.locator("#status-tag")).toBeVisible();
 
   const name = `SVR-TrialBalance-e2e-${Date.now()}`;
-  // Exactly what the button does, including the injected @page rule that is
-  // what actually turns the page (see saveSheetPdf in main.js).
+  // Exactly what the button does - MIRROR exportSheetPdf() in the Trial Balance
+  // screen, including both body classes and the injected @page rule.
+  //
+  // "pdf-export" hides the on-screen controls; "print-color" is what keeps the
+  // form's colours, because the paper-form print rules flatten everything to
+  // black and white. This test carried only the first for a while and so
+  // produced a black-and-white PDF while the real button produced a colour one -
+  // it was testing a path the app does not take.
   const out = await window.evaluate((fileName) => {
-    document.body.classList.add("pdf-export");
+    document.body.classList.add("pdf-export", "print-color");
     const rule = document.createElement("style");
     rule.textContent = "@page { size: A4 landscape; margin: 8mm; }";
     document.head.appendChild(rule);

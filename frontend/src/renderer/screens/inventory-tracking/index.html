@@ -33,7 +33,9 @@
         <table>
           <tr>
             <th>Item</th><th>Unit</th><th>Opening (editable)</th><th>Received (Today)</th>
-            <th>Sold (Today)</th><th>Closing</th><th>Reorder Level</th><th>Status</th>
+            <th>Sold (Today)</th><th>Closing</th><th>Reorder Level</th>
+            <th>Buy Rate</th><th>Sell Rate</th><th>Status</th>
+            <th>Updated By</th><th>Updated On</th>
           </tr>
           <tbody id="stock-rows"></tbody>
         </table>
@@ -43,6 +45,14 @@
           set the initial count or correct a miscount. Entering <b>0</b> is allowed and sets the
           item to zero. Use <b>Restock Entry</b> below instead when goods actually arrive &mdash;
           that <b>adds</b> to stock and keeps a dated receipt trail.
+        </p>
+        <p style="font-size:12px;color:var(--io-blue-dark);margin:6px 0 0">
+          Every edit on this form &mdash; stock, rates, restock, the oil catalogue, an uploaded
+          invoice &mdash; needs the <b>Owner passphrase</b>. A Manager may make the change; the
+          password is the authority, and <b>Updated By</b> records who actually made it.
+          <b>Buy Rate</b> and <b>Sell Rate</b> are gated the same way as Opening. They are stored in <b>Rate Master</b>, dated from today &mdash; so a past
+          day keeps the rate that was in force when it happened, and Daily Sales Entry and the
+          Trial Balance read the same figure you set here.
         </p>
         <p style="font-size:12px;color:var(--io-blue-dark);margin:6px 0 0">
           Closing Stock = Opening + Received &minus; Sold. Sold (Today) is a live preview from that
@@ -57,13 +67,56 @@
           <button type="button" class="export-btn" id="save-inv-btn" disabled>Save</button>
           <button type="button" class="export-btn secondary" id="undo-inv-btn" disabled>Undo changes</button>
         </div>
+        <!-- Owner only, behind the Owner passphrase (client, 2026-09-25). A
+             BUTTON that asks, as requested - but the asking is inline, because
+             Electron never shows window.prompt() and a prompt here would make
+             Unlock look like it did nothing. Same secret as the Owner reading
+             reset. -->
+        <div class="post-bar" id="inv-secret-row" hidden>
+          <button type="button" class="export-btn secondary" id="inv-unlock-btn">
+            Unlock stock editing
+          </button>
+          <span id="inv-secret-ask" hidden>
+            <label for="inv-secret" style="font-size:11px">Owner passphrase</label>
+            <input type="password" id="inv-secret" autocomplete="off"
+                   placeholder="passphrase" style="width:180px" />
+            <button type="button" class="add-row-btn" id="inv-unlock-ok">Unlock</button>
+            <button type="button" class="add-row-btn" id="inv-unlock-cancel">Cancel</button>
+          </span>
+          <span id="inv-unlock-state" style="font-size:11px;color:var(--io-blue-dark)"></span>
+        </div>
+        <p id="inv-lock-note" style="font-size:11px;color:var(--io-blue-dark);margin:0 0 6px"></p>
+
+        <!-- Client, 2026-09-25: "this form should have a capability to upload the
+             Stock Purchase document ... so that we can see what we bought to keep
+             track forever." -->
+        <div class="section-title">Stock Purchase documents</div>
+        <div class="post-bar">
+          <label style="font-size:11px">Invoice date <input type="date" id="sp-date" /></label>
+          <label style="font-size:11px">Item
+            <select id="sp-item"><option value="">— any / mixed —</option></select>
+          </label>
+          <label style="font-size:11px">Supplier <input id="sp-supplier" style="width:150px" /></label>
+          <label style="font-size:11px">Amount <input id="sp-amount" style="width:100px" /></label>
+          <label style="font-size:11px">Note <input id="sp-note" style="width:170px" /></label>
+        </div>
+        <div class="post-bar">
+          <input type="file" id="sp-file" accept=".pdf,.jpg,.jpeg,.png,.heic,.webp,.tif,.tiff" />
+          <button type="button" class="export-btn" id="sp-upload-btn">Upload Stock Purchase</button>
+        </div>
+        <p id="sp-status" class="status-line"></p>
+        <table class="tb-rows" id="sp-table">
+          <tr><th>Invoice date</th><th>Item</th><th>Supplier</th><th>Amount</th>
+              <th>Document</th><th>Uploaded by</th></tr>
+          <tbody id="sp-rows"></tbody>
+        </table>
 
         <!-- Item 2: the product catalogue lives here now, not on the daily form.
              Adding or retiring an item is a decision the Owner makes now and
              then; Daily Sales Entry is filled in every shift. -->
         <div class="section-title">2. Oil Items (add or retire a product)</div>
         <table>
-          <tr><th>Item</th><th>Action</th></tr>
+          <tr><th>Item</th><th>On the daily form?</th><th>Action</th></tr>
           <tbody id="oil-item-rows"></tbody>
         </table>
         <div class="export-bar">

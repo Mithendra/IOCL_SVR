@@ -101,6 +101,27 @@ def build_section8_workbook(view: dict) -> bytes:
         ("Sent to SVR and Bank Statement to Group Email", s8.get("sent_by")),
     ]
 
+    # The Special Note, when the day carries one. Client, 2026-09-25: "Export to
+    # Excel when there is a special note that should come as well." It is the one
+    # place the operator explains a figure - a note saying why the cash was short
+    # is exactly what management reads this report for, and it was being dropped.
+    notes = (
+        ("Section 8 note", s8.get("special_note")),
+        ("Management note", s8.get("mgmt_note")),
+        ("Section 4 note", (manual.get("section4") or {}).get("special_note")),
+        ("Section 3 note", (manual.get("section3") or {}).get("special_note")),
+    )
+    if any(n not in (None, "") for _, n in notes):
+        rows.append(("__section__", "Special Notes"))
+    for label, note in (
+        ("Section 8 note", s8.get("special_note")),
+        ("Management note", s8.get("mgmt_note")),
+        ("Section 4 note", (manual.get("section4") or {}).get("special_note")),
+        ("Section 3 note", (manual.get("section3") or {}).get("special_note")),
+    ):
+        if note not in (None, ""):
+            rows.append((label, str(note)))
+
     hdr = 4
     for col, name in enumerate(("Line", "Amount"), 1):
         c = ws.cell(row=hdr, column=col, value=name)
@@ -121,7 +142,13 @@ def build_section8_workbook(view: dict) -> bytes:
             cell = ws.cell(row=r, column=2, value=value)
             if isinstance(value, float):
                 cell.number_format = _MONEY
-            cell.alignment = Alignment(horizontal="right")
+            if isinstance(value, str) and len(value) > 24:
+                # A note, not a figure - let it wrap instead of running off the
+                # right edge of a column sized for rupees.
+                cell.alignment = Alignment(horizontal="left", wrap_text=True, vertical="top")
+                ws.row_dimensions[r].height = 32
+            else:
+                cell.alignment = Alignment(horizontal="right")
             if label.startswith("Total"):
                 for col in (1, 2):
                     ws.cell(row=r, column=col).font = Font(bold=True)

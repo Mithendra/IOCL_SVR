@@ -28,9 +28,11 @@ def test_stock_levels_seeded(client, auth_headers):
 
 
 def test_restock_shows_as_received_today_without_moving_opening(client, auth_headers, conn):
+    _set_owner_secret(client, auth_headers)
     r = client.post(
         "/inventory/restock",
-        json={"item_key": "oil3", "quantity": 15, "supplier_ref": "INV-991", "restock_date": DATE},
+        json={"item_key": "oil3", "quantity": 15, "supplier_ref": "INV-991",
+              "restock_date": DATE, "passphrase": SECRET},
         headers=auth_headers("Manager"),
     )
     assert r.status_code == 201
@@ -69,31 +71,95 @@ def test_sold_today_and_low_stock_status(client, auth_headers):
     assert oil4["status"] == "low"
 
 
-def test_owner_can_correct_reorder_and_on_hand(client, auth_headers):
+SECRET = "stock-lock-2026"
+
+
+def _set_owner_secret(client, auth_headers):
+    """The Inventory Master shares the Owner passphrase with the reading reset -
+    one secret, one place (svr_backend/owner_secret.py)."""
+    r = client.post("/owner-reset/secret", json={"new_passphrase": SECRET},
+                    headers=auth_headers("Owner"))
+    assert r.status_code == 200, r.text[:200]
+
+
+def test_setting_stock_needs_the_owner_passphrase_whoever_is_signed_in(
+    client, auth_headers
+):
+    """Client, 2026-09-25: "Inventory Tracking Master should have Secert Password
+    to make an update only owner role and it should have Secret password to
+    update."
+
+    The passphrase is the authority; the ROLE is just who is at the keyboard.
+    A Manager may make the change - correcting a miscount is floor work - but
+    not without the Owner's password, and `last_updated_by` records which of
+    them actually did it.
+    """
+    _set_owner_secret(client, auth_headers)
+
+    # Sales is out whatever it sends: it cannot even read this form.
+    assert client.put(
+        "/inventory/oil1", json={"on_hand": 42, "passphrase": SECRET},
+        headers=auth_headers("Sales"),
+    ).status_code == 403
+
+    # Manager and Owner alike are refused without the passphrase, or with a
+    # wrong one. An unlocked screen is not by itself permission.
+    for role in ("Manager", "Owner"):
+        assert client.put(
+            "/inventory/oil1", json={"on_hand": 42}, headers=auth_headers(role)
+        ).status_code == 403, f"{role} got in with no passphrase"
+        assert client.put(
+            "/inventory/oil1", json={"on_hand": 42, "passphrase": "wrong"},
+            headers=auth_headers(role),
+        ).status_code == 403, f"{role} got in with a wrong passphrase"
+
+    # With it, a MANAGER goes through - and 0 is a real value, not "nothing given".
     out = client.put(
         "/inventory/oil1",
-        json={"reorder_level": 5, "on_hand": 100},
-        headers=auth_headers("Owner"),
+        json={"reorder_level": 5, "on_hand": 100, "passphrase": SECRET},
+        headers=auth_headers("Manager"),
     ).json()
     assert out == {"item_key": "oil1", "reorder_level": 5, "on_hand": 100}
 
-
-def test_manager_can_set_stock_outright_including_zero(client, auth_headers):
-    """Setting stock is Manager-or-Owner (widened 2026-09-11). Restock adds; this
-    replaces, which is the only way to establish an opening count or correct a
-    miscount - and 0 has to be settable, not treated as "no value given"."""
-    assert client.put(
-        "/inventory/oil1", json={"on_hand": 42}, headers=auth_headers("Manager")
-    ).status_code == 200
-
-    out = client.put(
-        "/inventory/oil1", json={"on_hand": 0}, headers=auth_headers("Manager")
+    zero = client.put(
+        "/inventory/oil1", json={"on_hand": 0, "passphrase": SECRET},
+        headers=auth_headers("Owner"),
     ).json()
-    assert out["on_hand"] == 0
+    assert zero["on_hand"] == 0
 
-    assert client.put(
-        "/inventory/oil1", json={"on_hand": 1}, headers=auth_headers("Sales")
+
+def test_every_row_says_who_changed_it_and_when(client, auth_headers):
+    """Client, 2026-09-25: "Every Row should have updated by and updated On".
+
+    The columns were on the table and written on every save all along - they had
+    simply never been returned, so the audit trail existed and nobody could see
+    it.
+    """
+    _set_owner_secret(client, auth_headers)
+    client.put("/inventory/oil2", json={"on_hand": 7, "passphrase": SECRET},
+               headers=auth_headers("Manager"))
+
+    rows = {r["item_key"]: r for r in
+            client.get("/inventory", headers=auth_headers("Manager")).json()}
+    for row in rows.values():
+        assert "last_updated_by" in row and "last_updated_at" in row, row
+    touched = rows["oil2"]
+    assert touched["last_updated_by"] == "manager", touched
+    assert touched["last_updated_at"], "no timestamp against a row just written"
+
+
+def test_restock_also_needs_the_passphrase(client, auth_headers):
+    """The WHOLE form is gated, not just the figures that looked dangerous
+    (client, 2026-09-25: "none allowed" ... "secert password is need")."""
+    _set_owner_secret(client, auth_headers)
+    assert client.post(
+        "/inventory/restock", json={"item_key": "oil1", "quantity": 12},
+        headers=auth_headers("Manager"),
     ).status_code == 403
+    assert client.post(
+        "/inventory/restock", json={"item_key": "oil1", "quantity": 12, "passphrase": SECRET},
+        headers=auth_headers("Manager"),
+    ).status_code == 201
 
 
 def test_daily_sales_entry_opening_stock_comes_from_inventory(client, auth_headers):
@@ -197,3 +263,81 @@ def test_sync_inventory_nothing_to_sync_returns_empty(client, auth_headers):
     )
     assert resp.status_code == 200
     assert resp.json() == {}
+
+
+def test_buy_and_sell_rate_show_on_the_stock_table(client, auth_headers):
+    """Client, 2026-09-25: "add two columns like Buy Rate & Sell Rate"."""
+    rows = {r["item_key"]: r for r in
+            client.get("/inventory", headers=auth_headers("Owner")).json()}
+    assert rows, "no inventory rows"
+    for row in rows.values():
+        assert "buy_rate" in row and "sell_rate" in row, row
+
+
+def test_setting_a_rate_needs_the_owner_passphrase(client, auth_headers, conn):
+    """The same gate as a stock level: a Manager may set it, but only with the
+    Owner's password - a sell rate prices every litre the station books."""
+    _set_owner_secret(client, auth_headers)
+
+    assert client.put(
+        "/inventory/oil1/rates", json={"sell_rate": 44, "passphrase": SECRET},
+        headers=auth_headers("Sales"),
+    ).status_code == 403, "Sales has no business on this form"
+
+    for role in ("Manager", "Owner"):
+        assert client.put(
+            "/inventory/oil1/rates", json={"sell_rate": 44}, headers=auth_headers(role)
+        ).status_code == 403, f"{role} got in with no passphrase"
+    assert client.put(
+        "/inventory/oil1/rates", json={"sell_rate": 44, "passphrase": "nope"},
+        headers=auth_headers("Owner"),
+    ).status_code == 403
+
+    out = client.put(
+        "/inventory/oil1/rates", json={"sell_rate": 44, "buy_rate": 30, "passphrase": SECRET},
+        headers=auth_headers("Owner"),
+    )
+    assert out.status_code == 200, out.text[:300]
+    assert out.json()["sell_rate"] == 44
+
+
+def test_a_rate_is_appended_to_rate_master_so_past_days_keep_their_price(
+    client, auth_headers, conn
+):
+    """The rate goes to rate_master, NOT to a column on inventory_item.
+
+    rate_master is append-only by effective_date and is what Daily Sales Entry
+    and the Trial Balance already resolve from. A column here would be a second
+    figure to keep in step - and re-opening an old day would re-price it at
+    today's rate, which is the one thing effective-dating exists to prevent.
+    """
+    _set_owner_secret(client, auth_headers)
+    before = conn.execute(
+        "SELECT COUNT(*) c FROM rate_master WHERE item_key = 'oil3'"
+    ).fetchone()["c"]
+
+    client.put("/inventory/oil3/rates", json={"sell_rate": 77, "passphrase": SECRET},
+               headers=auth_headers("Owner"))
+
+    after = conn.execute(
+        "SELECT COUNT(*) c FROM rate_master WHERE item_key = 'oil3'"
+    ).fetchone()["c"]
+    assert after == before + 1, "the rate replaced a row instead of appending one"
+
+    newest = conn.execute(
+        "SELECT sell_rate, buy_rate FROM rate_master WHERE item_key = 'oil3' "
+        "ORDER BY effective_date DESC, id DESC LIMIT 1"
+    ).fetchone()
+    assert newest["sell_rate"] == 77
+    # Giving only one of the pair must not blank the other.
+    rows = {r["item_key"]: r for r in
+            client.get("/inventory", headers=auth_headers("Owner")).json()}
+    assert rows["oil3"]["sell_rate"] == 77
+
+
+def test_a_rate_change_needs_something_to_change(client, auth_headers):
+    _set_owner_secret(client, auth_headers)
+    r = client.put("/inventory/oil1/rates", json={"passphrase": SECRET},
+                   headers=auth_headers("Owner"))
+    assert r.status_code == 422
+    assert "Buy Rate" in r.json()["detail"]

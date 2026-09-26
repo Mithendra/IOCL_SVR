@@ -171,32 +171,304 @@ export async function refreshOilSection() {
 // typed "Airtel Hari" into a card row, or "Anil/Nani" into a credit row, and the
 // app saved the amount and silently dropped the name. It was not stored, not
 // exported, not printed back (client, 2026-09-23, from the SEP15 import).
+// The station's own dropdown lists, fetched once per load.
+//
+// Card Holder, Card Type, Creditor and Customer were free text. Typed by hand
+// the same customer arrives as "Airtel Hari", "AirTel hari" and "airtel", and
+// the Creditor Balance Summary - which groups by name - then reports three
+// people each owing a third (client, 2026-09-25).
+let optionLists = {};
+
+async function loadOptionLists() {
+  try {
+    optionLists = await api.get("/daily-trial-balance/options");
+  } catch {
+    optionLists = {};          // a list that will not load must not stop entry
+  }
+}
+
+// A <select> backed by a list, and nothing else in the cell: the "+" that used
+// to hang under every one of these came off on 2026-09-25. Taking a new customer
+// on is the row's "+ New" button now, not the dropdown's.
+//
+// Falls back to a plain text box if the list could not be fetched - never a
+// dead control.
+function listCell(cls, listKey, placeholder) {
+  const values = optionLists[listKey];
+  if (!Array.isArray(values)) {
+    return `<td><input class="${cls}" placeholder="${placeholder}"></td>`;
+  }
+  return `<td><select class="${cls}" data-list="${listKey}">${listOptions(listKey)}</select></td>`;
+}
+
+// What a list is called when the strip asks for a new one.
+const LIST_NOUN = {
+  card_holders: "card holder",
+  card_types: "card type",
+  customers: "name",
+  collectors: "name",
+  payment_type: "payment type",
+  payment_modes: "payment mode",
+  yes_no: "value",
+};
+
+function listOptions(listKey, chosen) {
+  return ['<option value="">— select —</option>']
+    .concat((optionLists[listKey] || []).map(
+      (v) => `<option${v === chosen ? " selected" : ""}>${escapeHtml(v)}</option>`))
+    .join("");
+}
+
+// The one button a repeating row carries, in a column of its own at the end of
+// it (client, 2026-09-25: "no more + symbols for sure at the end of each row
+// +New"). Six loose "+" buttons under the dropdowns of a three-row section
+// become three, in line.
+const NEW_CELL = '<td class="rownew">' +
+  '<button type="button" class="add-row-btn row-new" title="Add a value to this row’s list">+ New</button>' +
+  '<button type="button" class="add-row-btn row-del" title="Remove the selected value from its list">− Delete</button>' +
+  "</td>";
+
+// Type: HS or MS, chosen not typed (client, 2026-09-26 - "less keyed-in values
+// whenever and whereever possible"). Not one of the managed lists on purpose:
+// the station has two nozzles, and a third value added here would carry no rate
+// behind it, so applyRateFromFuel would silently leave Rate blank.
+//
+// "1" and "2" are what the form stored until today, so they are still accepted
+// when an older day is opened - see fuelValue().
+const FUEL_CELL = (cls) =>
+  `<td><select class="${cls}">` +
+  '<option value=""></option><option>HS</option><option>MS</option></select></td>';
+
+// An older row holds "1", "2", "1.Diesel" or "Petrol". Map it onto the two
+// options this dropdown has, so re-opening SEP15 does not show a blank Type and
+// then save the blank back over what was there.
+function fuelValue(raw) {
+  const v = String(raw == null ? "" : raw).trim().toLowerCase();
+  if (!v) return "";
+  if (v.startsWith("1") || v.includes("diesel") || v.includes("hs")) return "HS";
+  if (v.startsWith("2") || v.includes("petrol") || v.includes("ms")) return "MS";
+  return "";
+}
+
+const escapeHtml = (v) =>
+  String(v == null ? "" : v).replace(/[&<>"]/g, (c) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]
+  );
+
+// Choosing "Add new ..." opens this strip on the row it was chosen on: ask for
+// the value, save it to the list, select it. Inline because Electron never shows
+// window.prompt(), and on the row because that is where the operator is looking.
+//
+// On a Credit Cards row it asks for the holder name AND the card type together,
+// because that is what one new customer brings. Fill one box only to add only
+// that one.
+function openNewBox(tr) {
+  if (tr.nextElementSibling && tr.nextElementSibling.classList.contains("dse-newrow")) return;
+  const sel = tr.querySelector("select[data-list]");
+  if (!sel) return;
+  const listKey = sel.dataset.list;
+  const body = tr.closest("tbody");
+  const pair = body && body.id === "cc-rows";
+  const span = tr.children.length;
+  const boxes = pair
+    ? '<label>Card holder name <input class="nb-a" placeholder="new name"></label>' +
+      '<label>Card type <input class="nb-b" placeholder="new card type"></label>'
+    : `<label>New ${LIST_NOUN[listKey] || "value"} <input class="nb-a"></label>`;
+  tr.insertAdjacentHTML(
+    "afterend",
+    `<tr class="dse-newrow"><td colspan="${span}"><div class="dse-newbox">` +
+      boxes +
+      '<button type="button" class="add-row-btn nb-ok">Add</button>' +
+      '<button type="button" class="add-row-btn nb-cancel">Cancel</button>' +
+      "</div></td></tr>"
+  );
+  const row = tr.nextElementSibling;
+  row.querySelector(".nb-a").focus();
+  const close = () => row.remove();
+  row.querySelector(".nb-cancel").addEventListener("click", close);
+  row.querySelector(".nb-ok").addEventListener("click", async () => {
+    const a = (row.querySelector(".nb-a").value || "").trim();
+    const b = pair ? (row.querySelector(".nb-b").value || "").trim() : "";
+    if (!a && !b) {
+      close();
+      return;
+    }
+    // On a card row the first box is always the holder, whichever dropdown was
+    // used to open the strip.
+    const jobs = pair
+      ? [["card_holders", a], ["card_types", b]]
+      : [[listKey, a]];
+    for (const [key, value] of jobs) {
+      if (!value) continue;
+      // Already in the list is not a failure - the operator asked for it to be
+      // there and it is there. Only a real error stops the rest of the strip:
+      // typing a known customer beside a new card type is the ordinary case, and
+      // it used to abort on the customer and never add the card type.
+      try {
+        await api.post("/daily-trial-balance/options", { list_key: key, value });
+      } catch (err) {
+        const msg = err && err.message ? String(err.message) : String(err);
+        if (/already/i.test(msg)) continue;
+        const st = $("save-status");
+        st.className = "status-line err";
+        st.textContent = `Could not add "${value}" — ${msg}`;
+        return;
+      }
+    }
+    await loadOptionLists();
+    refreshLists();
+    // Whatever the row had selected gives way to what was just added - the
+    // operator opened this strip from that row, so that row is what they meant.
+    if (a) (pair ? tr.querySelector(".cc-holder") : sel).value = a;
+    if (b) tr.querySelector(".cc-type").value = b;
+    close();
+  });
+}
+
+// The column heading above a cell, so the Delete strip can say "Card Type"
+// rather than "card_types".
+function columnLabel(cell) {
+  const table = cell.closest("table");
+  const head = table && table.querySelector("tr");
+  if (!head) return "this list";
+  const th = head.children[cell.cellIndex];
+  return th ? (th.textContent || "").trim() || "this list" : "this list";
+}
+
+// "- Delete" (client, 2026-09-26). A row can carry five dropdowns, so the button
+// cannot guess which value is meant: it opens a strip naming every list on the
+// row that has something selected, and the press that removes a value is the
+// second press. That doubles as the confirmation - Electron never shows
+// window.confirm(), so a destructive action has to be built out of two clicks.
+//
+// This removes an OPTION, not a RECORD. Saved entries keep the text that was
+// chosen, so yesterday's credit still names the person who took it.
+function openDeleteBox(tr) {
+  if (tr.nextElementSibling && tr.nextElementSibling.classList.contains("dse-newrow")) return;
+  const chosen = [...tr.querySelectorAll("select[data-list]")].filter((sel) => sel.value);
+  const span = tr.children.length;
+  if (!chosen.length) {
+    tr.insertAdjacentHTML("afterend",
+      `<tr class="dse-newrow"><td colspan="${span}"><div class="dse-newbox dse-delbox">` +
+      "Nothing is selected on this row, so there is nothing to remove. Choose a value " +
+      "first, then press &minus; Delete." +
+      '<button type="button" class="add-row-btn nb-cancel">Close</button>' +
+      "</div></td></tr>");
+  } else {
+    const buttons = chosen.map((sel, i) =>
+      `<button type="button" class="add-row-btn del-one" data-i="${i}" ` +
+      `data-key="${escapeHtml(sel.dataset.list)}" ` +
+      `data-value="${escapeHtml(sel.value)}" ` +
+      `data-label="${escapeHtml(columnLabel(sel.closest("td")))}">` +
+      `Remove &ldquo;${escapeHtml(sel.value)}&rdquo; from ${escapeHtml(columnLabel(sel.closest("td")))}` +
+      "</button>").join("");
+    tr.insertAdjacentHTML("afterend",
+      `<tr class="dse-newrow"><td colspan="${span}"><div class="dse-newbox dse-delbox">` +
+      "<b>Remove which value?</b> It goes from the dropdown for everyone. Entries already " +
+      "saved keep the name they were filed under." +
+      buttons +
+      '<button type="button" class="add-row-btn nb-cancel">Cancel</button>' +
+      "</div></td></tr>");
+  }
+  const row = tr.nextElementSibling;
+  const close = () => row.remove();
+  row.querySelector(".nb-cancel").addEventListener("click", close);
+  for (const btn of row.querySelectorAll(".del-one")) {
+    btn.addEventListener("click", async () => {
+      const listKey = btn.dataset.key;
+      const value = btn.dataset.value;
+      const label = btn.dataset.label;
+      const st = $("save-status");
+      try {
+        await api.post("/daily-trial-balance/options/remove", { list_key: listKey, value });
+      } catch (err) {
+        st.className = "status-line err";
+        st.textContent = `Could not remove "${value}" — ${err.message || err}`;
+        return;
+      }
+      await loadOptionLists();
+      // Any row that had the removed value selected now has nothing selected,
+      // which is the truth: that value no longer exists.
+      refreshLists();
+      st.className = "status-line ok";
+      st.textContent = `Removed "${value}" from ${label}.`;
+      close();
+    });
+  }
+}
+
+// A value added anywhere joins every dropdown on that list, not just the one it
+// was typed into - otherwise the same customer is entered twice and the Creditor
+// Balance Summary, which groups by name, reports two people owing half each.
+function refreshLists() {
+  for (const sel of document.querySelectorAll("select[data-list]")) {
+    const keep = sel.value;
+    sel.innerHTML = listOptions(sel.dataset.list, keep);
+    sel.value = keep;
+  }
+}
+
 function addCcRow() {
   const tr = blankRow(
-    '<td><input class="cc-holder"></td>' +
-      '<td><input class="cc-type"></td>' +
-      '<td><input class="cc-fuel" placeholder="1 / 2"></td>' +
-      '<td><input class="cc-ltrs" data-calc></td>' +
-      '<td><input class="cc-rate"></td>' +
+    listCell("cc-holder", "card_holders", "Card holder") +
+      listCell("cc-type", "card_types", "Card type") +
+      FUEL_CELL("cc-fuel") +
+      '<td class="num"><input class="cc-ltrs" data-calc></td>' +
+      '<td class="num"><input class="cc-rate"></td>' +
       '<td><input class="cc-receipt"></td>' +
-      '<td><input class="cc-amount" data-calc></td>'
+      '<td class="num"><input class="cc-amount" data-calc></td>' +
+      NEW_CELL +
+      "<td></td>"
   );
   // Same rule as Section 5 (client, 2026-09-24): a swipe is fuel at the pump
   // price, so Rate follows the fuel type rather than being typed again.
-  tr.querySelector(".cc-fuel").addEventListener("input", () => {
+  tr.querySelector(".cc-fuel").addEventListener("change", () => {
     applyRateFromFuel(tr, ".cc-fuel", ".cc-rate");
   });
+  watchAmountOverride(tr, ".cc-amount");
   $("cc-rows").appendChild(tr);
   return tr;
 }
+// A row nobody has touched shows an empty Amount, not 0.00. "0.00" on a blank
+// row reads as "this swipe was for nothing", which is a different claim from
+// "there is no swipe here" - and on a form with spare rows at the bottom it is
+// the claim being made on most of them.
+function showComputedAmount(el, tr, ltrsSel, rateSel, value) {
+  // Deliberately NOT skipped just because the box has focus. Clicking into
+  // Amount to see what it says is the most natural thing to do while waiting for
+  // it, and a focus guard meant that clicking there was exactly what stopped it
+  // ever filling in. dataset.typed already protects real typing - it is set on
+  // the first keystroke - so focus alone must not block the figure.
+  if (el.dataset.typed === "1") return;
+  const ltrs = (tr.querySelector(ltrsSel) || {}).value || "";
+  const rate = (tr.querySelector(rateSel) || {}).value || "";
+  const empty = ltrs.trim() === "" && rate.trim() === "";
+  if (empty || value === undefined || value === null) {
+    el.value = "";
+    return;
+  }
+  el.value = fmt2(value);
+}
+
+// Clearing an overridden Amount hands it back to the calculation - otherwise
+// "delete what I typed" would leave the row stuck on a blank override.
+function watchAmountOverride(tr, sel = ".nc-amount") {
+  const amt = tr.querySelector(sel);
+  amt.addEventListener("input", () => {
+    if (amt.value.trim() === "") delete amt.dataset.typed;
+    else amt.dataset.typed = "1";
+  });
+}
+
 function addNcRow() {
   const tr = blankRow(
-    '<td><input class="nc-name"></td>' +
-      '<td><input class="nc-type" placeholder="1.Diesel / 2.Petrol"></td>' +
-      '<td><input class="nc-ltrs" data-calc></td>' +
-      '<td><input class="nc-rate" data-calc></td>' +
-      '<td><input class="nc-amount" disabled placeholder="auto"></td>' +
-      '<td><input class="nc-sign"></td>'
+    listCell("nc-name", "customers", "Creditor") +
+      FUEL_CELL("nc-type") +
+      '<td class="num"><input class="nc-ltrs" data-calc></td>' +
+      '<td class="num"><input class="nc-rate" data-calc></td>' +
+      '<td class="num"><input class="nc-amount" data-calc placeholder="auto"></td>' +
+      NEW_CELL +
+      "<td></td>"
   );
   // Client, 2026-09-24: "Rate should be 1. HS 2. MS by default, same as Section 1
   // Gas Sale(s) rates only." A credit is fuel sold on account - it is the same
@@ -205,15 +477,28 @@ function addNcRow() {
   //
   // Typed, not locked: the operator can still override for the odd case, and a
   // rate they have deliberately changed is not overwritten.
-  tr.querySelector(".nc-type").addEventListener("input", () => {
+  tr.querySelector(".nc-type").addEventListener("change", () => {
     applyCreditRate(tr);
   });
+  watchAmountOverride(tr, ".nc-amount");
   $("nc-rows").appendChild(tr);
   return tr;
 }
 
 // "1", "1.Diesel", "Diesel" -> the HS rate; "2", "2.Petrol", "Petrol" -> MS.
 // Shared by New Credits and Credit Cards so the two cannot drift apart.
+// Fill in the Rate on any Section 4 or 5 row that has a Type but no rate yet -
+// or whose rate this code put there itself, so a change of fuel still follows.
+// A rate the operator typed by hand is never touched.
+function applyRatesToWaitingRows() {
+  for (const tr of document.querySelectorAll("#cc-rows tr")) {
+    if (tr.querySelector(".cc-fuel")) applyRateFromFuel(tr, ".cc-fuel", ".cc-rate");
+  }
+  for (const tr of document.querySelectorAll("#nc-rows tr")) {
+    if (tr.querySelector(".nc-type")) applyCreditRate(tr);
+  }
+}
+
 function applyRateFromFuel(tr, typeSel, rateSel) {
   const raw = (tr.querySelector(typeSel).value || "").trim().toLowerCase();
   if (!raw) return;
@@ -251,18 +536,144 @@ function addExpRow(desc = "", amount = "") {
   return tr;
 }
 
+// --------------------------------------------------------------- dates (Option B)
+//
+// Old Credit Given Date reads 09/MAR/2026 rather than Windows' 03/09/2026
+// (client, 2026-09-25). A native date input cannot do this - Chromium prints it
+// in the host's own format and no page can override that - so the box is text
+// and the calendar is the button beside it.
+//
+// Day first, always. 03/09 on a credit date is March or September depending on
+// who is reading it, and that question comes up months later when somebody
+// queries the credit; redisplaying every entry as DD/MMM/YYYY is what removes it.
+// Whatever is stored and sent stays ISO - this is display only.
+const MONTHS = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN",
+                "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];
+
+function parseGivenDate(raw) {
+  const text = String(raw == null ? "" : raw).trim();
+  if (!text) return null;
+  // ISO first: that is what the server sends back.
+  const isoMatch = text.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (isoMatch) {
+    return validDate(Number(isoMatch[1]), Number(isoMatch[2]) - 1, Number(isoMatch[3]));
+  }
+  const m = text.match(/^(\d{1,2})[\s/\-.]+([A-Za-z]{3,}|\d{1,2})[\s/\-.]+(\d{2}|\d{4})$/);
+  if (!m) return null;
+  const day = Number(m[1]);
+  const month = /^\d+$/.test(m[2])
+    ? Number(m[2]) - 1
+    : MONTHS.indexOf(m[2].slice(0, 3).toUpperCase());
+  let year = Number(m[3]);
+  if (year < 100) year += 2000;
+  return validDate(year, month, day);
+}
+
+// Rejects 31/FEB rather than rolling it forward to the 3rd of March.
+function validDate(year, month, day) {
+  if (month < 0 || month > 11 || day < 1) return null;
+  const d = new Date(year, month, day);
+  if (d.getFullYear() !== year || d.getMonth() !== month || d.getDate() !== day) return null;
+  return d;
+}
+
+const showGivenDate = (d) =>
+  `${String(d.getDate()).padStart(2, "0")}/${MONTHS[d.getMonth()]}/${d.getFullYear()}`;
+const isoGivenDate = (d) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-` +
+  `${String(d.getDate()).padStart(2, "0")}`;
+
+// On leaving the box: redisplay a date that parsed, flag one that did not.
+// Flagged, never guessed - a date nobody can read is not turned into a date
+// somebody made up.
+function normaliseGivenDate(input) {
+  const raw = input.value.trim();
+  if (!raw) {
+    input.classList.remove("bad");
+    input.title = "";
+    return;
+  }
+  const d = parseGivenDate(raw);
+  if (!d) {
+    input.classList.add("bad");
+    input.title = "Not a date I can read. Try 09/MAR/2026, 9/3/26 or 09-03-2026.";
+    return;
+  }
+  input.classList.remove("bad");
+  input.title = "";
+  input.value = showGivenDate(d);
+}
+
+// The calendar button borrows a real date input for its picker, then writes the
+// result back in the station's own format.
+function pickGivenDate(btn) {
+  const input = btn.parentElement.querySelector(".dse-date");
+  if (!input) return;
+  const helper = document.createElement("input");
+  helper.type = "date";
+  helper.style.cssText =
+    "position:absolute;opacity:0;pointer-events:none;width:1px;height:1px";
+  const existing = parseGivenDate(input.value);
+  if (existing) helper.value = isoGivenDate(existing);
+  btn.parentElement.appendChild(helper);
+  helper.addEventListener("change", () => {
+    if (helper.value) {
+      const [y, mo, da] = helper.value.split("-").map(Number);
+      input.value = showGivenDate(new Date(y, mo - 1, da));
+      input.classList.remove("bad");
+      // Set programmatically, so tell the form the way a keystroke would - the
+      // calc and the unsaved-changes tracker both listen for input.
+      input.dispatchEvent(new window.Event("input", { bubbles: true }));
+    }
+    helper.remove();
+  });
+  helper.addEventListener("blur", () => setTimeout(() => helper.remove(), 200));
+  if (helper.showPicker) {
+    try {
+      helper.showPicker();
+    } catch {
+      helper.focus();
+    }
+  } else {
+    helper.focus();
+  }
+}
+
 function addOcRow() {
   $("oc-rows").appendChild(
     blankRow(
-      '<td><input class="oc-customer"></td>' +
-        '<td><input class="oc-amount" data-calc></td>' +
-        '<td><input class="oc-given" type="date"></td>' +
-        '<td><input class="oc-sign"></td>'
+      listCell("oc-customer", "customers", "Customer") +
+        '<td class="num"><input class="oc-amount" data-calc></td>' +
+        '<td><div class="dse-datecell">' +
+          '<input class="oc-given dse-date" placeholder="DD/MMM/YYYY">' +
+          '<button type="button" class="add-row-btn cal-btn" title="Pick a date">' +
+          "&#128197;</button></div></td>" +
+        // How the money came in (client, 2026-09-25). All four are lists, not
+        // typed: "Cash" and "cash" and "CASH" are one payment mode, and the
+        // moment they are typed they stop being one.
+        listCell("oc-payment", "payment_type", "Full / Partial") +
+        listCell("oc-remitted", "yes_no", "Remittance entered") +
+        listCell("oc-collector", "collectors", "Collected by") +
+        listCell("oc-mode", "payment_modes", "Payment mode") +
+        NEW_CELL +
+        "<td></td>"
     )
   );
 }
 
 // ------------------------------------------------------------------- form <-> API
+
+const cellValue = (tr, sel) => {
+  const el = tr.querySelector(sel);
+  return el ? el.value : "";
+};
+
+const givenDateForSave = (raw) => {
+  const text = String(raw == null ? "" : raw).trim();
+  if (!text) return "";
+  const d = parseGivenDate(text);
+  return d ? isoGivenDate(d) : text;
+};
 
 function readForm() {
   const oils = OIL_KEYS.map((k) => ({
@@ -288,7 +699,8 @@ function readForm() {
     // Aligned by index with `expenses`. The three printed rows contribute their
     // own fixed label; an added row contributes what was typed into it.
     expense_labels: expenseLabels(),
-    credit_card_amounts: [...document.querySelectorAll(".cc-amount")].map((i) => i.value),
+    credit_card_amounts: [...document.querySelectorAll(".cc-amount")].map(
+      (el) => (el.dataset.typed === "1" ? el.value : "")),
     // Index-aligned with the amounts above, like expense_labels with expenses.
     credit_card_rows: [...document.querySelectorAll("#cc-rows tr")].map((tr) => ({
       holder: tr.querySelector(".cc-holder").value,
@@ -303,13 +715,33 @@ function readForm() {
       rate: tr.querySelector(".nc-rate").value,
       name: tr.querySelector(".nc-name").value,
       fuel_type: tr.querySelector(".nc-type").value,
-      signature: tr.querySelector(".nc-sign").value,
+      // Blank means "work it out from litres x rate"; a figure means the
+      // operator has overridden it and that figure is what the customer owes.
+      amount: (() => {
+        const el = tr.querySelector(".nc-amount");
+        return el.dataset.typed === "1" ? el.value : "";
+      })(),
+      // The Signature column came off the screen on 2026-09-25, but a signature
+      // already on file is not the client's to lose because a column moved - so
+      // it rides back out on the row that carried it in.
+      signature: tr.dataset.signature || "",
     })),
     old_credit_amounts: [...document.querySelectorAll(".oc-amount")].map((i) => i.value),
     old_credit_rows: [...document.querySelectorAll("#oc-rows tr")].map((tr) => ({
       customer: tr.querySelector(".oc-customer").value,
-      given_date: tr.querySelector(".oc-given").value,
-      signature: tr.querySelector(".oc-sign").value,
+      // Typed as 09/MAR/2026, stored as 2026-03-09. A date that will not parse
+      // is sent as typed rather than dropped, so the server refuses it and the
+      // operator is told - silently sending "" would file the credit with no
+      // date at all.
+      given_date: givenDateForSave(tr.querySelector(".oc-given").value),
+      // Client, 2026-09-25. Blank is a real answer on all four - a credit
+      // received before these columns existed has none of them, and inventing a
+      // default would be inventing a fact about someone's money.
+      payment: cellValue(tr, ".oc-payment"),
+      remittance_entered: cellValue(tr, ".oc-remitted"),
+      collected_by: cellValue(tr, ".oc-collector"),
+      payment_mode: cellValue(tr, ".oc-mode"),
+      signature: tr.dataset.signature || "",
     })),
     phone_pay_settled: val("pp-settled"),
     phone_pay_unsettled: val("pp-unsettled"),
@@ -362,9 +794,20 @@ function applyResult(r) {
   setNum("gas-oil-total", r.gas_oil_total);
 
   setNum("exp-total", r.expenses_total);
+  document.querySelectorAll("#cc-rows tr").forEach((tr, i) => {
+    showComputedAmount(tr.querySelector(".cc-amount"), tr, ".cc-ltrs", ".cc-rate",
+                       (r.credit_card_amounts || [])[i]);
+  });
   setNum("cc-total", r.credit_cards_total);
-  document.querySelectorAll(".nc-amount").forEach((el, i) => {
-    el.value = fmt2(r.new_credit_amounts[i]);
+  // Amount is editable now (client, 2026-09-26), so this can no longer simply
+  // overwrite it. Two cases it must not tread on:
+  //   - the box the operator is typing in, which would reformat "1500" to
+  //     "1500.00" mid-keystroke and eat the inline-sum syntax;
+  //   - a figure they have deliberately overridden, which the server echoes back
+  //     unchanged anyway, so rewriting it only risks the formatting above.
+  document.querySelectorAll("#nc-rows tr").forEach((tr, i) => {
+    showComputedAmount(tr.querySelector(".nc-amount"), tr, ".nc-ltrs", ".nc-rate",
+                       r.new_credit_amounts[i]);
   });
   setNum("nc-total", r.new_credits_total);
 
@@ -644,6 +1087,12 @@ async function loadPrefill() {
   setVal("ms-last", p.ms_last);
   setVal("hs-rate", p.sell_rate_hs);
   setVal("ms-rate", p.sell_rate_ms);
+  // The day's rates arrive from the server, so a row whose Type was chosen
+  // before they landed got nothing: applyRateFromFuel reads #hs-rate, finds it
+  // empty and gives up, and nothing ever asks it again. Rate then stays blank,
+  // Amount cannot compute, and the row looks like the calculation is broken.
+  // Now that the rates are here, offer them to every row still waiting.
+  applyRatesToWaitingRows();
   OIL_KEYS.forEach((k) => setVal(`${k}-rate`, p.oil_rates ? p.oil_rates[k] : ""));
   OIL_KEYS.forEach((k) => setVal(`${k}-opening`, p.oil_openings ? p.oil_openings[k] : ""));
 
@@ -1009,12 +1458,21 @@ function clearOperatorFields() {
   const ROW_CELLS = [
     ".cc-holder", ".cc-type", ".cc-fuel", ".cc-ltrs", ".cc-rate",
     ".cc-receipt", ".cc-amount",
-    ".nc-name", ".nc-type", ".nc-ltrs", ".nc-rate", ".nc-sign",
-    ".oc-customer", ".oc-amount", ".oc-given", ".oc-sign",
+    ".nc-name", ".nc-type", ".nc-ltrs", ".nc-rate", ".nc-amount",
+    ".oc-customer", ".oc-amount", ".oc-given",
+    ".oc-payment", ".oc-remitted", ".oc-collector", ".oc-mode",
   ];
   document.querySelectorAll(ROW_CELLS.join(",")).forEach((el) => {
     el.value = "";
+    el.classList.remove("bad");
     delete el.dataset.fromType;
+    delete el.dataset.typed;
+  });
+  // Signature came off the screen but still rides on the row, so a pump change
+  // must clear it too - otherwise the previous pump's signature is saved against
+  // the new one, which is the same defect the list above was written for.
+  document.querySelectorAll("#nc-rows tr, #oc-rows tr").forEach((tr) => {
+    delete tr.dataset.signature;
   });
   setVal("pp-settled", "");
   setVal("pp-unsettled", "");
@@ -1144,11 +1602,17 @@ function populateInputs(payload) {
   const cardRows = payload.credit_card_rows || [];
   ensureRows(".cc-amount", addCcRow, Math.max(cards.length, cardRows.length));
   document.querySelectorAll("#cc-rows tr").forEach((tr, i) => {
-    put(tr.querySelector(".cc-amount"), cards[i]);
+    const ccAmt = tr.querySelector(".cc-amount");
+    put(ccAmt, cards[i]);
+    if (cards[i] !== undefined && cards[i] !== null && String(cards[i]).trim() !== "") {
+      ccAmt.dataset.typed = "1";
+    } else {
+      delete ccAmt.dataset.typed;
+    }
     const d = cardRows[i] || {};
     put(tr.querySelector(".cc-holder"), d.holder);
     put(tr.querySelector(".cc-type"), d.card_type);
-    put(tr.querySelector(".cc-fuel"), d.fuel_type);
+    put(tr.querySelector(".cc-fuel"), fuelValue(d.fuel_type));
     put(tr.querySelector(".cc-ltrs"), d.ltrs);
     put(tr.querySelector(".cc-rate"), d.rate);
     put(tr.querySelector(".cc-receipt"), d.receipt);
@@ -1161,8 +1625,16 @@ function populateInputs(payload) {
     put(tr.querySelector(".nc-ltrs"), n.ltrs);
     put(tr.querySelector(".nc-rate"), n.rate);
     put(tr.querySelector(".nc-name"), n.name);
-    put(tr.querySelector(".nc-type"), n.fuel_type);
-    put(tr.querySelector(".nc-sign"), n.signature);
+    put(tr.querySelector(".nc-type"), fuelValue(n.fuel_type));
+    const amt = tr.querySelector(".nc-amount");
+    if (n.amount !== undefined && n.amount !== null && String(n.amount).trim() !== "") {
+      amt.value = n.amount;
+      amt.dataset.typed = "1";
+    } else {
+      delete amt.dataset.typed;
+    }
+    if (n.signature) tr.dataset.signature = n.signature;
+    else delete tr.dataset.signature;
   });
 
   const ocs = payload.old_credit_amounts || [];
@@ -1172,8 +1644,16 @@ function populateInputs(payload) {
     put(tr.querySelector(".oc-amount"), ocs[i]);
     const d = ocRows[i] || {};
     put(tr.querySelector(".oc-customer"), d.customer);
-    put(tr.querySelector(".oc-given"), d.given_date);
-    put(tr.querySelector(".oc-sign"), d.signature);
+    // Stored ISO, shown DD/MMM/YYYY. Anything that will not parse is shown as it
+    // came rather than blanked, so a bad value on file is visible, not hidden.
+    const given = parseGivenDate(d.given_date);
+    put(tr.querySelector(".oc-given"), given ? showGivenDate(given) : d.given_date);
+    put(tr.querySelector(".oc-payment"), d.payment);
+    put(tr.querySelector(".oc-remitted"), d.remittance_entered);
+    put(tr.querySelector(".oc-collector"), d.collected_by);
+    put(tr.querySelector(".oc-mode"), d.payment_mode);
+    if (d.signature) tr.dataset.signature = d.signature;
+    else delete tr.dataset.signature;
   });
 
   setVal("verify-signature", payload.verified_signature);
@@ -1453,6 +1933,9 @@ async function init() {
     return;
   }
   $("shift-date").value = new Date().toISOString().slice(0, 10);
+  // BEFORE the first rows are built - listCell() renders a plain text box when
+  // the list is not there yet, and those rows would keep it for the session.
+  await loadOptionLists();
   addCcRow();
   addCcRow();
   addNcRow();
@@ -1512,6 +1995,30 @@ async function init() {
   $("pump-status").addEventListener("change", applyPumpStatus);
   $("shift-date").addEventListener("input", showShiftDateWarning);
   $("shift-date").addEventListener("change", reload);
+  // Delegated: rows come and go, so binding per row would miss every later one.
+  document.addEventListener("click", (e) => {
+    const cal = e.target.closest(".cal-btn");
+    if (cal) {
+      pickGivenDate(cal);
+      return;
+    }
+    const rowNew = e.target.closest(".row-new");
+    if (rowNew) {
+      openNewBox(rowNew.closest("tr"));
+      return;
+    }
+    const rowDel = e.target.closest(".row-del");
+    if (rowDel) openDeleteBox(rowDel.closest("tr"));
+  });
+  // Redisplay a typed date when the box is left. Capture phase: blur does not
+  // bubble.
+  document.addEventListener(
+    "blur",
+    (e) => {
+      if (e.target.matches && e.target.matches(".dse-date")) normaliseGivenDate(e.target);
+    },
+    true
+  );
   document.querySelectorAll("[data-add]").forEach((btn) => {
     btn.addEventListener("click", () => {
       ({ cc: addCcRow, nc: addNcRow, oc: addOcRow, exp: addExpRow })[btn.dataset.add]();

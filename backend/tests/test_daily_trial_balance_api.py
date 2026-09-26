@@ -4,6 +4,8 @@ and ADR-2 Close & Sign-Off carry-forward (gating, seeding, variance escalation).
 
 from __future__ import annotations
 
+import json
+
 DATE = "2026-10-05"
 NEXT_DATE = "2026-10-06"
 
@@ -270,14 +272,46 @@ def test_threshold_is_fifty_not_the_seeded_hundred(client, auth_headers):
     assert ok.json()["variance_amount"] == 75
 
 
-def test_finalize_without_projected_total_skips_the_check(client, auth_headers):
-    """The Projected total isn't computed server-side yet (ADR-1's remaining
-    sections) - omitting it must not block sign-off."""
+def test_the_projected_total_is_computed_not_typed(client, auth_headers):
+    """The box is gone; the ADR-2 escalation check is not.
+
+    "Today's Projected Trial Balance (optional, from Section 7)" was a typed
+    field, and the client asked for it to go (2026-09-25) - it is 7.3, which the
+    form already computes from 7.1 + 7.2. The check now reads that figure.
+
+    With 7.1 BLANK there is nothing to compare: 7.3 collapses to today's profit,
+    and holding that against Net Worth would refuse to close every day whose 7.1
+    had not been entered. So the check is skipped - decided by whether the data
+    exists, not by whether someone filled in a second copy of it.
+    """
     client.put(f"/daily-trial-balance/{DATE}", json={"s1_hs_current": 60},
                headers=auth_headers("Manager"))
     ok = client.post(f"/daily-trial-balance/{DATE}/finalize", headers=auth_headers("Manager"))
     assert ok.status_code == 200
     assert ok.json()["variance_amount"] is None
+
+
+def test_a_breach_is_caught_from_the_computed_figure_with_no_box_to_type_in(
+    client, auth_headers
+):
+    """7.1 entered, so 7.3 is real - and a day that is out by more than the
+    threshold still demands a reason without anyone typing the projected total."""
+    date = "2026-02-03"
+    client.put(f"/daily-trial-balance/{date}", json={
+        "s54_cash_book_value": 500000,
+        "manual": {"section7": {"yesterday": 1000}},   # 7.3 = 1000 + today's profit
+    }, headers=auth_headers("Manager"))
+
+    breach = client.post(f"/daily-trial-balance/{date}/finalize",
+                         headers=auth_headers("Manager"))
+    assert breach.status_code == 422, breach.text
+    assert "Actual Reported Minus Projected" in breach.json()["detail"]
+
+    ok = client.post(f"/daily-trial-balance/{date}/finalize",
+                     json={"reason": "Stock revalued after the IOCL load"},
+                     headers=auth_headers("Manager"))
+    assert ok.status_code == 200
+    assert ok.json()["variance_amount"] is not None
 
 
 # --- dropdown lists (migration 0021) -----------------------------------------
@@ -451,7 +485,11 @@ def test_there_is_no_2t_1_40_ml_anywhere(client, auth_headers):
 
     tpl = load_workbook(TEMPLATE, data_only=False)["SEP12"]
     assert cells_mentioning(tpl, "1.40") == []
-    assert tpl["A20"].value == "2T/2.40 ML Total#"
+    # The template's own 2.1 labels are blank since 2026-09-25 - it ships no
+    # station data at all now, and BOTH exports write the oil names from the live
+    # item list. So the pack names are asserted on what comes OUT, below and in
+    # test_the_blank_form_names_its_oil_rows, rather than on the template.
+    assert tpl["A20"].value in (None, "")
 
     h = auth_headers("Manager")
     client.put(f"/daily-trial-balance/{DATE}", json={"s1_hs_current": 4937}, headers=h)
@@ -498,6 +536,97 @@ def test_oil_opening_stock_comes_from_the_entry_that_sold_it(client, auth_header
     assert ws["B19"].value == 8      # sold, from the owning entry
     assert ws["D19"].value == 29     # its opening - not 29 + the other pump's
     assert ws["D21"].value == 64     # a zero-quantity row still takes the owner's
+
+
+def test_section10_shows_the_last_load_on_the_days_between_deliveries(
+    client, auth_headers
+):
+    """IOCL delivers about every ten days; Section 10 went blank in between.
+
+    Client, 2026-09-25: "This data should be there until the next load comes in
+    which is typically 10 days old need to keep."
+
+    Carried for display only. The day the load arrived owns the record - copying
+    it into each following day would put the same delivery on the books nine
+    more times - so the following day gets `last_load` and an empty section10 of
+    its own.
+    """
+    h = auth_headers("Manager")
+    load_day, quiet_day = "2026-03-02", "2026-03-01"   # ADR-2: later date first
+
+    client.put(f"/daily-trial-balance/{load_day}", json={
+        "s1_hs_current": 4937,
+        "manual": {"section10": {
+            "hs_afterunload": "12207", "hs_old": "2207",
+            "hs_new": "12079", "hs_load": "10000",
+        }},
+    }, headers=h)
+
+    # The delivery day shows its own figures and carries nothing.
+    own = client.get(f"/daily-trial-balance/{load_day}", headers=h).json()
+    assert own["manual"]["section10"]["hs_new"] == "12079"
+    assert own["last_load"] is None, "the day of the load must not carry itself"
+
+    # A day with no delivery of its own carries the last one, named by its date.
+    quiet = client.get(f"/daily-trial-balance/{quiet_day}", headers=h).json()
+    assert (quiet["manual"].get("section10") or {}) == {}, "nothing recorded here"
+    # 2026-03-01 is BEFORE the load, so there is nothing yet to carry.
+    assert quiet["last_load"] is None
+
+    later = "2026-03-09"
+    client.put(f"/daily-trial-balance/{later}", json={"s1_hs_current": 4937}, headers=h)
+    after = client.get(f"/daily-trial-balance/{later}", headers=h).json()
+    assert after["last_load"] is not None, "the last delivery is unreachable"
+    assert after["last_load"]["shift_date"] == load_day
+    assert after["last_load"]["values"]["hs_new"] == "12079"
+    assert not (after["manual"].get("section10") or {}), "carried, never stored"
+
+
+def test_the_export_never_carries_the_templates_own_day(client, auth_headers):
+    """A field this day has no value for must come out EMPTY, not showing SEP12's.
+
+    The template IS the station's real SEP12 tab - that is the point, it carries
+    their bands, formulas and column widths - and the writer deliberately skips a
+    cell when there is nothing to put. Together that meant an export of any other
+    day came out holding SEP12's figures wherever this day was quiet: its
+    Load/Unload readings, its Airtel balances, its whole 30-row Mgr ledger, and an
+    "Anil New Credit 1500" nobody had entered.
+
+    Client, 2026-09-25: "Export to Trail balance to Excel Sheet is incomplete and
+    it has lot empty rows." Empty is the correct outcome; a fortnight-old number
+    presented as today's is not.
+    """
+    import io
+
+    from openpyxl import load_workbook
+
+    h = auth_headers("Manager")
+    # A day with Section 1 only - nothing in 3.14, 4.6, 4.7, 8.6, 9, 10 or 11.
+    client.put(f"/daily-trial-balance/{DATE}", json={"s1_hs_current": 4937}, headers=h)
+    ws = load_workbook(
+        io.BytesIO(client.get(f"/daily-trial-balance/{DATE}/export-excel", headers=h).content)
+    )["SEP12"]
+
+    for ref, what in (
+        ("A46", "3.14 New Credit - SEP12's 'Anil New Credit'"),
+        ("D46", "3.14 New Credit - SEP12's 1500"),
+        ("A55", "4.6 Expenses - SEP12's category"),
+        ("A61", "4.7 Credit Remittance - SEP12's creditor"),
+        ("A88", "8.6 Regular Expenses - SEP12's category"),
+        ("A109", "9. Mgr ledger - SEP12's first dated row"),
+        ("B109", "9. Mgr ledger - SEP12's MS sale"),
+        ("A127", "9. Mgr ledger - SEP12's last dated row"),
+        ("B133", "10. Load/Unload - SEP12's HS reading"),
+        ("E134", "10. Load/Unload - SEP12's MS IOCL load"),
+        ("B138", "11.1 - SEP12's Airtel balance"),
+        ("B139", "11.2 - SEP12's old Airtel balance"),
+    ):
+        assert ws[ref].value in (None, ""), f"{ref} still carries {what}: {ws[ref].value!r}"
+
+    # The sheet's own structure is untouched - only the input cells are cleared.
+    assert ws["A107"].value and "Mgr" in str(ws["A107"].value)      # section heading
+    assert str(ws["D109"].value or "").startswith("=")              # its formula
+    assert ws["B3"].value == 4937 or ws["C3"].value == 4937         # and the day IS written
 
 
 def test_section8_heading_carries_the_records_date_not_todays(client, auth_headers):
@@ -693,3 +822,129 @@ def test_closing_without_a_verified_summary_warns_but_is_allowed(client, auth_he
     note = out.json().get("summary_note", "")
     assert "No Daily Sales Entry" in note
     assert "Closed anyway, which is allowed" in note
+
+
+def test_the_blank_form_names_its_oil_rows(client, auth_headers):
+    """A form to write on has to say what each row is.
+
+    _clear_inputs() blanks column A of 2.1 with the figures - right for a filled
+    export, which rewrites those labels from the live item list, and wrong for
+    the blank one, which would otherwise print seven unnamed rows.
+    """
+    import io
+
+    from openpyxl import load_workbook
+
+    r = client.get("/daily-trial-balance/export-excel-blank", headers=auth_headers("Sales"))
+    assert r.status_code == 200
+    assert "SVR-TrialBalance-BLANK.xlsx" in r.headers["content-disposition"]
+    ws = load_workbook(io.BytesIO(r.content))["SEP12"]
+
+    labels = [ws.cell(row=row, column=1).value for row in range(19, 26)]
+    assert any(label and "2T/1.50" in str(label) for label in labels), labels
+    assert any(label and "2T/2.40" in str(label) for label in labels), labels
+
+    # ...and it is genuinely blank: no figures, on any section.
+    for ref in ("B19", "B29", "D36", "D49", "D50", "B133", "B138"):
+        assert ws[ref].value in (None, ""), f"{ref} is not blank: {ws[ref].value!r}"
+    # ...but it keeps the sheet's own numbering and formulas.
+    assert str(ws["A29"].value).startswith("3.1")
+    assert str(ws["A103"].value).startswith("8.16")
+    assert str(ws["D51"].value or "").startswith("=")
+
+
+def test_the_blank_form_carries_working_dropdowns(client, auth_headers):
+    """Every dropdown offers the station's CURRENT values, from a named range.
+
+    The client reported "NO DROP DOWN VALUES" (2026-09-25). Driving real Excel
+    over their exported copy afterwards showed the dropdowns were in fact live;
+    what was wrong was what they offered - the template's frozen SEP12 lists,
+    including a "Salary Advance Viaj" typo and a salary advance that migration
+    0037 had already taken off the creditors list.
+
+    So the assertion that matters is the VALUES, and that they are rebuilt from
+    trial_balance_option rather than shipped in the template. The named range is
+    asserted too, because it is what puts those values on a tab the station can
+    read and correct.
+    """
+    import io
+
+    from openpyxl import load_workbook
+
+    h = auth_headers("Manager")
+    wb = load_workbook(
+        io.BytesIO(client.get("/daily-trial-balance/export-excel-blank", headers=h).content)
+    )
+    assert "Lists" in wb.sheetnames, "no Lists tab to back the dropdowns"
+    ws, lists = wb["SEP12"], wb["Lists"]
+
+    by_range = {str(dv.sqref): dv.formula1 for dv in ws.data_validations.dataValidation}
+    # 4.6 Expenses, 8.6 Regular Expenses, 4.7 Credit Remittance, 3.14 New Credit.
+    for ref in ("A55:A58", "A88:A90", "A60:A62", "A43:A46", "D103:D105"):
+        assert ref in by_range, f"{ref} has no dropdown"
+        assert by_range[ref].startswith("=SVR_"), (
+            f"{ref} is not backed by a named range: {by_range[ref]!r}"
+        )
+
+    # And the range it points at actually holds the station's own values.
+    from openpyxl.utils import range_boundaries
+
+    def values_behind(ref: str) -> list[str]:
+        name = by_range[ref].lstrip("=")
+        cells = str(wb.defined_names[name].attr_text).split("!", 1)[1]
+        mn_c, mn_r, mx_c, mx_r = range_boundaries(cells.replace("$", ""))
+        return [
+            lists.cell(row=r, column=mn_c).value
+            for r in range(mn_r, mx_r + 1)
+            if lists.cell(row=r, column=mn_c).value
+        ]
+
+    expenses = values_behind("A55:A58")
+    assert "Power Bill" in expenses, expenses
+    assert by_range["A88:A90"] == by_range["A55:A58"], "8.6 must use the same list as 4.6"
+    remittances = values_behind("A60:A62")
+    assert any("Remitted" in v for v in remittances), remittances
+    # The stale SEP12 lists the template shipped are gone for good.
+    assert not any("Viaj" in v for v in expenses + remittances)
+    assert not any("advance" in v.lower() for v in values_behind("A43:A46"))
+
+
+def test_closing_a_day_seeds_tomorrows_4_1_from_the_computed_figure(
+    client, auth_headers, conn
+):
+    """ADR-2's whole point: tomorrow's 4.1 comes from today, not from a keyboard.
+
+    This broke silently. 4.4 stopped being typed on 2026-09-24 (it comes from
+    3.15), so `manual["section4"]["reported"]` is empty on every day entered
+    since - and the seed read exactly there. SEP15's draft was created with a
+    blank 4.1 while SEP14 had closed on 2,305,795.10, which is the hand-typed
+    cross-day reference ADR-2 was written to abolish.
+    """
+    day, tomorrow = "2026-04-07", "2026-04-08"
+    client.put(f"/daily-trial-balance/{day}", json={
+        "s1_hs_current": 4937,
+        "s54_cash_book_value": 500000,
+        # 4.4 is DERIVED from 3.15 - nothing is typed into it.
+        "manual": {"section3": {"onhand": 250000, "night": 100000}},
+    }, headers=auth_headers("Manager"))
+    closed = client.post(f"/daily-trial-balance/{day}/finalize",
+                         json={"reason": "seed test"},
+                         headers=auth_headers("Manager"))
+    assert closed.status_code == 200, closed.text[:300]
+
+    todays = closed.json()["computed"]["derived"]
+    reported = todays["section4"]["reported"]
+    assert reported, "4.4 did not compute, so this test proves nothing"
+
+    seeded = json.loads(
+        conn.execute("SELECT manual_json FROM daily_trial_balance WHERE shift_date = ?",
+                     (tomorrow,)).fetchone()["manual_json"] or "{}"
+    )
+    assert seeded.get("section4", {}).get("yesterday") == reported, (
+        f"tomorrow's 4.1 is {seeded.get('section4')}, today's 4.4 was {reported}"
+    )
+    # 7.1 is NOT seeded, on purpose. Carrying it switches the ADR-2 escalation
+    # check on for every day, and on the client's real SEP15 -> SEP16 figures
+    # that refuses sign-off with 7.4 = -170,354.42. Their sheet reads 7.4 as
+    # "report to mgmt", not as a gate, so this is their decision to make.
+    assert "section7" not in seeded, seeded

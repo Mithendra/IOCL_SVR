@@ -14,6 +14,7 @@ from pathlib import Path
 import pytest
 
 from svr_backend.core.config import get_settings
+from svr_backend.ocr import runtime
 
 _ROOT = Path(__file__).resolve().parents[2]
 _VENDOR = _ROOT / "installer" / "vendor" / "tesseract"
@@ -33,8 +34,14 @@ def _bundled_tesseract(monkeypatch):
     monkeypatch.setenv("SVR_TESSERACT_CMD", str(_TESS))
     monkeypatch.setenv("SVR_TESSDATA_PREFIX", str(_VENDOR / "tessdata"))
     get_settings.cache_clear()
+    # The PROBE is cached too, and it is keyed on nothing - so a version answered
+    # (or refused) under some other test's environment would be handed straight
+    # back here. Clearing the settings alone left that stale, which is part of
+    # why these tests failed in a full run and passed on their own.
+    runtime.tesseract_version.cache_clear()
     yield
     get_settings.cache_clear()
+    runtime.tesseract_version.cache_clear()
 
 
 def test_extract_reads_the_printed_template():

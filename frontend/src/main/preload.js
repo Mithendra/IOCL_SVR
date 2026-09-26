@@ -25,4 +25,7 @@ contextBridge.exposeInMainWorld("svr", {
   // it). Used for the whole Trial Balance sheet, which goes to management as a
   // document rather than a pasted picture (client, 2026-09-24).
   savePdf: (opts) => ipcRenderer.invoke("svr:save-pdf", opts),
+  // When the renderer files were last changed. Shown on every screen so a stale
+  // window is obvious rather than being mistaken for a fix that did not work.
+  buildStamp: () => ipcRenderer.invoke("svr:build-stamp"),
 });

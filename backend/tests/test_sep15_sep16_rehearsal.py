@@ -82,10 +82,20 @@ def test_both_dsr_workbooks_parse(client, auth_headers):
 
 
 def test_opening_stock_can_be_set_for_each_day(client, auth_headers):
-    """Inventory Master takes the opening the tab shows, replacing not adding."""
+    """Inventory Master takes the opening the tab shows, replacing not adding.
+
+    Owner, with the Owner passphrase, since 2026-09-25 - setting a stock level
+    outright is the one write that can make a shortage disappear, so the client
+    moved it behind the same secret as the reading reset.
+    """
+    secret = "rehearsal-stock-2026"
+    assert client.post("/owner-reset/secret", json={"new_passphrase": secret},
+                       headers=auth_headers("Owner")).status_code == 200
+
     for item_key, on_hand in OPENING["2026-09-15"].items():
-        r = client.put(f"/inventory/{item_key}", json={"on_hand": on_hand},
-                       headers=auth_headers("Manager"))
+        r = client.put(f"/inventory/{item_key}",
+                       json={"on_hand": on_hand, "passphrase": secret},
+                       headers=auth_headers("Owner"))
         assert r.status_code == 200, f"{item_key}: {r.status_code} {r.text[:200]}"
 
     rows = {r["item_key"]: r for r in

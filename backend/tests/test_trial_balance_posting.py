@@ -86,6 +86,51 @@ def test_a_category_the_station_invents_posts_without_a_code_change(client, auth
     assert row["kind"] == "payroll", "an advance is payroll, not an operational cost"
 
 
+def test_a_salary_advance_picked_in_3_14_reaches_monthly_expenses(
+    client, auth_headers, conn
+):
+    """A salary or a staff advance is an EXPENSE, wherever it was typed.
+
+    Client, 2026-09-25: "Any Salary or Bi-weekly Salary or Month end salary
+    entered in Daily Trial balance as Expense and when those transaction are
+    posted from Trail those should appear in Monthly Expenses."
+
+    Section 3.14 is called "New Credit / Salary Advance" and feeds the credit
+    master, so "Salary Advance Reavindra" picked there posted as a CREDITOR - it
+    showed under New Credit in the Credit/Remittance Master owing the station
+    10,000, and never reached Monthly Expenses (client's screenshot, same day).
+    """
+    date = "2026-11-08"
+    _day(client, auth_headers, date, credits_=[("Salary Advance Reavindra", 10000)])
+    client.post(f"/daily-trial-balance/{date}/post", headers=auth_headers("Manager"))
+
+    row = conn.execute(
+        "SELECT me.amount, ec.name, ec.kind FROM monthly_expense me "
+        "JOIN expense_category ec ON ec.id = me.category_id WHERE me.expense_date = ?",
+        (date,),
+    ).fetchone()
+    assert row is not None, "the salary advance never reached Monthly Expenses"
+    assert row["amount"] == 10000
+    assert row["kind"] == "payroll"
+    # And it is NOT a creditor - nobody owes the station this money.
+    assert conn.execute(
+        "SELECT COUNT(*) c FROM credit_transaction WHERE txn_date = ?", (date,)
+    ).fetchone()["c"] == 0
+
+
+def test_a_real_fuel_credit_is_untouched_by_the_salary_rule(client, auth_headers, conn):
+    """The rule reads the label, so it must not swallow a genuine creditor.
+    None of the station's real creditors carry 'salary' or 'advance'."""
+    date = "2026-11-07"
+    _day(client, auth_headers, date, credits_=[("Anil/Nani New Credit", 2000)])
+    client.post(f"/daily-trial-balance/{date}/post", headers=auth_headers("Manager"))
+    row = conn.execute(
+        "SELECT kind, creditor_name FROM credit_transaction WHERE txn_date = ?", (date,)
+    ).fetchone()
+    assert row["kind"] == "credit"
+    assert row["creditor_name"] == "Anil/Nani"
+
+
 def test_a_credit_reaches_credit_master_under_the_creditor_name(client, auth_headers, conn):
     date = "2026-11-14"
     _day(client, auth_headers, date, credits_=[("AirTel Hari New Credit", 11674)])
@@ -336,3 +381,121 @@ def test_sign_off_carries_the_days_oil_stock_into_inventory(client, auth_headers
     after = conn.execute(
         "SELECT on_hand FROM inventory_item WHERE item_key = ?", (key,)).fetchone()["on_hand"]
     assert after == 17, f"20 opening less 3 sold; was {before}, now {after}"
+
+
+def test_there_are_exactly_two_destinations(client, auth_headers, conn):
+    """Everything posts to the Credit/Remittance Master or to Monthly Expenses.
+
+    Client, 2026-09-25: "we post everything to either Credit/Remittance Master OR
+    Expenses only two kinds of data that's all."
+
+    Written as an invariant rather than a spot-check, because the way this breaks
+    is somebody adding a fourth category to BLOCKS and a new table under it, and
+    every existing test still passing. Post one line of every kind the form can
+    produce and assert that nothing lands anywhere else.
+    """
+    from svr_backend.posting import BLOCKS
+
+    date = "2026-11-06"
+    _day(
+        client, auth_headers, date,
+        expenses=[("Power Bill", 900)],
+        credits_=[("AirTel Hari New Credit", 1200)],
+        remittances=[("AirTel Hari Old Credit Remitted Amt", 700)],
+    )
+    client.post(f"/daily-trial-balance/{date}/post", headers=auth_headers("Manager"))
+
+    landed = {
+        r["target_table"]
+        for r in conn.execute(
+            "SELECT DISTINCT target_table FROM trial_balance_posting "
+            "WHERE target_table IS NOT NULL"
+        )
+    }
+    assert landed == {"credit_transaction", "monthly_expense"}, landed
+
+    # And every block the form can post declares one of the two kinds that reach
+    # those tables - an 'expense' goes to Monthly Expenses, anything else to the
+    # Credit/Remittance Master (posting.post_line).
+    assert {cat for cat, _key in BLOCKS.values()} <= {"expense", "credit", "remittance"}
+
+    # This day's three lines went to the two tables, none missing.
+    rows = conn.execute(
+        "SELECT category, target_table FROM trial_balance_posting WHERE shift_date = ?",
+        (date,),
+    ).fetchall()
+    assert len(rows) == 3, [dict(r) for r in rows]
+    for row in rows:
+        expected = "monthly_expense" if row["category"] == "expense" else "credit_transaction"
+        assert row["target_table"] == expected, dict(row)
+
+
+# --------------------------------------------------------------- option delete
+#
+# Client, 2026-09-26: "In addition to +New also -Delete option is needed to
+# delete a selected drop down list across Section 4,5 and 6".
+
+def test_a_dropdown_value_can_be_removed_and_the_lists_come_back_without_it(
+    client, auth_headers
+):
+    h = auth_headers("Sales")
+    client.post("/daily-trial-balance/options",
+                json={"list_key": "card_types", "value": "Scratch Card"}, headers=h)
+    assert "Scratch Card" in client.get("/daily-trial-balance/options",
+                                        headers=h).json()["card_types"]
+
+    r = client.post("/daily-trial-balance/options/remove",
+                    json={"list_key": "card_types", "value": "Scratch Card"}, headers=h)
+    assert r.status_code == 200, r.text[:200]
+    assert "Scratch Card" not in r.json()["card_types"]
+
+
+def test_removing_an_option_leaves_saved_entries_alone(client, auth_headers, conn):
+    """The whole reason this is safe to expose: an entry stores the text that was
+    chosen, not a pointer into the option table. Yesterday's credit must still
+    name the person who took it after they leave the station."""
+    h = auth_headers("Sales")
+    client.post("/daily-trial-balance/options",
+                json={"list_key": "customers", "value": "Departing Customer"}, headers=h)
+    saved = client.post(
+        "/daily-sales-entry",
+        json={"pump_serial": "12BC4523V-RD", "shift_date": "2026-09-26",
+              "hs": {"current": "9700000"}, "ms": {"current": "9700000"},
+              "new_credits": [{"name": "Departing Customer", "ltrs": "10", "rate": "105.36"}]},
+        headers=h,
+    )
+    assert saved.status_code in (200, 201), saved.text[:300]
+    client.post("/daily-trial-balance/options/remove",
+                json={"list_key": "customers", "value": "Departing Customer"}, headers=h)
+
+    row = conn.execute(
+        "SELECT payload FROM daily_sales_entry WHERE shift_date = '2026-09-26'"
+    ).fetchone()
+    assert row is not None
+    assert "Departing Customer" in row["payload"]
+
+
+def test_removing_something_that_is_not_there_says_so(client, auth_headers):
+    r = client.post("/daily-trial-balance/options/remove",
+                    json={"list_key": "card_types", "value": "Never Existed"},
+                    headers=auth_headers("Sales"))
+    assert r.status_code == 404
+
+
+def test_an_unknown_list_is_refused_rather_than_silently_doing_nothing(client, auth_headers):
+    r = client.post("/daily-trial-balance/options/remove",
+                    json={"list_key": "not_a_list", "value": "x"},
+                    headers=auth_headers("Manager"))
+    assert r.status_code == 400
+
+
+def test_collected_by_has_no_two_name_pairings(client, auth_headers):
+    """The pairings belong to 'staff' - 8.16 signs a shift off with two people -
+    and must not follow the individuals into Section 6 (client, 2026-09-26)."""
+    lists = client.get("/daily-trial-balance/options",
+                       headers=auth_headers("Sales")).json()
+    assert set(lists["collectors"]) == {
+        "Sriharsha", "Girish", "Ravindra", "Ashok", "Vijay"}
+    assert not [v for v in lists["collectors"] if "&" in v or "/" in v]
+    # ...and 'staff' still has them, for the sign-off that needs them.
+    assert [v for v in lists["staff"] if "&" in v or "/" in v]

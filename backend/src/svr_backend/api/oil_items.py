@@ -30,6 +30,7 @@ from svr_backend.core.audit import record_write
 from svr_backend.core.db import transaction
 from svr_backend.core.rbac import get_db, require
 from svr_backend.core.session import Principal
+from svr_backend.owner_secret import check_passphrase
 
 router = APIRouter(prefix="/oil-items", tags=["oil-items"])
 
@@ -46,6 +47,7 @@ _RATE_EFFECTIVE_FROM = "2000-01-01"
 
 
 class OilItemIn(BaseModel):
+    passphrase: str | None = None
     label: str = Field(min_length=1, max_length=120)
     unit: str = Field(default="pcs", max_length=16)
     rate: float = Field(default=0.0, ge=0)
@@ -54,6 +56,7 @@ class OilItemIn(BaseModel):
 
 
 class OilItemPatch(BaseModel):
+    passphrase: str | None = None
     label: str | None = Field(default=None, min_length=1, max_length=120)
     unit: str | None = Field(default=None, max_length=16)
     sort_order: int | None = None
@@ -98,9 +101,15 @@ def list_aliases(
 @router.post("", status_code=status.HTTP_201_CREATED)
 def create_oil_item(
     body: OilItemIn,
+    # Manager or Owner may edit, but ONLY with the Owner's passphrase, and every
+    # row records who did it (client, 2026-09-25: "Manager can be updated but
+    # secert password is need from the owner"). The passphrase is the authority;
+    # the role is just who is at the keyboard; last_updated_by is the answer to
+    # "who changed this".
     principal: Principal = Depends(require("Manager", "Owner")),
     conn: sqlite3.Connection = Depends(get_db),
 ) -> dict:
+    check_passphrase(conn, body.passphrase)
     label = body.label.strip()
 
     # A label the station has used before names a product that already exists -
@@ -165,9 +174,15 @@ def create_oil_item(
 def update_oil_item(
     item_key: str,
     body: OilItemPatch,
+    # Manager or Owner may edit, but ONLY with the Owner's passphrase, and every
+    # row records who did it (client, 2026-09-25: "Manager can be updated but
+    # secert password is need from the owner"). The passphrase is the authority;
+    # the role is just who is at the keyboard; last_updated_by is the answer to
+    # "who changed this".
     principal: Principal = Depends(require("Manager", "Owner")),
     conn: sqlite3.Connection = Depends(get_db),
 ) -> dict:
+    check_passphrase(conn, body.passphrase)
     row = conn.execute("SELECT * FROM oil_item WHERE item_key = ?", (item_key,)).fetchone()
     if row is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"No oil item '{item_key}'.")
@@ -217,9 +232,23 @@ def update_oil_item(
     return _out(next(i for i in oil_items.all_items(conn) if i.key == item_key))
 
 
-@router.delete("/{item_key}")
+class RetireIn(BaseModel):
+    passphrase: str | None = None
+
+
+# POST, not DELETE. Retiring is a soft action - the row stays so past days keep
+# their value - and it now carries the Owner passphrase in its body, which DELETE
+# is a poor fit for: several HTTP clients refuse to send a body on a DELETE at
+# all (the test client among them) and intermediaries may drop it.
+@router.post("/{item_key}/retire")
 def retire_oil_item(
     item_key: str,
+    body: RetireIn,
+    # Manager or Owner may edit, but ONLY with the Owner's passphrase, and every
+    # row records who did it (client, 2026-09-25: "Manager can be updated but
+    # secert password is need from the owner"). The passphrase is the authority;
+    # the role is just who is at the keyboard; last_updated_by is the answer to
+    # "who changed this".
     principal: Principal = Depends(require("Manager", "Owner")),
     conn: sqlite3.Connection = Depends(get_db),
 ) -> dict:
@@ -228,6 +257,7 @@ def retire_oil_item(
     The last active item cannot be retired: Oil Sale(s) with no rows at all is a
     broken form, not an empty one, and there would be no way back through the UI.
     """
+    check_passphrase(conn, body.passphrase)
     row = conn.execute("SELECT * FROM oil_item WHERE item_key = ?", (item_key,)).fetchone()
     if row is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"No oil item '{item_key}'.")

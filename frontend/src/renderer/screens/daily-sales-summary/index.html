@@ -105,9 +105,19 @@
         <!-- 4. Upload -->
         <div class="section-title">4. Verification &amp; Upload to Daily Trial Balance</div>
         <p id="gate-status" class="status-line"></p>
-        <div class="export-bar">
+        <!-- Verification used to write itself the moment a dropdown changed -
+             no press, no undo, and clicking away mid-edit committed whatever was
+             in the box. Exactly what the client rejected on Inventory Master
+             ("there is no Save button which is needed"), and reported here on
+             2026-09-25. -->
+        <div class="post-bar">
+          <button type="button" class="export-btn" id="save-sum-btn" disabled>Save</button>
+          <button type="button" class="export-btn" id="update-sum-btn" disabled>Update</button>
+          <button type="button" class="export-btn secondary" id="undo-sum-btn" disabled>Undo changes</button>
+          <span class="post-bar-sep"></span>
           <button type="button" class="export-btn" id="upload-btn">Upload to Daily Trial Balance</button>
         </div>
+        <p id="save-sum-status" class="status-line"></p>
         <p id="upload-status" class="status-line"></p>
         <p style="font-size:11px;color:var(--io-red);margin:4px 0 0">
           Upload is blocked until BOTH pumps show "Verified Correct" — the check that a scanned

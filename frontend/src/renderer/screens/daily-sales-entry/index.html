@@ -256,15 +256,26 @@
         <div class="section-title">
           4. <span class="tt" data-en="Credit Cards Swiping(s)" data-te="క్రెడిట్ కార్డ్ స్వైపింగ్">Credit Cards Swiping(s)</span>
         </div>
-        <table class="write-in">
+        <!-- Fixed column widths, each sized from the widest value it can hold,
+             so the money columns stop being squeezed by the name ones (client,
+             2026-09-25). The widths are still sized that way; what came OUT on
+             2026-09-26 is printing the format under each heading - the client
+             never asked for it and it reads as clutter on a form that is meant
+             to be glanced at. -->
+        <table class="write-in tight">
           <!-- Client, 2026-09-24: Type and In Ltrs, and Rate behaving as it does in
                Section 5 - a card swipe is fuel sold at the pump price, same as a
                credit, so the rate is not a free number. -->
-          <tr><th>Card Holder / Terminal ID</th><th>Card Type</th>
-              <th>Type<br><span style="font-weight:400;font-size:10px">(1. Diesel 2. Petrol)</span></th>
-              <th>In Ltrs</th><th>Rate</th><th>Txn / Receipt #</th><th>Amount</th></tr>
+          <tr><th class="w-name">Card Holder Name</th><th class="w-cardtype">Card Type</th>
+              <th class="w-type">Type</th>
+              <th class="w-ltrs">In Ltrs</th>
+              <th class="w-rate">Rate</th>
+              <th class="w-txn">Txn / Receipt #</th>
+              <th class="w-amt">Amount</th>
+              <th class="w-new"></th>
+              <th class="spacer"></th></tr>
           <tbody id="cc-rows"></tbody>
-          <tr class="total-row"><td colspan="6">Total Amt Credit Cards</td><td><input id="cc-total" disabled placeholder="auto" /></td></tr>
+          <tr class="total-row"><td colspan="6">Total Amt Credit Cards</td><td class="num"><input id="cc-total" disabled placeholder="auto" /></td><td></td><td></td></tr>
         </table>
         <button type="button" class="add-row-btn" data-add="cc">+ Add row</button>
 
@@ -272,10 +283,19 @@
         <div class="section-title">
           5. <span class="tt" data-en="Today New Credit(s)" data-te="నేటి కొత్త క్రెడిట్లు">Today New Credit(s)</span>
         </div>
-        <table class="write-in">
-          <tr><th>Creditor Name</th><th>Type</th><th>In Ltrs</th><th>Rate</th><th>Amount</th><th>Signature</th></tr>
+        <!-- Signature is off this section and Section 6 (client, 2026-09-25):
+             nobody signs a screen, and the width it was eating belongs to the
+             name and the amount. The printed form keeps its column. -->
+        <table class="write-in tight">
+          <tr><th class="w-name">Creditor Name</th>
+              <th class="w-type">Type</th>
+              <th class="w-ltrs">In Ltrs</th>
+              <th class="w-rate">Rate</th>
+              <th class="w-amt">Amount</th>
+              <th class="w-new"></th>
+              <th class="spacer"></th></tr>
           <tbody id="nc-rows"></tbody>
-          <tr class="total-row"><td colspan="5">Total Amt New Credits Today</td><td><input id="nc-total" disabled placeholder="auto" /></td></tr>
+          <tr class="total-row"><td colspan="4">Total Amt New Credits Today</td><td class="num"><input id="nc-total" disabled placeholder="auto" /></td><td></td><td></td></tr>
         </table>
         <button type="button" class="add-row-btn" data-add="nc">+ Add row</button>
 
@@ -284,8 +304,20 @@
           6. <span class="tt" data-en="Old/Pending Credit Received" data-te="పాత / పెండింగ్ క్రెడిట్ రసీదు">Old/Pending Credit Received</span>
           <span style="font-weight:400;font-size:11px">[NOT part of today's total]</span>
         </div>
-        <table class="write-in">
-          <tr><th>Customer Name</th><th>Amount</th><th>Old Credit Given Date</th><th>Signature</th></tr>
+        <table class="write-in tight tight-oc">
+          <!-- Client, 2026-09-25: how the money actually came in. Payment says
+               whether the customer still owes; Payment Mode decides where the
+               figure lands in the Trial Balance's Section 3, so it has to be
+               recorded when it is collected rather than worked out later. -->
+          <tr><th class="w-name">Customer Name</th>
+              <th class="w-amt">Amount</th>
+              <th class="w-date">Old Credit Given Date</th>
+              <th class="w-pay">Payment</th>
+              <th class="w-remit">Remittance Entered</th>
+              <th class="w-collect">Collected by</th>
+              <th class="w-mode">Payment Mode</th>
+              <th class="w-new"></th>
+              <th class="spacer"></th></tr>
           <tbody id="oc-rows"></tbody>
         </table>
         <button type="button" class="add-row-btn" data-add="oc">+ Add row</button>

@@ -142,11 +142,51 @@ function render(s) {
   $("upload-btn").disabled = !canUpload;
   $("upload-btn").style.display =
     me.role === "Sales" ? "none" : "inline-block";
+  // The screen has just been repainted from the server, so nothing is pending.
+  markDirty();
 }
 
 async function load() {
   const s = await api.get(`/daily-sales-summary/${$("shift-date").value}`);
   render(s);
+}
+
+const VERIFY_FIELDS = [
+  "off-verified", "road-verified", "off-note", "road-note",
+  "off-salesman", "road-salesman",
+];
+
+// What differs from what the server last sent. `current` is that snapshot.
+function pendingCount() {
+  if (!current) return 0;
+  let n = 0;
+  for (const side of ["off", "road"]) {
+    const data = current[side === "off" ? "office" : "road"] || {};
+    if ($(`${side}-verified`).disabled) continue;
+    if (($(`${side}-verified`).value === "1") !== !!data.verified) n += 1;
+    if (($(`${side}-note`).value || "") !== (data.verified_note || "")) n += 1;
+    if (($(`${side}-salesman`).value || "") !== (data.salesman || "")) n += 1;
+  }
+  return n;
+}
+
+function markDirty() {
+  const n = pendingCount();
+  // Save before anything is stored, Update once the day is on file - the same
+  // pair, and the same meaning, as the Daily Trial Balance form.
+  const onFile = !!(current && current.status && current.status !== "draft");
+  const save = $("save-sum-btn");
+  const update = $("update-sum-btn");
+  const undo = $("undo-sum-btn");
+  if (!save) return;
+  save.style.display = onFile ? "none" : "";
+  update.style.display = onFile ? "" : "none";
+  save.disabled = n === 0;
+  update.disabled = n === 0;
+  undo.disabled = n === 0;
+  const label = n ? ` ${n} change${n === 1 ? "" : "s"}` : "";
+  save.textContent = `Save${label}`;
+  update.textContent = `Update${label}`;
 }
 
 async function pushUpdate() {
@@ -159,11 +199,16 @@ async function pushUpdate() {
     body[`${side}_verified`] = $(`${side}-verified`).value === "1";
     body[`${side}_verified_note`] = $(`${side}-note`).value || null;
   }
+  const st = $("save-sum-status");
+  st.className = "status-line";
+  st.textContent = "Saving…";
   try {
     render(await api.put(`/daily-sales-summary/${$("shift-date").value}`, body));
+    st.className = "status-line ok";
+    st.textContent = "Saved.";
   } catch (err) {
-    $("upload-status").className = "status-line err";
-    $("upload-status").textContent = err.message || String(err);
+    st.className = "status-line err";
+    st.textContent = err.message || String(err);
     await load(); // resync to server truth
   }
 }
@@ -195,9 +240,19 @@ async function init() {
   }
   $("shift-date").value = new Date().toISOString().slice(0, 10);
   $("shift-date").addEventListener("change", load);
-  for (const el of ["off-verified", "road-verified", "off-note", "road-note", "off-salesman", "road-salesman"]) {
-    $(el).addEventListener("change", pushUpdate);
+  // Editing MARKS the row; Save writes it. It used to write on `change`.
+  for (const el of VERIFY_FIELDS) {
+    $(el).addEventListener("change", markDirty);
+    $(el).addEventListener("input", markDirty);
   }
+  $("save-sum-btn").addEventListener("click", pushUpdate);
+  $("update-sum-btn").addEventListener("click", pushUpdate);
+  $("undo-sum-btn").addEventListener("click", () => {
+    render(current);
+    const st = $("save-sum-status");
+    st.className = "status-line";
+    st.textContent = "Edits discarded.";
+  });
   $("upload-btn").addEventListener("click", upload);
   await load();
 }

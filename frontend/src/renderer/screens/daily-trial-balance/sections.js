@@ -78,16 +78,25 @@ export const SECTIONS = [
           ["3.9", "Indian Bank Statement Ending Balance", "indianbank", "@Fraud pending"],
           ["3.10", "Yes Bank Statement Ending Balance", "yesbank"],
           ["3.11", "Phone Pay UnSettled Amt", "ppunsettled"],
-          ["3.12", "Phone Pay Settled Amt", "ppsettled",
-            "Already reflects in the Indian Bank statement"],
-          ["3.13", "Total Amt", { derived: "section3.total13" }],
+          // "3.12 Phone Pay Settled Amt" was here and is gone (client,
+          // 2026-09-25): settled Phone Pay is already in the Indian Bank
+          // statement by 6:30 AM, which is 3.9 - counting it again overstated
+          // Total Cash/Book. The lines below shift up one.
+          //
+          // The DERIVED keys keep their old numbering (total13, total15). They
+          // are internal names, and the form already works this way by an
+          // established decision - the backend's field names keep the older
+          // SDD 9 numbering and are mapped at the render boundary. Renaming
+          // them would touch the engine, the exporter and every test to change
+          // nothing an operator sees.
+          ["3.12", "Total Amt", { derived: "section3.total13" }],
         ],
         note: { key: "special_note" },
       },
       {
         type: "rows",
         key: "new_credits",
-        title: "3.14 New Credit / Salary Advance",
+        title: "3.13 New Credit / Salary Advance",
         columns: [
           { key: "type", label: "Type", optionList: "creditors" },
           { key: "amount", label: "Amount" },
@@ -100,7 +109,7 @@ export const SECTIONS = [
         // A continuation of the chain above, so no repeated "Line | Amount"
         // header - on its own it read as a mystery (client, 2026-09-12).
         noHead: true,
-        fields: [["3.15", "Total Cash/Book Amount as of Today",
+        fields: [["3.14", "Total Cash/Book Amount as of Today",
           { derived: "section3.total15" }]],
       },
     ],
@@ -120,11 +129,11 @@ export const SECTIONS = [
             { derived: "section4.todaysale" },
             "Computed from the day's Daily Sales Entries: sales less Beta/Density/Testing"],
           ["4.3", "Total - Projected", { derived: "section4.total3" }],
-          // SEP15!D52 = D47. It is 3.15's total, not a number to key again
+          // SEP15!D52 = D47. It is 3.14's total, not a number to key again
           // (client, 2026-09-24).
           ["4.4", "Today SVR Cash/Book Value Reported",
             { derived: "section4.reported" },
-            "From 3.15 Total Cash/Book Amount — carry it forward as tomorrow's 4.1"],
+            "From 3.14 Total Cash/Book Amount — carry it forward as tomorrow's 4.1"],
           ["4.5", "Diff Reported - Projected", { derived: "section4.diff" },
             "OK within ₹50 — above that, call/inform management immediately"],
         ],
@@ -377,24 +386,10 @@ export const SECTIONS = [
           ["total", "Total", "derived"],
         ],
         derivedFrom: "section10",
+        // IOCL delivers about every ten days; between loads the last delivery is
+        // shown rather than a blank block (client, 2026-09-25).
+        carryFrom: "last_load",
         note: "Total = New Computer − Old Reading. Lost = IOCL Load − Total.",
-      },
-    ],
-  },
-
-  {
-    n: "11",
-    width: "wide",
-    key: "section11",
-    title: "Old/New Credit Sales Details",
-    hint: "[Credit Master Entry]",
-    blocks: [
-      {
-        type: "fields",
-        fields: [
-          ["11.1", "NEW Airtel Balance", "new_airtel"],
-          ["11.2", "Old Airtel Balance", "old_airtel"],
-        ],
       },
     ],
   },

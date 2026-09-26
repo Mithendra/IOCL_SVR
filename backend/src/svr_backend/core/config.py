@@ -74,6 +74,15 @@ class Settings(BaseSettings):
     def resolved_log_dir(self) -> Path:
         return self.log_dir or (self.data_dir / "logs")
 
+    def resolved_upload_dir(self) -> Path:
+        """Where uploaded stock-purchase invoices live.
+
+        Beside the database rather than inside it: a scanned invoice is a megabyte
+        or two, they are kept indefinitely, and putting them in SQLite would make
+        every backup and copy of the database carry them.
+        """
+        return self.data_dir / "stock-purchases"
+
     def resolved_tesseract_cmd(self) -> str:
         """Path to the bundled tesseract.exe, or a bare 'tesseract' for dev/PATH."""
         return str(self.tesseract_cmd) if self.tesseract_cmd else "tesseract"

@@ -162,6 +162,49 @@ async function captureSection(sourceWebContents, rect) {
   return { file, copied: true };
 }
 
+// When the renderer files on disk were last changed.
+//
+// Three rounds of testing were spent on changes that were already live, because
+// a screenshot of a window opened before a restart is indistinguishable from a
+// screenshot of a fix that did not work. There is now a stamp on every screen:
+// if it does not match what was just built, the window is stale - reload it.
+//
+// Taken from the newest mtime under src/renderer, so it moves whenever anything
+// the operator can see changes, without a build step to remember.
+function rendererBuildStamp() {
+  const root = path.join(__dirname, "..", "renderer");
+  let newest = 0;
+  const walk = (dir) => {
+    let entries;
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const e of entries) {
+      const full = path.join(dir, e.name);
+      if (e.isDirectory()) {
+        walk(full);
+      } else {
+        try {
+          const m = fs.statSync(full).mtimeMs;
+          if (m > newest) newest = m;
+        } catch {
+          /* a file that vanished mid-walk is not a build stamp problem */
+        }
+      }
+    }
+  };
+  walk(root);
+  if (!newest) return "";
+  const d = new Date(newest);
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${pad(d.getDate())} ${d.toLocaleString("en-GB", { month: "short" })} ` +
+    `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+ipcMain.handle("svr:build-stamp", () => rendererBuildStamp());
+
 // The whole sheet as a PDF, saved where it can be attached.
 //
 // It used to be a clipboard PNG, the same route as the Section 8 snapshot, and

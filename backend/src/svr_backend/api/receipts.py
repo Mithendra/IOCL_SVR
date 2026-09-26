@@ -17,6 +17,7 @@ from svr_backend.core.db import transaction
 from svr_backend.core.rbac import get_db, get_principal, require
 from svr_backend.core.session import Principal
 from svr_backend.rates import latest_effective_rates
+from svr_backend.summary import PUMP_SIDE
 
 router = APIRouter(prefix="/receipts", tags=["receipts"])
 
@@ -58,6 +59,35 @@ def list_receipts(
     ).fetchall()
     return [dict(r) for r in rows]
 
+
+@router.get("/form-options")
+def form_options(
+    _: Principal = Depends(require("Sales", "Manager", "Owner")),
+    conn: sqlite3.Connection = Depends(get_db),
+) -> dict:
+    """What the receipt form needs to fill its own dropdowns.
+
+    Pump Serial# was a free-text box, so a receipt could be issued against a
+    serial that does not exist and would never tie back to a pump (client,
+    2026-09-25). The two serials come from summary.PUMP_SIDE, the same fixed map
+    Daily Sales Entry classifies against, so there is one list and not two.
+
+    Sell rates only - never buy rates. Sales may issue a receipt and has to see
+    the price being charged, but the buy rate is the station's margin and stays
+    behind /rate-master, which is Manager/Owner.
+    """
+    rates = latest_effective_rates(conn)
+    sell: dict[str, float] = {}
+    for fuel, key in _FUEL_KEY.items():
+        if key in rates:
+            sell[fuel] = rates[key]["sell_rate"]
+    # The station's own name, address and phone go on the printed receipt - a
+    # receipt handed to a customer with no address on it is not a receipt
+    # (client, 2026-09-25). From station_profile so the Owner can correct them.
+    station = {
+        r["key"]: r["value"] for r in conn.execute("SELECT key, value FROM station_profile")
+    }
+    return {"pumps": list(PUMP_SIDE), "sell_rates": sell, "station": station}
 
 @router.get("/{receipt_id}")
 def get_receipt(
