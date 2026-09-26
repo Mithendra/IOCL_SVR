@@ -1873,3 +1873,14 @@ details.tb-collapsible[open] > summary {
 .dse-datecell input { width: 100% !important; }
 .dse-datecell input.bad { border-color: var(--io-red); background: #fdf1f0; }
 .dse-datecell .cal-btn { display: inline-block; margin: 0; padding: 3px 7px; flex: none; }
+
+/* ---- Daily Sales Entry Section 2, Oil Sale(s): shrink the five number
+   columns (client, 2026-09-26). table-layout: fixed makes the widths below
+   stick; without it the browser splits the row evenly regardless of content,
+   which is what made Quantity/Rate/Opening/Closing/Amount as wide as Item.
+   Scoped to .oil-table only - the section-title bar and every other table on
+   this screen are untouched. */
+.oil-table { table-layout: fixed; width: 100%; }
+.oil-table .oil-col-item { width: auto; }   /* takes whatever the five below give up */
+.oil-table .oil-col-num  { width: 9%; }     /* roughly half of an even 6-way split */
+.oil-table td input { box-sizing: border-box; width: 100%; }

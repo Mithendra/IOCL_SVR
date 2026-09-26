@@ -190,7 +190,19 @@
         <div class="section-title">
           2. <span class="tt" data-en="Oil Sale(s)" data-te="నూనె అమ్మకాలు">Oil Sale(s)</span>
         </div>
-        <table>
+        <!-- Client, 2026-09-26: "Shrink 50% of the row Length for Quantity,
+             Rate, Opening Stock, Closing Stock and Amount, right now too
+             lengthy for sure." table-layout: fixed + a colgroup is what makes a
+             width stick - without it the browser hands each of the six columns
+             an even share regardless of what they hold, which is how five short
+             numbers ended up as wide as the item name next to them. -->
+        <table class="oil-table">
+          <colgroup>
+            <col class="oil-col-item">
+            <col class="oil-col-num"><col class="oil-col-num">
+            <col class="oil-col-num"><col class="oil-col-num">
+            <col class="oil-col-num">
+          </colgroup>
           <tr>
             <th>Item</th><th>Quantity</th><th>Rate</th>
             <th>Opening Stock</th><th>Closing Stock</th><th>Amount</th>
@@ -292,10 +304,14 @@
               <th class="w-ltrs">In Ltrs</th>
               <th class="w-rate">Rate</th>
               <th class="w-amt">Amount</th>
+              <!-- Client, 2026-09-26. Same list as Section 6's own Payment Mode
+                   (payment_modes) - this is the same question asked at the other
+                   end of a credit's life, so one shared list serves both. -->
+              <th class="w-mode">Payment Mode</th>
               <th class="w-new"></th>
               <th class="spacer"></th></tr>
           <tbody id="nc-rows"></tbody>
-          <tr class="total-row"><td colspan="4">Total Amt New Credits Today</td><td class="num"><input id="nc-total" disabled placeholder="auto" /></td><td></td><td></td></tr>
+          <tr class="total-row"><td colspan="4">Total Amt New Credits Today</td><td class="num"><input id="nc-total" disabled placeholder="auto" /></td><td></td><td></td><td></td></tr>
         </table>
         <button type="button" class="add-row-btn" data-add="nc">+ Add row</button>
 

@@ -473,8 +473,12 @@ OPTION_LISTS = (
     # 0041 - Section 6's collection details. Registered here as well as seeded,
     # because a list that can be read but not added to is a dead end: the station
     # takes a fourth payment mode one day and there is nowhere to put it.
-    "payment_type",     # Full / Partial - whether the customer still owes
-    "payment_modes",    # Cash / Phone Pay / Credit Card
+    "payment_type",         # Full / Partial - whether the customer still owes
+    "payment_modes",        # Section 6 - Cash / Phone Pay / Credit Card
+    # 0044 - Section 5's own Payment Mode is a different question (how a
+    # credit was ISSUED, not how it was later collected), so it is a separate
+    # list rather than sharing Section 6's (client, 2026-09-26).
+    "credit_payment_modes", # Section 5 - Credit (CR)
     # 0042 - who collected an old credit. Deliberately NOT 'staff': that list
     # holds pairs ("Gopi & Girish") because a shift is signed off by two people,
     # and one person collects a credit.

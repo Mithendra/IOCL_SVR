@@ -55,7 +55,26 @@ export function compute(p) {
   });
 
   const expensesTotal = (p.expenses || []).reduce((a, x) => a + trunc2(parseAmt(x)), 0);
-  const cardsTotal = (p.credit_card_amounts || []).reduce((a, x) => a + trunc2(parseAmt(x)), 0);
+
+  // Section 4 - Amount = In Ltrs x Rate per row, overridable, same rule as
+  // Section 5 below (backend: calc/daily_sales_entry.py). A typed figure
+  // (credit_card_amounts[i] not blank) wins; otherwise it comes from the row's
+  // own litres and rate. Until this mirrored the backend, the instant/local
+  // pass showed no per-row figure at all - only the debounced server round trip
+  // (~250ms later) ever computed it, so Amount visibly blanked on every
+  // keystroke before settling, which reads as "not working" even though it
+  // eventually was.
+  let cardsTotal = 0;
+  const creditCardAmounts = (p.credit_card_rows || []).map((row, i) => {
+    const typed = (p.credit_card_amounts || [])[i];
+    const amt = !isBlank(typed)
+      ? trunc2(parseAmt(typed))
+      : (!isBlank(row.ltrs) && !isBlank(row.rate))
+        ? trunc2(parseAmt(row.ltrs) * parseAmt(row.rate))
+        : 0;
+    cardsTotal += amt;
+    return amt;
+  });
 
   let newCreditsTotal = 0;
   const newCreditAmounts = (p.new_credits || []).map((nc) => {
@@ -89,6 +108,7 @@ export function compute(p) {
     oil_total: trunc2(oilTotal),
     gas_oil_total: trunc2(gasTotal + oilTotal),
     expenses_total: trunc2(expensesTotal),
+    credit_card_amounts: creditCardAmounts,
     credit_cards_total: trunc2(cardsTotal),
     new_credit_amounts: newCreditAmounts,
     new_credits_total: trunc2(newCreditsTotal),

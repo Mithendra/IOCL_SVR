@@ -1086,6 +1086,66 @@ test("- Delete removes a value in Sections 4, 5 and 6 alike", async ({ page }) =
   }
 });
 
+test("Section 4's own instant preview computes Amount, not just the server round trip", async ({
+  page,
+}) => {
+  // The renderer's local mirror never learned Section 4's Amount = Ltrs x
+  // Rate, so every keystroke blanked it and only the ~250ms debounced server
+  // call ever filled it in - a visible flash that reads as broken even though
+  // it settles correctly (client, 2026-09-26).
+  await login(page, "gsales");
+  await page.goto(SCREEN);
+  const row = page.locator("#cc-rows tr").first();
+  await row.locator("select.cc-fuel").selectOption("HS");
+  // Wait for the auto-filled Rate itself before reading it, so the value this
+  // test compares against is the real one, not "" caught mid-fill.
+  await expect(row.locator(".cc-rate")).not.toHaveValue("");
+  const rate = await row.locator(".cc-rate").inputValue();
+  await row.locator(".cc-ltrs").fill("1");
+  // No expect()-driven retry here on purpose: read the value on the very next
+  // tick, before the debounced server call could possibly have returned.
+  await page.waitForTimeout(20);
+  await expect(row.locator(".cc-amount")).toHaveValue(Number(rate).toFixed(2));
+});
+
+test("removing a value shows its own confirmation right at the row", async ({ page }) => {
+  // Client, 2026-09-26: a working delete read as "not working" because the
+  // only confirmation was #save-status, far below the section it happened in.
+  await login(page, "gsales");
+  await page.goto(SCREEN);
+  const row = page.locator("#cc-rows tr").first();
+  const CARD = `Confirm ${Date.now()}`;
+  await row.locator(".row-new").click();
+  await page.fill(".dse-newbox .nb-b", CARD);
+  await page.click(".dse-newbox .nb-ok");
+
+  await row.locator(".row-del").click();
+  await page.locator(".dse-delbox .del-one", { hasText: CARD }).click();
+  await expect(page.locator(".dse-newbox")).toContainText(`Removed “${CARD}”`);
+});
+
+test("Section 5 and Section 6 have their OWN Payment Mode lists, not one shared list", async ({
+  page,
+}) => {
+  // Client, 2026-09-26, both corrections in one message: Section 5 "it's a
+  // credit so I don't need cash in phone pay and credit card ... I don't have
+  // to see those three list of values", and Section 6 "you don't have to show
+  // the credit CR within the brackets. I don't need that drop down list of
+  // value." One shared list put the wrong three options in front of each.
+  await login(page, "gsales");
+  await page.goto(SCREEN);
+
+  const nc = page.locator("#nc-rows tr").first().locator("select.nc-mode");
+  await expect(nc.locator("option")).toContainText(["Credit (CR)"]);
+  for (const missing of ["Cash", "Phone Pay", "Credit Card"]) {
+    await expect(nc.locator("option")).not.toContainText([missing]);
+  }
+
+  const oc = page.locator("#oc-rows tr").first().locator("select.oc-mode");
+  await expect(oc.locator("option")).toContainText(["Cash", "Phone Pay", "Credit Card"]);
+  await expect(oc.locator("option")).not.toContainText(["Credit (CR)"]);
+});
+
 test("Collected by lists people, never the two-name pairings", async ({ page }) => {
   // Client, 2026-09-26: "No Combinations names". The pairings stay in the
   // 'staff' list, which the Trial Balance's 8.16 sign-off still needs.

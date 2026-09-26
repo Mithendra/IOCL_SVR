@@ -209,6 +209,7 @@ const LIST_NOUN = {
   collectors: "name",
   payment_type: "payment type",
   payment_modes: "payment mode",
+  credit_payment_modes: "payment mode",
   yes_no: "value",
 };
 
@@ -262,8 +263,16 @@ const escapeHtml = (v) =>
 // On a Credit Cards row it asks for the holder name AND the card type together,
 // because that is what one new customer brings. Fill one box only to add only
 // that one.
+// Whichever of +New / -Delete is open on this row, close it - a click on the
+// OTHER button on the same row must always do something, not silently no-op
+// because a previous strip has not finished closing itself yet.
+function closeOpenStrip(tr) {
+  const next = tr.nextElementSibling;
+  if (next && next.classList.contains("dse-newrow")) next.remove();
+}
+
 function openNewBox(tr) {
-  if (tr.nextElementSibling && tr.nextElementSibling.classList.contains("dse-newrow")) return;
+  closeOpenStrip(tr);
   const sel = tr.querySelector("select[data-list]");
   if (!sel) return;
   const listKey = sel.dataset.list;
@@ -344,7 +353,7 @@ function columnLabel(cell) {
 // This removes an OPTION, not a RECORD. Saved entries keep the text that was
 // chosen, so yesterday's credit still names the person who took it.
 function openDeleteBox(tr) {
-  if (tr.nextElementSibling && tr.nextElementSibling.classList.contains("dse-newrow")) return;
+  closeOpenStrip(tr);
   const chosen = [...tr.querySelectorAll("select[data-list]")].filter((sel) => sel.value);
   const span = tr.children.length;
   if (!chosen.length) {
@@ -392,7 +401,18 @@ function openDeleteBox(tr) {
       refreshLists();
       st.className = "status-line ok";
       st.textContent = `Removed "${value}" from ${label}.`;
-      close();
+      // #save-status sits far below this row, near Save - a confirmation only
+      // shown there is easy to miss entirely. Say it again right here, briefly,
+      // where the operator is actually looking, before the strip closes.
+      const box = row.querySelector(".dse-newbox");
+      if (box) {
+        box.innerHTML =
+          `<b style="color:var(--io-blue)">&#10003; Removed &ldquo;${escapeHtml(value)}&rdquo; ` +
+          `from ${escapeHtml(label)}.</b>`;
+        setTimeout(close, 1400);
+      } else {
+        close();
+      }
     });
   }
 }
@@ -467,6 +487,7 @@ function addNcRow() {
       '<td class="num"><input class="nc-ltrs" data-calc></td>' +
       '<td class="num"><input class="nc-rate" data-calc></td>' +
       '<td class="num"><input class="nc-amount" data-calc placeholder="auto"></td>' +
+      listCell("nc-mode", "credit_payment_modes", "Payment mode") +
       NEW_CELL +
       "<td></td>"
   );
@@ -721,6 +742,7 @@ function readForm() {
         const el = tr.querySelector(".nc-amount");
         return el.dataset.typed === "1" ? el.value : "";
       })(),
+      payment_mode: cellValue(tr, ".nc-mode"),
       // The Signature column came off the screen on 2026-09-25, but a signature
       // already on file is not the client's to lose because a column moved - so
       // it rides back out on the row that carried it in.
@@ -1458,7 +1480,7 @@ function clearOperatorFields() {
   const ROW_CELLS = [
     ".cc-holder", ".cc-type", ".cc-fuel", ".cc-ltrs", ".cc-rate",
     ".cc-receipt", ".cc-amount",
-    ".nc-name", ".nc-type", ".nc-ltrs", ".nc-rate", ".nc-amount",
+    ".nc-name", ".nc-type", ".nc-ltrs", ".nc-rate", ".nc-amount", ".nc-mode",
     ".oc-customer", ".oc-amount", ".oc-given",
     ".oc-payment", ".oc-remitted", ".oc-collector", ".oc-mode",
   ];
@@ -1633,6 +1655,7 @@ function populateInputs(payload) {
     } else {
       delete amt.dataset.typed;
     }
+    put(tr.querySelector(".nc-mode"), n.payment_mode);
     if (n.signature) tr.dataset.signature = n.signature;
     else delete tr.dataset.signature;
   });

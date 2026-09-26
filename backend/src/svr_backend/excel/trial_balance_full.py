@@ -275,6 +275,17 @@ def build_full_workbook(view: dict, option_lists: dict[str, list[str]] | None = 
 
     s3, s4, s7, s8, s10, s11 = (sec(k) for k in (
         "section3", "section4", "section7", "section8", "section10", "section11"))
+    # 4.2, 8.2 and 8.10 all stopped being manual entry on 2026-09-24 - Section
+    # 8's own dedicated exporter (trial_balance_section8.py) already reads these
+    # from `derived`, but this whole-form export never got the same fix, so it
+    # kept reading `s4.get("todaysale")` / `s8.get("mgmt_yesterday_tb")`, both of
+    # which the screen stopped ever writing to. The result was silence, not a
+    # wrong number: an empty D50/D97 that the template's own D83/D99/D101
+    # formulas then multiply into 4.3, 4.5, 8.2 through 8.14 (client, 2026-09-27:
+    # "Still Missing Many Col Values").
+    derived_all = (view.get("computed") or {}).get("derived") or {}
+    d4 = derived_all.get("section4") or {}
+    d8 = derived_all.get("section8") or {}
 
     # ---- header line (A2 on the sheet: the day and who prepared it) ------------
     prepared = s8.get("prepared_by") or ""
@@ -350,7 +361,7 @@ def build_full_workbook(view: dict, option_lists: dict[str, list[str]] | None = 
     # ---- 4. Cash/Book Value Reconciliation -----------------------------------
     # D49 is ='SEP11'!D51 in the workbook; a one-tab export would show #REF!.
     w.num("D49", s4.get("yesterday"))
-    w.num("D50", s4.get("todaysale"))
+    w.num("D50", d4.get("todaysale"))
     for i, row in enumerate(s4.get("expenses") or []):
         if i > 3 or not isinstance(row, dict):
             break
@@ -410,7 +421,7 @@ def build_full_workbook(view: dict, option_lists: dict[str, list[str]] | None = 
             break
         w.text(f"A{93 + i}", row.get("type"))
         w.num(f"C{93 + i}", row.get("amount"))
-    w.num("D97", s8.get("mgmt_yesterday_tb"))
+    w.num("D97", d8.get("mgmt_yesterday_tb"))
     w.num("F98", s4.get("yesbank_return"))
     w.text("D103", s8.get("prepared_by"))
     w.text("D104", s8.get("verified_by"))
