@@ -94,15 +94,53 @@ export const SECTIONS = [
         note: { key: "special_note" },
       },
       {
+        // Split from the old single "New Credit / Salary Advance" section
+        // (client, 2026-09-27): a fuel credit and a payroll item are two
+        // different kinds of money, invisibly separated before only by
+        // posting.category_for() matching "salar"/"advance" in the label.
+        // Now the SECTION says which one a row is.
         type: "rows",
         key: "new_credits",
-        title: "3.13 New Credit / Salary Advance",
+        title: "3.13 Daily Credits",
         columns: [
-          { key: "type", label: "Type", optionList: "creditors" },
+          { key: "type", label: "Creditor Name", optionList: "creditors" },
           { key: "amount", label: "Amount" },
         ],
         total: "section3.new_credits_total",
-        totalLabel: "Total New Credit / Salary Advance",
+        totalLabel: "Total Daily Credits",
+      },
+      {
+        // Read-only, always shown - what Daily Sales Entry's Section 5
+        // actually has today, regardless of which one (this or the typed rows
+        // above) is currently feeding 3.15's total. Route confirmed direct,
+        // 2026-09-27: Daily Sales Entry -> Daily Trial Balance, not through
+        // Daily Sales Summary.
+        type: "mirrorRows",
+        key: "pulled_new_credits_view",
+        from: "section3.pulled_new_credits",
+        title: null,
+        columns: [
+          { key: "type", label: "Pulled from Daily Sales Entry" },
+          { key: "amount", label: "Amount", money: true },
+        ],
+        total: "section3.new_credits_total",
+        totalLabel: "(counted above, if nothing is typed in Daily Credits)",
+        note: "Only one of Daily Credits or this list feeds the total - " +
+              "whichever is filled in. A credit already entered at the pump " +
+              "does not need typing here too.",
+      },
+      {
+        type: "rows",
+        key: "daily_expenses",
+        title: "3.13a Daily Expenses",
+        columns: [
+          { key: "type", label: "Category", optionList: "expenses" },
+          { key: "amount", label: "Amount" },
+        ],
+        total: "section3.daily_expenses_total",
+        totalLabel: "Total Daily Expenses",
+        note: "Goes to Monthly Expenses, not to 3.15's cash total - this is " +
+              "money paid out, not money owed to the station.",
       },
       {
         type: "fields",
@@ -161,6 +199,24 @@ export const SECTIONS = [
         ],
         total: "section4.remittance_total",
         totalLabel: "Total Credit Remittance",
+      },
+      {
+        // Read-only, always shown - what Daily Sales Entry's Section 6
+        // actually has today, the same "always visible next to the typed
+        // rows" treatment 3.13 got above. Route confirmed direct, 2026-09-27.
+        type: "mirrorRows",
+        key: "pulled_old_credits_view",
+        from: "section4.pulled_old_credits",
+        title: null,
+        columns: [
+          { key: "type", label: "Pulled from Daily Sales Entry" },
+          { key: "amount", label: "Amount", money: true },
+        ],
+        total: "section4.remittance_total",
+        totalLabel: "(counted above, if nothing is typed in Credit Remittance)",
+        note: "Only one of 4.7 or this list feeds the total - whichever is " +
+              "filled in. A remittance already entered at the pump does not " +
+              "need typing here too.",
       },
       {
         type: "fields",

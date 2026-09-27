@@ -20,56 +20,140 @@
 
       <div class="body-pad">
         <p style="font-size:11px;color:var(--io-red);margin:0 0 10px">
-          Consolidated master record for credits given and repayments received — supersedes the
-          retired New Credit Entry and Record Repayment forms (BRD 5.17). Partial repayments are
-          normal; the Balance Summary groups by Creditor Name (spelling must match).
+          Consolidated record of credits given and repayments received (BRD 5.17). Most rows
+          arrive here on their own, posted the day a Daily Trial Balance carrying them is saved
+          &mdash; a blank row with <b>+ New</b> is still here for the rare manual add.
         </p>
 
+        <!-- ============================= SECTION 1 ============================= -->
         <div class="section-title">1. New Credit</div>
-        <table>
-          <tr><th>Creditor Name</th><th>Phone</th><th>Type</th><th>In Ltrs</th><th>Rate</th><th>Amount</th><th></th></tr>
-          <tr>
-            <td><input id="c-name" /></td>
-            <td><input id="c-phone" /></td>
-            <td><input id="c-type" placeholder="Diesel / Petrol" /></td>
-            <td><input id="c-ltrs" /></td>
-            <td><input id="c-rate" /></td>
-            <td><input id="c-amount" disabled placeholder="ltrs x rate" /></td>
-            <td><button type="button" class="add-row-btn" style="margin:0" id="add-credit">Add Credit</button></td>
-          </tr>
-        </table>
-        <table style="margin-top:6px">
-          <tr><th>Date</th><th>Creditor</th><th>Type</th><th>Ltrs</th><th>Rate</th><th>Amount</th><th></th></tr>
-          <tbody id="credit-rows"></tbody>
-        </table>
+        <div class="tb-scrollx">
+          <table class="write-in tight cm-table">
+            <tr>
+              <th class="cm-w-name">Creditor Name</th>
+              <th class="cm-w-type">Type</th>
+              <th class="cm-w-ltrs">In Ltrs</th>
+              <th class="cm-w-rate">Rate</th>
+              <th class="cm-w-amt">Amount</th>
+              <th class="cm-w-mode">Payment Mode</th>
+              <th class="cm-w-date">Given On Date</th>
+              <th class="cm-w-psm">Pump Sales Man</th>
+              <th class="cm-w-note">Notes</th>
+              <th class="cm-w-status">Status</th>
+              <th class="cm-w-updated">Updated On</th>
+              <th class="cm-w-updated">Updated By</th>
+              <th class="cm-w-actions"></th>
+            </tr>
+            <tbody id="credit-rows"></tbody>
+            <tr class="total-row">
+              <td colspan="4">Total Amt New Credits</td>
+              <td class="num"><input id="credit-total" disabled placeholder="auto" /></td>
+              <td colspan="8"></td>
+            </tr>
+          </table>
+        </div>
+        <button type="button" class="add-row-btn" id="add-credit-row">+ Add row</button>
 
-        <div class="section-title">2. Remittance</div>
-        <table>
-          <tr><th>Creditor Name</th><th>Payment Amount</th><th>Date</th><th>Source</th><th>Pump Sales Man</th><th></th></tr>
-          <tr>
-            <td><input id="r-name" /></td>
-            <td><input id="r-amount" /></td>
-            <td><input type="date" id="r-date" /></td>
-            <td><input id="r-source" placeholder="cash / DSE / TB" /></td>
-            <td><input id="r-psm" /></td>
-            <td><button type="button" class="add-row-btn" style="margin:0" id="add-remittance">Add Remittance</button></td>
-          </tr>
-        </table>
-        <table style="margin-top:6px">
-          <tr><th>Date</th><th>Creditor</th><th>Amount</th><th>Source</th><th></th></tr>
-          <tbody id="remittance-rows"></tbody>
-        </table>
-        <p id="txn-status" class="status-line"></p>
+        <!-- ============================= SECTION 2 ============================= -->
+        <div class="section-title">
+          2. Remittance
+          <span style="font-weight:400;font-size:11px">[Old/Pending Credit Received]</span>
+        </div>
+        <div class="tb-scrollx">
+          <table class="write-in tight cm-table">
+            <tr>
+              <th class="cm-w-name">Customer Name</th>
+              <th class="cm-w-amt">Amount</th>
+              <th class="cm-w-date">Old Credit Given Date</th>
+              <th class="cm-w-pay">Payment</th>
+              <th class="cm-w-remit">Remittance Entered</th>
+              <th class="cm-w-collect">Collected by</th>
+              <th class="cm-w-mode">Payment Mode</th>
+              <th class="cm-w-date">Paid On Date</th>
+              <th class="cm-w-psm">Pump Sales Man</th>
+              <th class="cm-w-note">Notes</th>
+              <th class="cm-w-status">Status</th>
+              <th class="cm-w-updated">Updated On</th>
+              <th class="cm-w-updated">Updated By</th>
+              <th class="cm-w-actions"></th>
+            </tr>
+            <tbody id="remittance-rows"></tbody>
+            <tr class="total-row">
+              <td colspan="1">Total Remitted</td>
+              <td class="num"><input id="remittance-total" disabled placeholder="auto" /></td>
+              <td colspan="12"></td>
+            </tr>
+          </table>
+        </div>
+        <button type="button" class="add-row-btn" id="add-remittance-row">+ Add row</button>
+        <p id="txn-status" class="status-line" style="margin-top:8px"></p>
 
+        <!-- ============================= SECTION 3 ============================= -->
         <div class="section-title">3. Creditor Balance Summary</div>
-        <table>
-          <tr><th>Creditor Name</th><th>Phone</th><th>Total Credit Given</th><th>Total Remitted</th><th>Outstanding Balance</th></tr>
-          <tbody id="summary-rows"></tbody>
-        </table>
-        <p style="font-size:12px;color:var(--io-blue-dark);margin:6px 0 0">
-          Auto-computed. Outstanding = Total Credit Given &minus; Total Remitted, grouped by name,
-          pending balances first.
+        <p style="font-size:11px;color:var(--io-blue-dark);margin:0 0 8px">
+          Long-running and old credits, tracked indefinitely. Auto-computed: Outstanding =
+          Total Credit Given &minus; Total Remitted.
         </p>
+        <div class="post-bar">
+          <label style="font-size:11px">From <input type="date" id="cs-from" /></label>
+          <label style="font-size:11px">To <input type="date" id="cs-to" /></label>
+          <label style="font-size:11px">or Creditor Name
+            <input id="cs-name" style="width:170px" placeholder="e.g. Sajja Function Hall" />
+          </label>
+          <button type="button" class="export-btn" id="cs-search-btn">Search</button>
+          <button type="button" class="export-btn secondary" id="cs-clear-btn">Clear</button>
+          <button type="button" class="export-btn" id="cs-add-btn" style="margin-left:auto">
+            + Add Creditor
+          </button>
+        </div>
+        <div id="cs-newbox" class="oil-newbox" hidden>
+          <label>Creditor Name <input id="cs-new-name" /></label>
+          <label>Credit Type
+            <select id="cs-new-type"><option value="new">New</option><option value="old">Old</option></select>
+          </label>
+          <label>Note <input id="cs-new-note" style="width:200px" /></label>
+          <button type="button" class="btn-small" id="cs-new-save">Add</button>
+          <button type="button" class="btn-small secondary" id="cs-new-cancel">Cancel</button>
+        </div>
+        <div class="tb-scrollx">
+          <table class="write-in tight cm-table cm-summary">
+            <tr>
+              <th class="cm-w-name">Creditor Name</th>
+              <th class="cm-w-type">Credit Type</th>
+              <th class="cm-w-amt">Total Credit Given</th>
+              <th class="cm-w-amt">Total Remitted</th>
+              <th class="cm-w-amt">Outstanding</th>
+              <th class="cm-w-note">Notes</th>
+              <th class="cm-w-docs">Documents</th>
+              <th class="cm-w-updated">Updated On</th>
+              <th class="cm-w-updated">Updated By</th>
+              <th class="cm-w-actions"></th>
+            </tr>
+            <tbody id="summary-rows"></tbody>
+          </table>
+        </div>
+        <p id="summary-status" class="status-line" style="margin-top:8px"></p>
+
+        <!-- One documents panel, opened against whichever creditor "Open" was
+             pressed for - avoids building a file list into every row up front. -->
+        <div id="docs-panel" class="oil-newbox" hidden>
+          <div style="width:100%">
+            <div class="section-title" style="margin:0 0 8px" id="docs-panel-title">Documents</div>
+            <div class="post-bar">
+              <input type="file" id="doc-file"
+                     accept=".pdf,.jpg,.jpeg,.png,.heic,.webp,.tif,.tiff" />
+              <label style="font-size:11px">Note <input id="doc-note" style="width:200px" /></label>
+              <button type="button" class="export-btn" id="doc-upload-btn">+ Upload</button>
+              <button type="button" class="export-btn secondary" id="docs-panel-close"
+                      style="margin-left:auto">Close</button>
+            </div>
+            <p id="doc-status" class="status-line"></p>
+            <table class="tb-rows">
+              <tr><th>Uploaded</th><th>File</th><th>Note</th><th>By</th><th></th></tr>
+              <tbody id="doc-rows"></tbody>
+            </table>
+          </div>
+        </div>
 
         <p style="margin-top:18px"><a href="../../index.html">&larr; Back to menu</a></p>
       </div>

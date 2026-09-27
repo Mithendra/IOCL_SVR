@@ -45,6 +45,7 @@ from svr_backend.core.audit import record_write
 from svr_backend.core.db import transaction
 from svr_backend.core.rbac import get_db, require
 from svr_backend.core.session import Principal
+from svr_backend.credit_pull import pulled_credit_context
 from svr_backend.excel.trial_balance_full import (
     build_blank_workbook,
     build_full_workbook,
@@ -225,6 +226,10 @@ def _context(conn: sqlite3.Connection, shift_date: str, row: sqlite3.Row | None)
         "summary_status": summary["status"],
         "day_sales_total": day_sales_total,
         "beta_testing_expense": beta_testing,
+        # Section 5/6 rows, pulled from Daily Sales Entry the same way Section
+        # 2 is - client, 2026-09-27, route confirmed direct rather than via
+        # Daily Sales Summary. See credit_pull.py.
+        **pulled_credit_context(conn, shift_date),
     }
 
 
@@ -388,6 +393,8 @@ def _view(conn: sqlite3.Connection, shift_date: str) -> dict:
         {
             "sales_total": ctx["day_sales_total"],
             "beta_testing": ctx["beta_testing_expense"],
+            "new_credits": ctx.get("new_credits"),
+            "old_credits": ctx.get("old_credits"),
         },
     )
     return {
@@ -787,6 +794,8 @@ def calc_trial_balance(
         {
             "sales_total": ctx["day_sales_total"],
             "beta_testing": ctx["beta_testing_expense"],
+            "new_credits": ctx.get("new_credits"),
+            "old_credits": ctx.get("old_credits"),
         },
     )
     return {"computed": result}
@@ -885,7 +894,38 @@ def upsert_trial_balance(
         # Keep the posting rows in step with the form. A line still unposted
         # simply follows what was typed; once posted it is left alone, because a
         # master form already holds it.
-        posting.sync_lines(conn, shift_date, manual, principal.login_name)
+        #
+        # `manual_for_posting` is NOT what gets saved as manual_json above - it's
+        # a view built just for sync_lines(), merging in Section 5/6's pulled
+        # rows under the same keys posting.BLOCKS reads (client, 2026-09-27:
+        # route confirmed direct from Daily Sales Entry, not through Daily
+        # Sales Summary). The real manual blob never gains these keys; a
+        # pulled row is never something the operator typed.
+        #
+        # Only injected when the matching TYPED block is empty - the same
+        # "typed wins, else pulled" choice derive_manual() already made for
+        # the day's own arithmetic. Feeding both unconditionally would post a
+        # fuel credit twice: once from a typed 3.13 row, once from the pull.
+        def _has_typed_rows(rows: object) -> bool:
+            return isinstance(rows, list) and any(
+                isinstance(r, dict) and any(v not in (None, "") for v in r.values())
+                for r in rows
+            )
+
+        s3_has_typed = _has_typed_rows((manual.get("section3") or {}).get("new_credits"))
+        s4_has_typed = _has_typed_rows((manual.get("section4") or {}).get("remittance"))
+        manual_for_posting = {**manual}
+        if not s3_has_typed:
+            manual_for_posting["section3"] = {
+                **(manual.get("section3") or {}),
+                "pulled_new_credits": ctx.get("new_credits") or [],
+            }
+        if not s4_has_typed:
+            manual_for_posting["section4"] = {
+                **(manual.get("section4") or {}),
+                "pulled_old_credits": ctx.get("old_credits") or [],
+            }
+        posting.sync_lines(conn, shift_date, manual_for_posting, principal.login_name)
         record_write(
             conn, table=TABLE, record_id=rid, action="update", actor=principal.login_name,
             new={"shift_date": shift_date, "s7_3_total": result["section7"]["7_3_total"]},

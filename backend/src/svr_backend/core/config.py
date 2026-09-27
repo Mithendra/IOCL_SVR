@@ -83,6 +83,12 @@ class Settings(BaseSettings):
         """
         return self.data_dir / "stock-purchases"
 
+    def resolved_creditor_documents_dir(self) -> Path:
+        """Where a creditor's long-running paperwork lives - an old agreement,
+        a handwritten ledger scan. Same reasoning as stock-purchase invoices:
+        beside the database, kept indefinitely, never in SQLite."""
+        return self.data_dir / "creditor-documents"
+
     def resolved_tesseract_cmd(self) -> str:
         """Path to the bundled tesseract.exe, or a bare 'tesseract' for dev/PATH."""
         return str(self.tesseract_cmd) if self.tesseract_cmd else "tesseract"

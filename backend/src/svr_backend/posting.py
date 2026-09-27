@@ -17,6 +17,7 @@ are not part of the next day's accounting.
 
 from __future__ import annotations
 
+import json
 import re
 import sqlite3
 from datetime import UTC, datetime
@@ -35,11 +36,25 @@ BLOCKS: dict[str, tuple[str, str]] = {
     "section4.expenses":                 ("expense",     "expenses"),
     "section8.regular_expenses":         ("expense",     "regular_expenses"),
     "section3.new_credits":              ("credit",      "new_credits"),
+    "section3.daily_expenses":           ("expense",     "daily_expenses"),
     "section4.remittance":               ("remittance",  "remittance"),
     "section8.old_credit_collections":   ("remittance",  "old_credit_collections"),
+    # Pulled straight from Daily Sales Entry Sections 5/6 (client, 2026-09-27 -
+    # route confirmed direct, not through Daily Sales Summary). Only reached
+    # when the matching typed block above is empty - derive_manual()'s own
+    # "typed wins, else pulled" rule already decides that; by the time these
+    # rows exist in `manual` (merged in just for posting, see api's call to
+    # sync_lines), they are the ones actually in effect.
+    "section3.pulled_new_credits":       ("credit",      "pulled_new_credits"),
+    "section4.pulled_old_credits":       ("remittance",  "pulled_old_credits"),
 }
 
 _LABEL_FIELDS = ("category", "type", "label")
+
+# Which blocks' rows carry the richer Section 5/6 fields worth persisting as
+# extra_json - every other block's "extra" is the same row lines_from_manual
+# already looked at, uninteresting to keep a second copy of.
+_PULLED_BLOCKS = ("section3.pulled_new_credits", "section4.pulled_old_credits")
 
 # A salary, a bi-weekly or month-end salary run, or a staff advance is an
 # EXPENSE - wherever on the form it was typed (client, 2026-09-25: "Any Salary or
@@ -109,6 +124,12 @@ def lines_from_manual(manual: dict | None) -> list[dict]:
                 "category": category_for(category, label),
                 "label": label, "amount": amount,
                 "given_on": row.get("given_on"),
+                # The whole source row, for the two pulled blocks - post_line()
+                # reads the richer fields (litres, rate, payment mode, dates,
+                # collected by, submitted-by pump salesman) off this. Every
+                # other block carries it too, harmlessly unused - it costs a
+                # few bytes of JSON, not a second code path.
+                "extra": row,
             })
     return out
 
@@ -125,6 +146,7 @@ def sync_lines(conn: sqlite3.Connection, shift_date: str, manual: dict | None,
     seen: set[tuple[str, int]] = set()
     for line in lines_from_manual(manual):
         seen.add((line["block"], line["index"]))
+        extra_json = json.dumps(line["extra"]) if line["block"] in _PULLED_BLOCKS else None
         existing = conn.execute(
             f"SELECT id, status FROM {TABLE} WHERE shift_date = ? AND source_block = ? "
             "AND row_index = ?",
@@ -133,18 +155,18 @@ def sync_lines(conn: sqlite3.Connection, shift_date: str, manual: dict | None,
         if existing is None:
             conn.execute(
                 f"INSERT INTO {TABLE} (shift_date, category, source_block, row_index, "
-                "label, amount, last_updated_by) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                "label, amount, extra_json, last_updated_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                 (shift_date, line["category"], line["block"], line["index"],
-                 line["label"], line["amount"], actor),
+                 line["label"], line["amount"], extra_json, actor),
             )
         elif existing["status"] == "not_posted":
             # category travels too: a line typed before this rule existed, or
             # re-picked as a salary advance, must re-route on the next save
             # rather than keep the master form it was first filed under.
             conn.execute(
-                f"UPDATE {TABLE} SET label = ?, amount = ?, category = ?, "
+                f"UPDATE {TABLE} SET label = ?, amount = ?, category = ?, extra_json = ?, "
                 "last_updated_by = ?, last_updated_at = ? WHERE id = ?",
-                (line["label"], line["amount"], line["category"], actor, _now(),
+                (line["label"], line["amount"], line["category"], extra_json, actor, _now(),
                  existing["id"]),
             )
     for row in conn.execute(
@@ -215,11 +237,26 @@ def post_line(conn: sqlite3.Connection, row: sqlite3.Row, actor: str) -> tuple[s
                      actor=actor, new={"amount": row["amount"], "from": "daily-trial-balance"})
     else:
         kind = "credit" if row["category"] == "credit" else "remittance"
+        # The richer Section 5/6 fields, when this line came from one of the
+        # two pulled blocks (row["extra_json"] is NULL for every other
+        # category - see _PULLED_BLOCKS in sync_lines()).
+        try:
+            extra = json.loads(row["extra_json"]) if row["extra_json"] else {}
+        except (TypeError, ValueError):
+            extra = {}
         cur = conn.execute(
-            "INSERT INTO credit_transaction (kind, creditor_name, amount, txn_date, note, "
-            "created_by, last_updated_by) VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (kind, _creditor_name(row["label"]), row["amount"], row["shift_date"],
-             f"Daily Trial Balance {row['shift_date']} — {row['label']}", actor, actor),
+            "INSERT INTO credit_transaction (kind, creditor_name, fuel_type, ltrs, rate, "
+            "amount, txn_date, pump_sales_man, payment_mode, payment, remittance_entered, "
+            "collected_by, given_on_date, note, status, created_by, last_updated_by) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'posted_dt', ?, ?)",
+            (
+                kind, _creditor_name(row["label"]), extra.get("fuel_type"),
+                extra.get("ltrs"), extra.get("rate"), row["amount"], row["shift_date"],
+                extra.get("submitted_by"), extra.get("payment_mode"), extra.get("payment"),
+                extra.get("remittance_entered"), extra.get("collected_by"),
+                extra.get("given_on_date"),
+                f"Daily Trial Balance {row['shift_date']} — {row['label']}", actor, actor,
+            ),
         )
         target = ("credit_transaction", int(cur.lastrowid))
         record_write(conn, table="credit_transaction", record_id=target[1], action="create",
@@ -272,9 +309,64 @@ def post_day(conn: sqlite3.Connection, shift_date: str, actor: str,
     }
 
 
+def settle_credit_transactions(conn: sqlite3.Connection, creditor_name: str,
+                               amount: float, actor: str, now: str | None = None) -> int:
+    """Flip this creditor's oldest unpaid credit rows to 'paid', up to `amount`
+    (oldest transaction date first, skipping one too large to fit - the
+    station's own part-payment behavior, unchanged from before).
+
+    The ONE settlement engine for both places a remittance can come from
+    (client, 2026-09-27 - "who to clear the entry in DT" / "either Daily
+    Sales man has to do it or Daily Mgr has to do it"):
+      - Daily Trial Balance's Post pipeline, via _settle_remittances() below.
+      - A remittance typed straight onto Credit Master's own Section 2
+        (credit_master.add_remittance()).
+    Either one flips the SAME credit_transaction row the same way, so which
+    screen collected the payment never matters downstream.
+
+    Also mirrors the flip onto trial_balance_posting when a TB-side row
+    exists for that exact credit (posted through Daily Sales Entry -> Trial
+    Balance -> Post) - so Trial Balance's own "Transactions to post" panel
+    reflects it without a second, separate reconciliation there.
+    """
+    now = now or _now()
+    remaining = amount
+    settled = 0
+    rows = conn.execute(
+        "SELECT * FROM credit_transaction WHERE kind = 'credit' AND creditor_name = ? "
+        "AND status IN ('manual', 'posted_dt') ORDER BY txn_date, id",
+        (creditor_name,),
+    ).fetchall()
+    for credit in rows:
+        if remaining <= 0:
+            break
+        if credit["amount"] > remaining:
+            continue        # a part-payment leaves the rest outstanding
+        conn.execute(
+            "UPDATE credit_transaction SET status = 'paid', paid_at = ?, paid_by = ?, "
+            "last_updated_by = ?, last_updated_at = ? WHERE id = ?",
+            (now, actor, actor, now, credit["id"]),
+        )
+        record_write(
+            conn, table="credit_transaction", record_id=credit["id"], action="update",
+            actor=actor, new={"status": "paid", "amount": credit["amount"]},
+        )
+        conn.execute(
+            f"UPDATE {TABLE} SET status = 'paid', paid_at = ?, last_updated_by = ?, "
+            "last_updated_at = ? WHERE target_table = 'credit_transaction' "
+            "AND target_id = ? AND status = 'posted'",
+            (now, actor, now, credit["id"]),
+        )
+        remaining -= credit["amount"]
+        settled += 1
+    return settled
+
+
 def _settle_remittances(conn: sqlite3.Connection, shift_date: str, actor: str,
                         now: str) -> int:
-    """Flip credits to PAID when a remittance for the same creditor comes in."""
+    """Flip credits to PAID when a remittance for the same creditor comes in
+    through Trial Balance's own Post pipeline. Delegates to
+    settle_credit_transactions() - see its docstring."""
     settled = 0
     remittances = conn.execute(
         f"SELECT * FROM {TABLE} WHERE shift_date = ? AND category = 'remittance' "
@@ -282,25 +374,7 @@ def _settle_remittances(conn: sqlite3.Connection, shift_date: str, actor: str,
     ).fetchall()
     for rem in remittances:
         who = _creditor_name(rem["label"])
-        owed = conn.execute(
-            f"SELECT * FROM {TABLE} WHERE category = 'credit' AND status = 'posted' "
-            "ORDER BY shift_date, id", ()
-        ).fetchall()
-        remaining = rem["amount"]
-        for credit in owed:
-            if remaining <= 0:
-                break
-            if _creditor_name(credit["label"]) != who:
-                continue
-            if credit["amount"] > remaining:
-                continue        # a part-payment leaves the rest outstanding
-            conn.execute(
-                f"UPDATE {TABLE} SET status = 'paid', paid_at = ?, paid_by_posting = ?, "
-                "last_updated_by = ?, last_updated_at = ? WHERE id = ?",
-                (now, rem["id"], actor, now, credit["id"]),
-            )
-            remaining -= credit["amount"]
-            settled += 1
+        settled += settle_credit_transactions(conn, who, rem["amount"], actor, now)
     return settled
 
 
@@ -335,6 +409,24 @@ def clear_lines(conn: sqlite3.Connection, ids: list[int], actor: str) -> int:
         f"UPDATE {TABLE} SET status = 'cleared', cleared_by = ?, cleared_at = ?, "
         f"last_updated_by = ?, last_updated_at = ? WHERE id IN ({marks}) AND ("
         "status = 'paid' OR (status = 'posted' AND category = 'expense'))",
+        [actor, now, actor, now, *ids],
+    )
+    return cur.rowcount
+
+
+def clear_credit_transactions(conn: sqlite3.Connection, ids: list[int], actor: str) -> int:
+    """The same month-end tidy-up as clear_lines(), reachable straight from
+    Credit / Remittance Master's own screen (client, 2026-09-27) rather than
+    only from Trial Balance's internal posting panel. Only a row already
+    'paid' can be cleared - an outstanding credit is exactly what the screen
+    exists to keep showing."""
+    if not ids:
+        return 0
+    marks = ",".join("?" * len(ids))
+    now = _now()
+    cur = conn.execute(
+        f"UPDATE credit_transaction SET status = 'cleared', cleared_by = ?, cleared_at = ?, "
+        f"last_updated_by = ?, last_updated_at = ? WHERE id IN ({marks}) AND status = 'paid'",
         [actor, now, actor, now, *ids],
     )
     return cur.rowcount

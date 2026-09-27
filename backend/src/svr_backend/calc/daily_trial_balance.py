@@ -229,8 +229,36 @@ def derive_manual(
         s3_total6 + _n(s3.get("iocl")) + _n(s3.get("indianbank"))
         + _n(s3.get("yesbank")) + _n(s3.get("ppunsettled"))
     )
-    s3_new_credits = _rows_total(s3.get("new_credits"))
+    # "3.13 New Credit / Salary Advance" split into two visible sections on
+    # screen (client, 2026-09-27): Daily Credits (this one) and Daily Expenses
+    # (its own block below, unrelated to Section 3's total). A fuel credit
+    # already entered on Daily Sales Entry's Section 5 shouldn't be typed a
+    # second time here - pulled in, read-only, the same "typed wins, else
+    # pulled" rule 8.7 already uses for Section 6's remittances.
+    s3_new_credits_typed = _rows_as_list(s3.get("new_credits"))
+    if s3_new_credits_typed:
+        s3_new_credit_rows = s3_new_credits_typed
+        s3_new_credit_source = "typed"
+    else:
+        s3_new_credit_rows = _rows_as_list(
+            (day_sales or {}).get("new_credits")
+        )
+        s3_new_credit_source = "pulled"
+    s3_new_credits = _rows_total(s3_new_credit_rows)
     s3_total15 = round4(s3_total13 + s3_new_credits)
+    # The raw pull, shown unconditionally next to the typed entry so an
+    # operator can see what Daily Sales Entry actually has today regardless of
+    # which one is currently winning - the same thing 8.7's own note already
+    # does for 4.7 ("enter a remittance there and it appears here").
+    s3_pulled_new_credits = _rows_as_list((day_sales or {}).get("new_credits"))
+
+    # "3.13 Daily Expenses" - the other half of the split, and genuinely
+    # separate from Daily Credits' arithmetic, not just its own dropdown: a
+    # payroll item is money paid OUT, not a receivable, so unlike a real
+    # credit it was never supposed to inflate 3.15's cash total the way it
+    # did while both shared one section - typed here, it goes to Monthly
+    # Expenses (posting.BLOCKS) and nowhere near total15.
+    s3_daily_expenses_total = _rows_total(s3.get("daily_expenses"))
 
     # --- Section 4.2, "Total Today Sale Amount After Expenses (Beta, Testing and
     # Density)". The client's sheet leaves this hand-typed, and it is the only
@@ -308,6 +336,17 @@ def derive_manual(
     s8_mgmt_profit = total_sale_amt
     s8_projected_networth = round4(s8_mgmt_yesterday + s8_mgmt_profit)
 
+    # 4.7 Credit Remittance: typed wins; failing that, pulled from Daily Sales
+    # Entry's Section 6 (client, 2026-09-27 - same route as Section 5 above,
+    # so a remittance recorded at the pump doesn't need retyping here either).
+    s4_remittance_typed = _rows_as_list(s4.get("remittance"))
+    if s4_remittance_typed:
+        s4_remittance_rows = s4_remittance_typed
+        s4_remittance_source = "typed"
+    else:
+        s4_remittance_rows = _rows_as_list((day_sales or {}).get("old_credits"))
+        s4_remittance_source = "pulled"
+
     # 8.7 Old Credit Remittances carries from 4.7 Credit Remittance (client,
     # 2026-09-24, restated after the first pass renamed the line but left the
     # figures independent).
@@ -327,7 +366,7 @@ def derive_manual(
     else:
         s8_old_credit_rows = [
             {"type": r.get("type"), "amount": r.get("amount")}
-            for r in _rows_as_list(s4.get("remittance"))
+            for r in s4_remittance_rows
         ]
         s8_old_credit_source = "carried"
     s8_old_credit_total = _rows_total(s8_old_credit_rows)
@@ -355,6 +394,10 @@ def derive_manual(
             "total7": s3_total6,          # the sheet repeats 3.6 as 3.7
             "total13": s3_total13,
             "new_credits_total": s3_new_credits,
+            "new_credit_rows": s3_new_credit_rows,
+            "new_credit_source": s3_new_credit_source,
+            "pulled_new_credits": s3_pulled_new_credits,
+            "daily_expenses_total": s3_daily_expenses_total,
             "total15": s3_total15,
         },
         "section4": {
@@ -367,7 +410,9 @@ def derive_manual(
             "total3": s4_total3,
             "diff": s4_diff,
             "expenses_total": _rows_total(s4.get("expenses")),
-            "remittance_total": _rows_total(s4.get("remittance")),
+            "remittance_total": _rows_total(s4_remittance_rows),
+            "pulled_old_credits": _rows_as_list((day_sales or {}).get("old_credits")),
+            "remittance_source": s4_remittance_source,
             # The sheet's side panel. It started as Difference less the Yes
             # Bank return (SEP12: 8516.1478 - 8525.95 = -9.8022) and the client
             # extended it on SEP16 with two more lines, because the raw

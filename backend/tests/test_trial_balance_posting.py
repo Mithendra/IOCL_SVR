@@ -499,3 +499,233 @@ def test_collected_by_has_no_two_name_pairings(client, auth_headers):
     assert not [v for v in lists["collectors"] if "&" in v or "/" in v]
     # ...and 'staff' still has them, for the sign-off that needs them.
     assert [v for v in lists["staff"] if "&" in v or "/" in v]
+
+
+# ----------------------------------------------------- pulled from Daily Sales
+#
+# Client, 2026-09-27: "Both of these transaction should come from Daily Trial
+# balance report when posted." Route confirmed direct - Daily Sales Entry ->
+# Daily Trial Balance -> Credit Master, skipping Daily Sales Summary.
+
+def test_a_section_5_credit_is_posted_with_no_typing_on_the_trial_balance(
+    client, auth_headers, conn
+):
+    """A fuel credit entered on Daily Sales Entry's Section 5 reaches Credit
+    Master once the day's Trial Balance is saved and posted - with nothing
+    typed into 3.13 at all."""
+    date = "2026-11-20"
+    h = auth_headers("Sales")
+    saved = client.post(
+        "/daily-sales-entry",
+        json={
+            "pump_serial": "12BC4523V-RD", "shift_date": date,
+            "hs": {"current": "9700000"}, "ms": {"current": "9700000"},
+            "new_credits": [{
+                "name": "Sajja Function Hall", "fuel_type": "HS",
+                "ltrs": "10", "rate": "105.36", "payment_mode": "Credit (CR)",
+            }],
+        },
+        headers=h,
+    )
+    assert saved.status_code in (200, 201), saved.text[:300]
+
+    tb = client.put(f"/daily-trial-balance/{date}",
+                    json={"s1_hs_current": 60}, headers=auth_headers("Manager"))
+    assert tb.status_code == 200, tb.text[:300]
+
+    posted = client.post(f"/daily-trial-balance/{date}/post", headers=auth_headers("Manager"))
+    assert posted.status_code == 200, posted.text[:300]
+    assert posted.json()["posted"] == 1
+
+    row = conn.execute(
+        "SELECT * FROM credit_transaction WHERE creditor_name = 'Sajja Function Hall'"
+    ).fetchone()
+    assert row is not None, "the pulled credit never reached Credit Master"
+    assert row["kind"] == "credit"
+    assert row["amount"] == 1053.6
+    assert row["status"] == "posted_dt"
+    assert row["fuel_type"] == "HS"
+    assert row["ltrs"] == 10
+    assert row["rate"] == 105.36
+    assert row["payment_mode"] == "Credit (CR)"
+    assert row["pump_sales_man"] is not None  # submitted_by, carried through
+
+
+def test_a_section_6_remittance_is_posted_the_same_way(client, auth_headers, conn):
+    date = "2026-11-21"
+    h = auth_headers("Sales")
+    saved = client.post(
+        "/daily-sales-entry",
+        json={
+            "pump_serial": "12BC4523V-RD", "shift_date": date,
+            "hs": {"current": "9700010"}, "ms": {"current": "9700010"},
+            "old_credit_rows": [{
+                "customer": "Anil/Nani", "given_date": "2026-11-01",
+                "payment": "Full", "remittance_entered": "Yes",
+                "collected_by": "Sriharsha", "payment_mode": "Cash",
+            }],
+            "old_credit_amounts": ["2000"],
+        },
+        headers=h,
+    )
+    assert saved.status_code in (200, 201), saved.text[:300]
+
+    client.put(f"/daily-trial-balance/{date}",
+              json={"s1_hs_current": 61}, headers=auth_headers("Manager"))
+    posted = client.post(f"/daily-trial-balance/{date}/post", headers=auth_headers("Manager"))
+    assert posted.status_code == 200, posted.text[:300]
+
+    row = conn.execute(
+        "SELECT * FROM credit_transaction WHERE creditor_name = 'Anil/Nani' "
+        "AND kind = 'remittance'"
+    ).fetchone()
+    assert row is not None
+    assert row["amount"] == 2000
+    assert row["status"] == "posted_dt"
+    assert row["payment"] == "Full"
+    assert row["remittance_entered"] == "Yes"
+    assert row["collected_by"] == "Sriharsha"
+    assert row["payment_mode"] == "Cash"
+    assert row["given_on_date"] == "2026-11-01"
+
+
+def test_a_typed_3_13_row_still_wins_over_the_pull_no_double_posting(
+    client, auth_headers, conn
+):
+    """A day with BOTH a typed 3.13 credit and a pulled Section 5 credit must
+    post exactly once - the same "typed wins" rule the day's own arithmetic
+    already uses, not two postings for one real event."""
+    date = "2026-11-22"
+    client.post(
+        "/daily-sales-entry",
+        json={
+            "pump_serial": "12BC4523V-RD", "shift_date": date,
+            "hs": {"current": "9700020"}, "ms": {"current": "9700020"},
+            "new_credits": [{"name": "AirTel Hari", "ltrs": "5", "rate": "105.36"}],
+        },
+        headers=auth_headers("Sales"),
+    )
+    client.put(
+        f"/daily-trial-balance/{date}",
+        json={"s1_hs_current": 62,
+              "manual": {"section3": {"new_credits": [
+                  {"type": "Salary Advance Ravindra", "amount": 5000}
+              ]}}},
+        headers=auth_headers("Manager"),
+    )
+    posted = client.post(f"/daily-trial-balance/{date}/post", headers=auth_headers("Manager"))
+    assert posted.status_code == 200, posted.text[:300]
+    # Only the typed row posts (as an expense, matching the salary-word rule);
+    # the pulled fuel credit is NOT also posted underneath it.
+    assert posted.json()["posted"] == 1
+    assert conn.execute(
+        "SELECT COUNT(*) c FROM credit_transaction WHERE creditor_name = 'AirTel Hari'"
+    ).fetchone()["c"] == 0
+
+
+def test_daily_expenses_posts_to_monthly_expenses_not_the_cash_total(
+    client, auth_headers, conn
+):
+    """3.13's split (client, 2026-09-27): a payroll item typed under Daily
+    Expenses is money paid OUT, so unlike a real credit it must not inflate
+    3.15's cash total, and it must reach Monthly Expenses, not Credit Master."""
+    date = "2026-11-23"
+    r = client.put(
+        f"/daily-trial-balance/{date}",
+        json={"s1_hs_current": 63,
+              "manual": {"section3": {"daily_expenses": [
+                  {"type": "Fuel Transport", "amount": 4000}
+              ]}}},
+        headers=auth_headers("Manager"),
+    )
+    assert r.status_code == 200, r.text[:300]
+    derived = r.json()["computed"]["derived"]["section3"]
+    assert derived["daily_expenses_total"] == 4000
+    # Not counted toward the cash total - only Daily Credits and the pull are.
+    assert derived["new_credits_total"] == 0
+
+    posted = client.post(f"/daily-trial-balance/{date}/post", headers=auth_headers("Manager"))
+    assert posted.status_code == 200, posted.text[:300]
+    row = conn.execute(
+        "SELECT me.amount, ec.name FROM monthly_expense me "
+        "JOIN expense_category ec ON ec.id = me.category_id "
+        "WHERE me.expense_date = ?", (date,)
+    ).fetchone()
+    assert row is not None, "Daily Expenses row never reached Monthly Expenses"
+    assert row["amount"] == 4000
+    assert row["name"] == "Fuel Transport"
+    assert conn.execute(
+        "SELECT COUNT(*) c FROM credit_transaction WHERE txn_date = ?", (date,)
+    ).fetchone()["c"] == 0
+
+
+def test_the_pulled_rows_view_shows_regardless_of_which_one_is_winning(
+    client, auth_headers
+):
+    """Section 3's mirror of Daily Sales Entry's Section 5 is always
+    populated, even on a day where a typed Daily Credits row is the one
+    actually counted - so an operator can see both."""
+    date = "2026-11-24"
+    client.post(
+        "/daily-sales-entry",
+        json={
+            "pump_serial": "12BC4523V-RD", "shift_date": date,
+            "hs": {"current": "9700030"}, "ms": {"current": "9700030"},
+            "new_credits": [{"name": "AirTel Hari", "ltrs": "3", "rate": "105.36"}],
+        },
+        headers=auth_headers("Sales"),
+    )
+    r = client.put(
+        f"/daily-trial-balance/{date}",
+        json={"s1_hs_current": 64,
+              "manual": {"section3": {"new_credits": [
+                  {"type": "Sajja Function Hall", "amount": 500}
+              ]}}},
+        headers=auth_headers("Manager"),
+    )
+    d = r.json()["computed"]["derived"]["section3"]
+    assert d["new_credit_source"] == "typed"
+    assert d["new_credits_total"] == 500          # the typed row wins the total
+    assert d["pulled_new_credits"][0]["type"] == "AirTel Hari"  # but still visible
+
+
+def test_a_remittance_typed_on_credit_master_also_shows_on_trial_balance(
+    client, auth_headers
+):
+    """Client, 2026-09-27: "who to clear the entry in DT" for a remittance
+    collected straight on Credit Master, never through Daily Sales Entry at
+    all. It has to show up on THAT day's Trial Balance the same way a
+    pump-filed one does - not just settle silently with nothing on screen."""
+    date = "2026-11-25"
+    client.post(
+        "/credit-master/remittance",
+        json={"creditor_name": "Anil/Nani", "amount": 1200, "txn_date": date},
+        headers=auth_headers("Manager"),
+    )
+    r = client.put(
+        f"/daily-trial-balance/{date}",
+        json={"s1_hs_current": 60},
+        headers=auth_headers("Manager"),
+    )
+    d = r.json()["computed"]["derived"]["section4"]
+    assert d["remittance_source"] == "pulled"
+    assert d["remittance_total"] == 1200
+    assert d["pulled_old_credits"][0]["type"] == "Anil/Nani"
+
+
+def test_a_posted_remittance_is_not_pulled_a_second_time(client, auth_headers, conn):
+    """A remittance that ALREADY reached credit_transaction through the DSE ->
+    Trial Balance -> Post pipeline (status='posted_dt') must not be read again
+    by the Credit-Master-direct pull, or the same money would double count."""
+    date = "2026-11-26"
+    _day(client, auth_headers, date, remittances=[("Anil/Nani Old Credit Remitted Amt", 900)])
+    client.post(f"/daily-trial-balance/{date}/post", headers=auth_headers("Manager"))
+    assert conn.execute(
+        "SELECT status FROM credit_transaction WHERE txn_date = ? AND kind = 'remittance'",
+        (date,),
+    ).fetchone()["status"] == "posted_dt"
+
+    r = client.put(f"/daily-trial-balance/{date}", json={"s1_hs_current": 60},
+                   headers=auth_headers("Manager"))
+    d = r.json()["computed"]["derived"]["section4"]
+    assert d["remittance_total"] == 900, "not 1800 - the posted row must not be pulled again"

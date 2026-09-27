@@ -54,7 +54,11 @@ def test_summary_groups_by_name_with_outstanding_pending_first(client, auth_head
     audit = conn.execute(
         "SELECT COUNT(*) c FROM audit_log WHERE table_name = 'credit_transaction'"
     ).fetchone()["c"]
-    assert audit == 5
+    # 5 creates (3 credits, 2 remittances) + 2 settlement updates - Ramesh's
+    # 2000 credit and Anil's 800 credit each flip to 'paid' and are audited
+    # as their own write (client, 2026-09-27: settling a credit is a write
+    # like any other, so it gets its own audit_log row too).
+    assert audit == 7
 
 
 def test_delete_transaction_updates_summary_and_audits(client, auth_headers, conn):

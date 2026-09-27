@@ -1884,3 +1884,80 @@ details.tb-collapsible[open] > summary {
 .oil-table .oil-col-item { width: auto; }   /* takes whatever the five below give up */
 .oil-table .oil-col-num  { width: 9%; }     /* roughly half of an even 6-way split */
 .oil-table td input { box-sizing: border-box; width: 100%; }
+
+/* ---- Credit / Remittance Master: the rebuilt Sections 1/2/3 --------------
+   Same fixed-column pattern as Daily Sales Entry's Sections 4/5/6 (widths
+   sized from the widest real value each holds), reused rather than
+   reinvented (client, 2026-09-26/27). Sections 1 and 2 are genuinely wide
+   - 11-12 columns - so they scroll horizontally within their own container
+   instead of shrinking illegibly or spilling past the sheet. */
+.tb-scrollx { overflow-x: auto; }
+.cm-table { table-layout: fixed; min-width: 1500px; }
+.cm-table.cm-summary { min-width: 0; } /* fewer, wider columns - fits without scrolling */
+.cm-w-name    { width: 150px; }
+.cm-w-type    { width: 70px; }
+.cm-w-ltrs    { width: 84px; }
+.cm-w-rate    { width: 78px; }
+.cm-w-amt     { width: 112px; }
+.cm-w-mode    { width: 108px; }
+.cm-w-date    { width: 134px; }
+.cm-w-psm     { width: 110px; }
+.cm-w-note    { width: 150px; }
+.cm-w-status  { width: 96px; }
+.cm-w-actions { width: 148px; }
+.cm-w-pay     { width: 84px; }
+.cm-w-remit   { width: 96px; }
+.cm-w-collect { width: 100px; }
+.cm-w-docs    { width: 220px; }
+.cm-w-updated { width: 118px; }
+.cm-table td input, .cm-table td select { width: 100%; box-sizing: border-box; }
+.cm-table td.num input { text-align: right; font-variant-numeric: tabular-nums; }
+/* Posted rows are read-only where the value came FROM the pump, not typed
+   here - greyed the same way every other computed/carried field in the app
+   is, so "you can't edit this" reads the same everywhere. */
+.cm-table input:disabled, .cm-table select:disabled {
+  background: #f3f5f9;
+  color: var(--io-blue-dark);
+}
+.cm-badge {
+  display: inline-block;
+  font-family: monospace;
+  font-size: 10px;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  border-radius: 3px;
+  white-space: nowrap;
+}
+.cm-badge.dt { background: #e6f4ec; color: #157a45; border: 1px solid #b7ddc7; }
+.cm-badge.manual { background: #eef1f7; color: #5d6b80; border: 1px solid var(--line); }
+.cm-badge.paid { background: #e7f0fb; color: #1856a3; border: 1px solid #bcd6f2; }
+.cm-badge.cleared { background: #f2f2f2; color: #8a8f98; border: 1px solid var(--line); }
+.cm-status-cell { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.cm-clear-btn {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 3px;
+  border: 1px solid var(--io-blue-dark);
+  background: #fff;
+  color: var(--io-blue-dark);
+  cursor: pointer;
+}
+.cm-updated { font-size: 10.5px; color: var(--io-blue-dark); line-height: 1.3; }
+.cm-updated b { display: block; color: inherit; font-weight: 600; }
+.cm-doc-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  padding: 4px 0;
+  border-bottom: 1px dashed var(--line);
+}
+.cm-doc-row:last-child { border-bottom: none; }
+.cm-filepill {
+  background: rgba(0, 51, 160, .06);
+  color: var(--io-blue);
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+}
