@@ -1916,24 +1916,28 @@ details.tb-collapsible[open] > summary {
    - 11-12 columns - so they scroll horizontally within their own container
    instead of shrinking illegibly or spilling past the sheet. */
 .tb-scrollx { overflow-x: auto; }
-.cm-table { table-layout: fixed; min-width: 1500px; }
+.cm-table { table-layout: fixed; min-width: 2450px; }
 .cm-table.cm-summary { min-width: 0; } /* fewer, wider columns - fits without scrolling */
-.cm-w-name    { width: 150px; }
-.cm-w-type    { width: 70px; }
-.cm-w-ltrs    { width: 84px; }
-.cm-w-rate    { width: 78px; }
-.cm-w-amt     { width: 112px; }
-.cm-w-mode    { width: 108px; }
-.cm-w-date    { width: 134px; }
-.cm-w-psm     { width: 110px; }
-.cm-w-note    { width: 150px; }
-.cm-w-status  { width: 96px; }
-.cm-w-actions { width: 148px; }
-.cm-w-pay     { width: 84px; }
-.cm-w-remit   { width: 96px; }
-.cm-w-collect { width: 100px; }
-.cm-w-docs    { width: 220px; }
-.cm-w-updated { width: 118px; }
+/* Widths scaled ~1.65x along with the app-wide font-size increase (item 7,
+   2026-09-28) - these were sized for 11-13px text and the status badge
+   ("Posted by DT") was genuinely overlapping the Updated On column at the
+   new, bigger scale (item 9, found live against real posted data). */
+.cm-w-name    { width: 250px; }
+.cm-w-type    { width: 120px; }
+.cm-w-ltrs    { width: 140px; }
+.cm-w-rate    { width: 130px; }
+.cm-w-amt     { width: 185px; }
+.cm-w-mode    { width: 180px; }
+.cm-w-date    { width: 220px; }
+.cm-w-psm     { width: 180px; }
+.cm-w-note    { width: 250px; }
+.cm-w-status  { width: 185px; }
+.cm-w-actions { width: 245px; }
+.cm-w-pay     { width: 140px; }
+.cm-w-remit   { width: 160px; }
+.cm-w-collect { width: 165px; }
+.cm-w-docs    { width: 260px; }
+.cm-w-updated { width: 195px; }
 .cm-table td input, .cm-table td select { width: 100%; box-sizing: border-box; }
 .cm-table td.num input { text-align: right; font-variant-numeric: tabular-nums; }
 /* Posted rows are read-only where the value came FROM the pump, not typed
