@@ -104,7 +104,6 @@
 
         <!-- 4. Upload -->
         <div class="section-title">4. Verification &amp; Upload to Daily Trial Balance</div>
-        <p id="gate-status" class="status-line"></p>
         <!-- Verification used to write itself the moment a dropdown changed -
              no press, no undo, and clicking away mid-edit committed whatever was
              in the box. Exactly what the client rejected on Inventory Master
@@ -117,12 +116,12 @@
           <span class="post-bar-sep"></span>
           <button type="button" class="export-btn" id="upload-btn">Upload to Daily Trial Balance</button>
         </div>
+        <!-- Same element screen.js has always driven (missing-entry / not-yet-
+             verified / uploaded) - moved to sit right beside the buttons instead
+             of above them, and sized up for visibility (client, 2026-09-28). -->
+        <p id="gate-status" class="status-line"></p>
         <p id="save-sum-status" class="status-line"></p>
         <p id="upload-status" class="status-line"></p>
-        <p style="font-size:11px;color:var(--io-red);margin:4px 0 0">
-          Upload is blocked until BOTH pumps show "Verified Correct" — the check that a scanned
-          entry was reviewed by a human before it reaches Trial Balance.
-        </p>
 
         <p style="margin-top:18px"><a href="../../index.html">&larr; Back to menu</a></p>
       </div>

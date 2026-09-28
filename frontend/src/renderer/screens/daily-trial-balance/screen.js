@@ -130,6 +130,14 @@ function cellFor(sectionKey, spec) {
   return `<td><input data-derived="${esc(spec.derived)}" disabled placeholder="auto"></td>`;
 }
 
+// Every typed (non-derived) field needs data entry - a computed one never
+// does, since it can't be typed over anyway (cellFor above). Reuses Daily
+// Sales Entry's own `.req` marker so "*" means the same red, bold thing on
+// both forms (client, 2026-09-28: "makes people's life easy").
+function reqMark(spec) {
+  return typeof spec === "string" ? ` <span class="req" title="Needs data entry">*</span>` : "";
+}
+
 function fieldsBlock(sectionKey, block) {
   // A conditional block - the Difference reconciliation panel - renders inside a
   // <details>. Closed on a day with nothing to explain, which is how the
@@ -138,7 +146,7 @@ function fieldsBlock(sectionKey, block) {
   if (block.collapsible) {
     const rows = block.fields
       .map(([no, label, spec, hint]) =>
-        `<tr><td>${no ? `${no} ` : ""}${label}${hintHtml(hint)}</td>` +
+        `<tr><td>${no ? `${no} ` : ""}${label}${reqMark(spec)}${hintHtml(hint)}</td>` +
         `${cellFor(sectionKey, spec)}</tr>`
       )
       .join("");
@@ -157,7 +165,7 @@ function fieldsBlock(sectionKey, block) {
   const title = block.title ? `<div class="tb-block-title">${block.title}</div>` : "";
   const rows = block.fields
     .map(([no, label, spec, hint]) =>
-      `<tr><td>${no ? `${no} ` : ""}${label}${hintHtml(hint)}</td>${cellFor(sectionKey, spec)}</tr>`
+      `<tr><td>${no ? `${no} ` : ""}${label}${reqMark(spec)}${hintHtml(hint)}</td>${cellFor(sectionKey, spec)}</tr>`
     )
     .join("");
   // A continuation block (no title, one line) would otherwise repeat a bare
@@ -180,7 +188,12 @@ function fieldsBlock(sectionKey, block) {
 
 function rowsBlock(sectionKey, block) {
   const path = `${sectionKey}.${block.key}`;
-  const head = block.columns.map((c) => `<th>${c.label}</th>`).join("");
+  // Every column here is typed per row (the read-only pulled equivalent is a
+  // separate block type, mirrorRows, rendered by mirrorRowsBlock instead) -
+  // so every header gets the same "needs data entry" marker as a fields block.
+  const head = block.columns
+    .map((c) => `<th>${c.label} <span class="req" title="Needs data entry">*</span></th>`)
+    .join("");
   const listed = block.columns.find((c) => c.optionList);
   const title = block.title ? `<div class="tb-block-title">${block.title}</div>` : "";
   const note = block.note

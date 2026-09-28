@@ -780,6 +780,20 @@ input:disabled {
   color: var(--io-red);
 }
 
+/* Daily Sales Summary's upload gate ("Both pumps must be verified before
+   upload." / the missing-entry and uploaded-OK messages) - moved to sit right
+   beside the Save/Undo/Upload buttons instead of above them, and sized well
+   past the ordinary status-line so it reads as a warning banner, not a
+   footnote (client, 2026-09-28). An ID selector, not a class, because
+   screen.js replaces #gate-status's className outright (ok/err) on every
+   render - a class added in the markup would be wiped on the first update. */
+#gate-status,
+#save-sum-status,
+#upload-status {
+  font-size: 26px;
+  text-align: left;
+}
+
 @media print {
   .last-updated-bar,
   .add-row-btn,
