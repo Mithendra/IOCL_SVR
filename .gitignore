@@ -101,6 +101,12 @@ docs/01-BRD-Requirement-Gathering/ocr-samples/EMPTY_PRINTING_FORMS/
 # Uploaded archives of the station's own paperwork (a .zip hides its contents
 # from every pattern above - trailbalance24september2026.zip arrived while this
 # block was being written and would otherwise have been the one thing pushed).
-docs/01-BRD-Requirement-Gathering/ocr-samples/*.zip
-docs/**/[Tt]rail[_ ]*balance*
-docs/**/[Tt]rial[_ ]*balance*
+#
+# [_ ]* here means "one separator char, then anything" in glob syntax, NOT
+# "zero or more separators" (that's regex thinking, not glob) - so
+# "trailbalance27september2026.zip" (no separator at all) slipped straight
+# through this rule undetected until caught 2026-09-27. Plain `*` (zero or
+# more of ANY character) is what actually covers the no-separator case.
+docs/01-BRD-Requirement-Gathering/ocr-samples/**/*.zip
+docs/**/[Tt]rail*balance*
+docs/**/[Tt]rial*balance*

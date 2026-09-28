@@ -57,13 +57,13 @@ body {
   box-sizing: border-box;
 }
 .login-card h1 {
-  font-size: 16px;
+  font-size: 26px;
   color: var(--io-blue-dark);
   margin: 0 0 16px;
 }
 .login-card label {
   display: block;
-  font-size: 11px;
+  font-size: 18px;
   color: var(--io-blue);
   font-weight: 600;
   margin: 10px 0 3px;
@@ -74,7 +74,7 @@ body {
   padding: 7px 8px;
   border: 1px solid var(--line);
   border-radius: 4px;
-  font-size: 13px;
+  font-size: 21px;
 }
 .login-card button {
   margin-top: 16px;
@@ -83,7 +83,7 @@ body {
   border: none;
   border-radius: 4px;
   padding: 8px 14px;
-  font-size: 13px;
+  font-size: 21px;
   font-weight: 700;
   cursor: pointer;
   text-decoration: none;
@@ -91,7 +91,7 @@ body {
 }
 .error {
   color: var(--io-red);
-  font-size: 12px;
+  font-size: 20px;
   min-height: 16px;
   margin-top: 8px;
 }
@@ -139,7 +139,7 @@ body {
   gap: 10px;
   padding: 9px 12px;
   border-radius: 9px;
-  font-size: 13.5px;
+  font-size: 22px;
   font-weight: 600;
   color: var(--io-blue-dark);
   text-decoration: none;
@@ -156,7 +156,7 @@ body {
 }
 .nav-group-label {
   padding: 2px 12px 4px;
-  font-size: 10px;
+  font-size: 16px;
   font-weight: 700;
   letter-spacing: 0.8px;
   text-transform: uppercase;
@@ -179,7 +179,7 @@ body {
   border-bottom: 1px solid var(--line);
 }
 .topbar-who {
-  font-size: 13px;
+  font-size: 21px;
   font-weight: 700;
   color: var(--ink);
 }
@@ -189,7 +189,7 @@ body {
   color: var(--io-red);
   border-radius: 20px;
   padding: 6px 14px;
-  font-size: 12.5px;
+  font-size: 21px;
   font-weight: 700;
   cursor: pointer;
 }
@@ -199,7 +199,7 @@ body {
   align-items: center;
   justify-content: center;
   color: #55627d;
-  font-size: 13px;
+  font-size: 21px;
 }
 .nav-item-active,
 .nav-item-active:hover {
@@ -233,7 +233,7 @@ body.shell-mode .sheet {
   color: var(--io-red);
   border-radius: 20px;
   padding: 7px 14px;
-  font-size: 12.5px;
+  font-size: 21px;
   font-weight: 700;
   cursor: pointer;
 }
@@ -263,12 +263,12 @@ body.shell-mode .sheet {
 }
 .header h1 {
   margin: 0;
-  font-size: 18px;
+  font-size: 30px;
   font-weight: 700;
 }
 .header p {
   margin: 2px 0 0;
-  font-size: 12px;
+  font-size: 20px;
   color: #d7e0f5;
   letter-spacing: 0.4px;
   text-transform: uppercase;
@@ -302,7 +302,7 @@ body.shell-mode .sheet {
   border: 1px solid rgba(255, 255, 255, 0.4);
   border-radius: 20px;
   overflow: hidden;
-  font-size: 12px;
+  font-size: 20px;
 }
 .lang-toggle button {
   border: none;
@@ -341,7 +341,7 @@ body.shell-mode .sheet {
   border: 1px solid rgba(255, 255, 255, 0.35);
   padding: 5px 12px;
   border-radius: 20px;
-  font-size: 12px;
+  font-size: 20px;
   color: #fff;
   white-space: nowrap;
 }
@@ -349,7 +349,7 @@ body.shell-mode .sheet {
   background: #eef1fa;
   border-bottom: 1px solid var(--line);
   padding: 6px 24px;
-  font-size: 12px;
+  font-size: 20px;
   color: var(--io-blue-dark);
   display: flex;
   gap: 24px;
@@ -366,7 +366,7 @@ body.shell-mode .sheet {
 }
 .field label {
   display: block;
-  font-size: 11px;
+  font-size: 18px;
   color: var(--io-blue);
   margin-bottom: 3px;
   font-weight: 600;
@@ -377,13 +377,13 @@ body.shell-mode .sheet {
   padding: 6px 8px;
   border: 1px solid var(--line);
   border-radius: 4px;
-  font-size: 13px;
+  font-size: 21px;
   background: #fff;
 }
 .section-title {
   background: var(--io-accent);
   color: #fff;
-  font-size: 13px;
+  font-size: 21px;
   font-weight: 700;
   padding: 6px 12px;
   border-radius: 6px 6px 0 0;
@@ -401,13 +401,13 @@ table {
 th {
   background: #eef1fa;
   color: var(--io-blue-dark);
-  font-size: 11px;
+  font-size: 18px;
   text-align: left;
   padding: 6px 8px;
   border-bottom: 1px solid var(--line);
 }
 td {
-  font-size: 12px;
+  font-size: 20px;
   padding: 5px 8px;
   border-bottom: 1px solid var(--line);
 }
@@ -418,7 +418,7 @@ td select {
   padding: 4px 6px;
   border: 1px solid var(--line);
   border-radius: 3px;
-  font-size: 12px;
+  font-size: 20px;
 }
 /* A locked cell has to LOOK locked. #f4f6fb is a hair off white, so a field
    nobody may type in was indistinguishable from one they must fill - and the
@@ -494,7 +494,7 @@ input:disabled {
    headings and rows still standing around it. */
 .tb-emptynote {
   color: var(--io-blue-dark);
-  font-size: 12px;
+  font-size: 20px;
   font-style: italic;
   padding: 8px 10px;
 }
@@ -529,7 +529,7 @@ input:disabled {
    Advance", "Special Note". It had no size of its own, so it inherited the body
    and printed at roughly twice the height of the section band above it. */
 .tb-block-title {
-  font-size: 12px;
+  font-size: 20px;
   font-weight: 700;
   color: var(--io-blue-dark);
   margin: 8px 0 3px;
@@ -570,7 +570,7 @@ input:disabled {
   font-variant-numeric: tabular-nums;
 }
 .tb-mirror-empty {
-  font-size: 11px;
+  font-size: 18px;
   font-style: italic;
   color: var(--io-blue-dark);
 }
@@ -605,7 +605,7 @@ input:disabled {
   padding: 3px 6px;
   border: 1px solid var(--io-blue);
   border-radius: 3px;
-  font-size: 12px;
+  font-size: 20px;
   min-width: 220px;
 }
 /* Section 1 has 13 columns; letting them size themselves pushed the last three
@@ -617,7 +617,7 @@ input:disabled {
 .tb-s1 td,
 .tb-s1 th {
   padding: 3px 4px;
-  font-size: 10.5px;
+  font-size: 17px;
   overflow: hidden;
 }
 .tb-s1 td:first-child,
@@ -626,7 +626,7 @@ input:disabled {
 }
 .tb-s1 td input {
   padding: 2px 3px;
-  font-size: 10.5px;
+  font-size: 17px;
   text-align: right;
 }
 /* Every figure right-aligned, two decimals - the money columns read as money. */
@@ -645,7 +645,7 @@ input:disabled {
 }
 .tb-stamp {
   font-weight: 400;
-  font-size: 11px;
+  font-size: 18px;
   opacity: 0.92;
 }
 .tb-note {
@@ -655,7 +655,7 @@ input:disabled {
   border: 1px solid var(--line);
   border-radius: 3px;
   font: inherit;
-  font-size: 12px;
+  font-size: 20px;
   resize: vertical;
 }
 
@@ -691,7 +691,7 @@ input:disabled {
 }
 .summary-box h3 {
   margin: -14px -16px 14px -16px;
-  font-size: 13px;
+  font-size: 21px;
   background: var(--io-accent);
   color: #fff;
   font-weight: 700;
@@ -701,7 +701,7 @@ input:disabled {
 .summary-row {
   display: flex;
   justify-content: space-between;
-  font-size: 12.5px;
+  font-size: 21px;
   padding: 4px 0;
   border-bottom: 1px dashed var(--line);
 }
@@ -710,7 +710,7 @@ input:disabled {
   color: var(--io-red);
   border-bottom: none;
   padding-top: 8px;
-  font-size: 13.5px;
+  font-size: 22px;
 }
 .summary-row input {
   width: 120px;
@@ -730,7 +730,7 @@ input:disabled {
   border: 1px solid var(--io-blue);
   border-radius: 4px;
   padding: 4px 10px;
-  font-size: 12px;
+  font-size: 20px;
   cursor: pointer;
 }
 .export-bar {
@@ -746,7 +746,7 @@ input:disabled {
   border: none;
   border-radius: 4px;
   padding: 8px 14px;
-  font-size: 13px;
+  font-size: 21px;
   font-weight: 700;
   cursor: pointer;
 }
@@ -756,7 +756,7 @@ input:disabled {
   border: 1px solid var(--io-blue);
 }
 .status-line {
-  font-size: 12px;
+  font-size: 20px;
   font-weight: 700;
   color: var(--io-blue-dark);
   text-align: right;
@@ -1159,7 +1159,7 @@ input:disabled {
   padding: 4px 6px;
   border: 1px solid var(--line);
   border-radius: 3px;
-  font-size: 12px;
+  font-size: 20px;
 }
 .oil-newbox input:first-child {
   min-width: 260px;
@@ -1187,7 +1187,7 @@ input:disabled {
 /* A product retired since the day was recorded. The row is read-only and says so,
    rather than vanishing and quietly shrinking the day's Oil Total. */
 .oil-retired {
-  font-size: 10px;
+  font-size: 16px;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -1298,7 +1298,7 @@ input:disabled {
   display: flex;
   gap: 8px;
   align-items: center;
-  font-size: 12px;
+  font-size: 20px;
   background: #fff4e5;
   border: 1px solid #d08a00;
   border-radius: 4px;
@@ -1355,7 +1355,7 @@ details.tb-collapsible {
 details.tb-collapsible > summary {
   cursor: pointer;
   font-weight: 700;
-  font-size: 12px;
+  font-size: 20px;
   padding: 2px 0;
 }
 details.tb-collapsible .tb-collapse-hint {
@@ -1398,7 +1398,7 @@ details.tb-collapsible[open] > summary {
   color: var(--io-blue-dark);
 }
 .tb-note-line {
-  font-size: 11px;
+  font-size: 18px;
   color: var(--io-blue-dark);
   margin: 4px 0 0;
 }
@@ -1417,7 +1417,7 @@ details.tb-collapsible[open] > summary {
   background: #f4f6fb;
 }
 .tb-carried {
-  font-size: 11px;
+  font-size: 18px;
   color: var(--io-blue-dark);
 }
 
@@ -1477,7 +1477,7 @@ details.tb-collapsible[open] > summary {
   border-radius: 3px;
   padding: 0 0 12px;
   background: #fff;
-  font-size: 12px;
+  font-size: 20px;
 }
 .rc-head {
   display: flex;
@@ -1493,12 +1493,12 @@ details.tb-collapsible[open] > summary {
 }
 .rc-name {
   font-weight: 700;
-  font-size: 14px;
+  font-size: 23px;
   color: var(--io-blue, #0033a0);
   line-height: 1.25;
 }
 .rc-addr {
-  font-size: 10.5px;
+  font-size: 17px;
   color: #444;
   line-height: 1.35;
 }
@@ -1507,12 +1507,12 @@ details.tb-collapsible[open] > summary {
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  font-size: 11px;
+  font-size: 18px;
   color: var(--io-orange, #f26f21);
 }
 .rc-no {
   margin: 0 14px 8px;
-  font-size: 16px;
+  font-size: 26px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
@@ -1547,7 +1547,7 @@ details.tb-collapsible[open] > summary {
 .rc-sale td:first-child { text-align: left; }
 .rc-sale th {
   background: #eef1f5;
-  font-size: 10.5px;
+  font-size: 17px;
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
@@ -1557,20 +1557,20 @@ details.tb-collapsible[open] > summary {
   margin: 8px 14px 0;
   padding-top: 6px;
   border-top: 2px solid var(--io-blue, #0033a0);
-  font-size: 16px;
+  font-size: 26px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
 .rc-paid {
   margin: 4px 14px 0;
-  font-size: 11px;
+  font-size: 18px;
   color: #444;
 }
 .rc-foot {
   margin: 10px 14px 0;
   padding-top: 6px;
   border-top: 1px dashed var(--line, #cdd6e4);
-  font-size: 10.5px;
+  font-size: 17px;
   color: #666;
   text-align: center;
 }
@@ -1649,7 +1649,7 @@ details.tb-collapsible[open] > summary {
 }
 .snap {
   border-collapse: collapse;
-  font-size: 12px;
+  font-size: 20px;
   flex: 1 1 auto;
 }
 .snap td {
@@ -1669,12 +1669,12 @@ details.tb-collapsible[open] > summary {
 }
 .snap .snap-mid {
   color: #555;
-  font-size: 11px;
+  font-size: 18px;
   white-space: nowrap;
 }
 .snap .snap-note {
   color: var(--io-orange);
-  font-size: 10.5px;
+  font-size: 17px;
   font-style: italic;
 }
 /* A section band - IOCL orange, as on every section title in the app. */
@@ -1705,7 +1705,7 @@ details.tb-collapsible[open] > summary {
 }
 .snap-panel {
   border-collapse: collapse;
-  font-size: 11.5px;
+  font-size: 19px;
 }
 .snap-panel td {
   border: 1px solid #c8d4ea;
@@ -1731,7 +1731,7 @@ details.tb-collapsible[open] > summary {
    from a fix that did not work, which cost three rounds of testing. */
 .build-stamp {
   margin-left: auto;
-  font-size: 10px;
+  font-size: 16px;
   color: #6b7a99;
   font-variant-numeric: tabular-nums;
 }
@@ -1834,7 +1834,7 @@ details.tb-collapsible[open] > summary {
   margin: 0;
   padding: 3px 7px;
   width: auto;
-  font-size: 11px;
+  font-size: 18px;
 }
 /* Delete is the destructive one and has to look like it, without shouting on a
    form where it sits on every single row. */
@@ -1861,7 +1861,7 @@ details.tb-collapsible[open] > summary {
   gap: 10px;
   align-items: center;
   flex-wrap: wrap;
-  font-size: 12px;
+  font-size: 20px;
 }
 .dse-newbox input { width: 150px; }
 .dse-newbox .add-row-btn { display: inline-block; margin: 0; }
@@ -1922,7 +1922,7 @@ details.tb-collapsible[open] > summary {
 .cm-badge {
   display: inline-block;
   font-family: monospace;
-  font-size: 10px;
+  font-size: 16px;
   letter-spacing: .05em;
   text-transform: uppercase;
   padding: 2px 6px;
@@ -1935,7 +1935,7 @@ details.tb-collapsible[open] > summary {
 .cm-badge.cleared { background: #f2f2f2; color: #8a8f98; border: 1px solid var(--line); }
 .cm-status-cell { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .cm-clear-btn {
-  font-size: 10px;
+  font-size: 16px;
   padding: 1px 6px;
   border-radius: 3px;
   border: 1px solid var(--io-blue-dark);
@@ -1943,13 +1943,13 @@ details.tb-collapsible[open] > summary {
   color: var(--io-blue-dark);
   cursor: pointer;
 }
-.cm-updated { font-size: 10.5px; color: var(--io-blue-dark); line-height: 1.3; }
+.cm-updated { font-size: 17px; color: var(--io-blue-dark); line-height: 1.3; }
 .cm-updated b { display: block; color: inherit; font-weight: 600; }
 .cm-doc-row {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 12px;
+  font-size: 20px;
   padding: 4px 0;
   border-bottom: 1px dashed var(--line);
 }
@@ -1959,5 +1959,5 @@ details.tb-collapsible[open] > summary {
   color: var(--io-blue);
   padding: 2px 8px;
   border-radius: 10px;
-  font-size: 11px;
+  font-size: 18px;
 }
