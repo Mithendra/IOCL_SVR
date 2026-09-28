@@ -10,7 +10,7 @@
 // resources/backend/svr-backend.exe. In dev (`npm start`) there is no bundled exe;
 // a dev backend on :8756 is assumed and the renderer loads regardless.
 
-const { app, BrowserWindow, Menu, clipboard, ipcMain, shell } = require("electron");
+const { app, BrowserWindow, Menu, clipboard, ipcMain, shell, session } = require("electron");
 const path = require("path");
 const http = require("http");
 const fs = require("fs");
@@ -303,6 +303,24 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
+  // Excel exports (Daily Sales Entry's "Export for re-import", Trial Balance's
+  // own exports) go out through the renderer's api.download() - a fetch()'d
+  // blob given a `download` attribute, which Chromium routes through the normal
+  // download manager. With no handler here, Electron's default is a native
+  // Save-As dialog: it blocks silently behind (or under) the main window, so a
+  // station operator who clicks Export and sees nothing happen reasonably
+  // concludes it did nothing (2026-09-27/28 re-verification). The PDF exports
+  // never had this problem - they write straight to Downloads themselves
+  // (showPrintPreview / saveSheetPdf) - so this makes the Excel path match that
+  // same silent-save-then-open convention instead of popping a dialog.
+  session.defaultSession.on("will-download", (event, item) => {
+    const safe = item.getFilename().replace(/[^A-Za-z0-9._-]/g, "_");
+    item.setSavePath(path.join(app.getPath("downloads"), safe));
+    item.once("done", (e, state) => {
+      if (state === "completed") shell.openPath(item.getSavePath()).catch(() => {});
+    });
+  });
+
   createWindow();
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
