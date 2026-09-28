@@ -350,6 +350,60 @@
           <p id="finalize-status" class="status-line"></p>
         </div>
 
+        <!-- Correcting a closed day's IOCL reading, behind the same passphrase
+             Daily Sales Entry's own reading reset uses (client, 2026-09-28): a
+             new fuel load changes this reading, and that can happen after the
+             day's already Closed & Signed Off. Deliberately NOT Reopen - this
+             touches only Section 1 and what's computed from it (5, 6, 7, 8),
+             never a Credit/Remittance or Expense line already posted. Manager
+             or Owner, not Owner-only - Daily Sales' own reset stays Owner-only,
+             this one doesn't. -->
+        <button type="button" class="btn-small" id="iocl-fix-open-btn" hidden>
+          Correct IOCL Readings (Manager / Owner)
+        </button>
+        <div id="iocl-fix-panel" class="oil-newbox reset-panel" hidden>
+          <div style="font-weight:700;margin-bottom:6px">
+            Correct IOCL Last / Current — this date only
+          </div>
+          <p style="font-size:11px;margin:0 0 8px;max-width:560px">
+            For a new fuel load changing what IOCL reads, even on an already
+            closed day. Recomputes Sections 5/6/7/8 for this date only - it
+            never touches a Credit/Remittance or Expense line already posted,
+            and never reaches into another day.
+          </p>
+
+          <div id="iocl-fix-setup" hidden>
+            <p style="font-size:11px;margin:0 0 6px;color:var(--io-red)">
+              No passphrase has been set on this machine yet. Choose one — at
+              least 8 characters. It is stored hashed and cannot be recovered.
+            </p>
+            <input id="iocl-fix-new-pass" type="password" placeholder="New passphrase" />
+            <button type="button" class="btn-small" id="iocl-fix-set-btn">Set passphrase</button>
+          </div>
+
+          <div id="iocl-fix-gate">
+            <input id="iocl-fix-pass" type="password" placeholder="Passphrase" />
+            <button type="button" class="btn-small" id="iocl-fix-unlock-btn">Open</button>
+          </div>
+
+          <div id="iocl-fix-body" hidden style="margin-top:8px">
+            <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center">
+              <span style="font-size:11px">Date:</span>
+              <b id="iocl-fix-date-label"></b>
+              <input id="iocl-fix-hs-last" placeholder="IOCL Last (HS)" />
+              <input id="iocl-fix-hs-current" placeholder="IOCL Current (HS)" />
+              <input id="iocl-fix-ms-last" placeholder="IOCL Last (MS)" />
+              <input id="iocl-fix-ms-current" placeholder="IOCL Current (MS)" />
+            </div>
+            <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:6px">
+              <input id="iocl-fix-reason" placeholder="Why? (kept on the record)" style="min-width:260px" />
+              <button type="button" class="btn-small" id="iocl-fix-apply-btn">Apply correction</button>
+              <button type="button" class="btn-small secondary" id="iocl-fix-close-btn">Close</button>
+            </div>
+          </div>
+          <p id="iocl-fix-status" class="status-line"></p>
+        </div>
+
         <p style="margin-top:18px"><a href="../../index.html">&larr; Back to menu</a></p>
       </div>
     </div>

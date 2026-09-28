@@ -259,6 +259,20 @@ def derive_manual(
     # did while both shared one section - typed here, it goes to Monthly
     # Expenses (posting.BLOCKS) and nowhere near total15.
     s3_daily_expenses_total = _rows_total(s3.get("daily_expenses"))
+    # Standard cash-book reconciliation (client, 2026-09-28): a till only
+    # balances against money that actually moved cash. A Salary Advance
+    # handed over in cash reduces today's till the same way Beta/Testing
+    # already does; the same category paid by bank transfer, or an invoice on
+    # credit terms, never touched the till and must not. So the split that
+    # matters for 4.2 below is Payment Mode, not category - every row still
+    # posts to Monthly Expenses regardless of mode (that half is unchanged).
+    # A row saved before Payment Mode existed has none - treated as NOT cash,
+    # so a day already recorded recomputes identically if resaved rather than
+    # silently starting to subtract something nobody marked.
+    s3_daily_expenses_cash_total = _rows_total(
+        [r for r in _rows_as_list(s3.get("daily_expenses"))
+         if str(r.get("payment_mode") or "").strip().lower() == "cash"]
+    )
 
     # --- Section 4.2, "Total Today Sale Amount After Expenses (Beta, Testing and
     # Density)". The client's sheet leaves this hand-typed, and it is the only
@@ -277,7 +291,9 @@ def derive_manual(
     s4_todaysale_typed = _n(s4.get("todaysale"))
     s4_todaysale_computed = None
     if sales_total is not None:
-        s4_todaysale_computed = round4(_n(sales_total) - _n(ds.get("beta_testing")))
+        s4_todaysale_computed = round4(
+            _n(sales_total) - _n(ds.get("beta_testing")) - s3_daily_expenses_cash_total
+        )
     s4_todaysale = (
         s4_todaysale_computed if s4_todaysale_computed is not None else s4_todaysale_typed
     )
@@ -398,6 +414,7 @@ def derive_manual(
             "new_credit_source": s3_new_credit_source,
             "pulled_new_credits": s3_pulled_new_credits,
             "daily_expenses_total": s3_daily_expenses_total,
+            "daily_expenses_cash_total": s3_daily_expenses_cash_total,
             "total15": s3_total15,
         },
         "section4": {

@@ -136,11 +136,13 @@ export const SECTIONS = [
         columns: [
           { key: "type", label: "Category", optionList: "expenses" },
           { key: "amount", label: "Amount" },
+          { key: "payment_mode", label: "Payment Mode", optionList: "expense_payment_mode" },
         ],
         total: "section3.daily_expenses_total",
         totalLabel: "Total Daily Expenses",
-        note: "Goes to Monthly Expenses, not to 3.15's cash total - this is " +
-              "money paid out, not money owed to the station.",
+        note: "Every row still goes to Monthly Expenses regardless of mode - " +
+              "only a Cash row also reduces 4.2's cash projection (client, " +
+              "2026-09-28: a Bank or Credit expense never touched the till).",
       },
       {
         type: "fields",

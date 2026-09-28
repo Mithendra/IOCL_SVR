@@ -13,13 +13,20 @@ def test_the_form_cannot_be_opened_before_a_passphrase_exists(client, auth_heade
     assert r.status_code == 409
 
 
-def test_only_an_owner_sees_or_sets_it(client, auth_headers):
+def test_only_an_owner_sets_it_manager_can_only_see_and_use(client, auth_headers):
+    # Setting/changing the passphrase stays Owner-only for both roles.
     for role in ("Manager", "Sales"):
-        assert client.get("/owner-reset/status",
-                          headers=auth_headers(role)).status_code == 403
         assert client.post("/owner-reset/secret",
                            json={"new_passphrase": SECRET},
                            headers=auth_headers(role)).status_code == 403
+    # Seeing whether one is configured is open to Manager too (2026-09-28) -
+    # Daily Trial Balance's IOCL-reading correction shares this passphrase and
+    # is Manager-or-Owner, unlike this reading reset which stays Owner-only
+    # end to end. Sales still cannot.
+    assert client.get("/owner-reset/status",
+                      headers=auth_headers("Manager")).status_code == 200
+    assert client.get("/owner-reset/status",
+                      headers=auth_headers("Sales")).status_code == 403
 
 
 def _set_secret(client, auth_headers):
@@ -36,6 +43,17 @@ def test_set_then_unlock(client, auth_headers):
                        headers=auth_headers("Owner")).status_code == 200
     assert client.post("/owner-reset/unlock", json={"passphrase": "wrong"},
                        headers=auth_headers("Owner")).status_code == 403
+
+
+def test_manager_can_unlock_too_sales_cannot(client, auth_headers):
+    """The one RBAC difference from this reading reset: Daily Trial Balance's
+    IOCL correction is Manager-or-Owner, so unlock (checking the passphrase
+    itself) has to allow Manager - Sales still cannot even attempt it."""
+    _set_secret(client, auth_headers)
+    assert client.post("/owner-reset/unlock", json={"passphrase": SECRET},
+                       headers=auth_headers("Manager")).status_code == 200
+    assert client.post("/owner-reset/unlock", json={"passphrase": SECRET},
+                       headers=auth_headers("Sales")).status_code == 403
 
 
 def test_changing_it_needs_the_current_one(client, auth_headers):

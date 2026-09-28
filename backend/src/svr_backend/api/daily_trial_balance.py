@@ -31,7 +31,7 @@ import sqlite3
 from datetime import UTC, date, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from svr_backend import oil_items, posting
 from svr_backend.calc.amounts import is_blank
@@ -55,6 +55,7 @@ from svr_backend.excel.trial_balance_section8 import (
     section8_message,
 )
 from svr_backend.inventory import sync_from_daily_sales
+from svr_backend.owner_secret import check_passphrase
 from svr_backend.params import get_param
 from svr_backend.rates import latest_effective_rates
 from svr_backend.summary import (
@@ -490,6 +491,12 @@ OPTION_LISTS = (
     # holds pairs ("Gopi & Girish") because a shift is signed off by two people,
     # and one person collects a credit.
     "collectors",
+    # 0053 - 3.13a Daily Expenses' own Payment Mode (client, 2026-09-28): only a
+    # Cash-mode row reduces 4.2's cash projection - a Bank or Credit row never
+    # touched the till. The calc engine matches on the literal word "Cash"
+    # (case-insensitive) - a station-added fourth mode is fine, it simply
+    # never counts as cash unless it's spelled that way.
+    "expense_payment_mode",
 )
 
 
@@ -929,6 +936,97 @@ def upsert_trial_balance(
         record_write(
             conn, table=TABLE, record_id=rid, action="update", actor=principal.login_name,
             new={"shift_date": shift_date, "s7_3_total": result["section7"]["7_3_total"]},
+        )
+    return _view(conn, shift_date)
+
+
+class IoclReadingCorrection(BaseModel):
+    passphrase: str
+    hs_current: float | None = None
+    ms_current: float | None = None
+    hs_last: float | None = None
+    ms_last: float | None = None
+    # Required, and deliberately not defaulted - same reasoning as the reading
+    # reset's own `reason`: a correction with no reason is a mystery to whoever
+    # finds it in six months.
+    reason: str = Field(min_length=3)
+
+
+@router.post("/{shift_date}/correct-iocl-readings")
+def correct_iocl_readings(
+    shift_date: str,
+    body: IoclReadingCorrection,
+    principal: Principal = Depends(require("Manager", "Owner")),
+    conn: sqlite3.Connection = Depends(get_db),
+) -> dict:
+    """Correct Section 1's IOCL Last/Current, behind the same Owner passphrase
+    every gated form shares - the one narrow reason this ever needs to reach
+    past a Closed & Signed Off day.
+
+    Client, 2026-09-28: a new fuel load changes the IOCL reading - unlike Daily
+    Sales' own pump meter, which only ever runs forward - and that can happen
+    on a day that's already closed. Trial Balance is a daily snapshot (the
+    client's own words: "like a bank trial balance... every day they just
+    balance it for that given day"), so this touches ONLY Section 1 and the
+    figures derived from it (5, 6, 7, 8). It never re-posts, un-posts, or
+    changes the status of a single Credit/Remittance or Expense line already
+    sent to its master form - correcting a reading has no bearing on either,
+    and Reopen's existing full un-post is the wrong tool for this job.
+    """
+    check_passphrase(conn, body.passphrase)
+    if (
+        body.hs_current is None and body.ms_current is None
+        and body.hs_last is None and body.ms_last is None
+    ):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Give at least one corrected reading.")
+    for label, v in (
+        ("IOCL Last (HS)", body.hs_last), ("IOCL Current (HS)", body.hs_current),
+        ("IOCL Last (MS)", body.ms_last), ("IOCL Current (MS)", body.ms_current),
+    ):
+        if v is not None and v < 0:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, f"{label} cannot be negative.")
+
+    row = conn.execute(f"SELECT * FROM {TABLE} WHERE shift_date = ?", (shift_date,)).fetchone()
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No Trial Balance for this date yet")
+
+    values = {
+        "s1_hs_yesterday": row["s1_hs_yesterday"] if body.hs_last is None else body.hs_last,
+        "s1_hs_current": row["s1_hs_current"] if body.hs_current is None else body.hs_current,
+        "s1_ms_yesterday": row["s1_ms_yesterday"] if body.ms_last is None else body.ms_last,
+        "s1_ms_current": row["s1_ms_current"] if body.ms_current is None else body.ms_current,
+        "s54_cash_book_value": row["s54_cash_book_value"],
+    }
+    ctx = _context(conn, shift_date, dict(values))
+    result = compute(ctx["data"]).to_dict()
+
+    with transaction(conn):
+        conn.execute(
+            f"""
+            UPDATE {TABLE} SET
+                s1_hs_yesterday = :s1hy, s1_hs_current = :s1hc,
+                s1_ms_yesterday = :s1my, s1_ms_current = :s1mc,
+                result_json = :result, last_updated_by = :by,
+                last_updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+            WHERE shift_date = :d
+            """,
+            {
+                "d": shift_date,
+                "s1hy": values["s1_hs_yesterday"], "s1hc": values["s1_hs_current"],
+                "s1my": values["s1_ms_yesterday"], "s1mc": values["s1_ms_current"],
+                "result": json.dumps(result), "by": principal.login_name,
+            },
+        )
+        record_write(
+            conn, table=TABLE, record_id=row["id"], action="update", actor=principal.login_name,
+            new={
+                "shift_date": shift_date, "correction": "iocl_reading",
+                "s1_hs_yesterday": values["s1_hs_yesterday"],
+                "s1_hs_current": values["s1_hs_current"],
+                "s1_ms_yesterday": values["s1_ms_yesterday"],
+                "s1_ms_current": values["s1_ms_current"],
+                "reason": body.reason.strip(),
+            },
         )
     return _view(conn, shift_date)
 

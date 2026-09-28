@@ -1414,6 +1414,14 @@ function render(view) {
   if (canFinalize()) {
     $("finalize-btn").disabled = locked;
   }
+  // Only relevant once a day is actually closed - while still draft, Section 1
+  // is already freely editable via the ordinary Save/Update, no passphrase
+  // needed.
+  const iocFixBtn = $("iocl-fix-open-btn");
+  if (iocFixBtn) {
+    iocFixBtn.hidden = !(canFinalize() && locked);
+    if (!locked) closeIoclFixPanel();
+  }
   $("body").style.display = "block";
 }
 
@@ -1741,6 +1749,106 @@ async function reopen() {
   }
 }
 
+// Correcting a closed day's IOCL reading, behind the same shared passphrase
+// Daily Sales Entry's own reading reset uses (client, 2026-09-28). Mirrors
+// that panel's open/set/unlock/apply shape exactly - two different forms
+// sharing one gate, not two ways to be wrong about it.
+let ioclFixPass = "";
+
+function ioclFixStatus(msg, kind = "") {
+  const el = $("iocl-fix-status");
+  if (!el) return;
+  el.className = `status-line ${kind}`;
+  el.textContent = msg;
+}
+
+async function openIoclFixPanel() {
+  const panel = $("iocl-fix-panel");
+  panel.hidden = false;
+  $("iocl-fix-date-label").textContent = val("tb-date");
+  try {
+    const st = await api.get("/owner-reset/status");
+    const isOwner = Boolean(me && me.role === "Owner");
+    // Setting/changing the passphrase stays Owner-only (same as Daily Sales
+    // Entry's own reading reset) - a Manager who's first to find none set
+    // cannot use the setup box below even though they CAN open this panel,
+    // so tell them plainly instead of showing a form that will just 403.
+    if (!st.configured && !isOwner) {
+      $("iocl-fix-setup").hidden = true;
+      $("iocl-fix-gate").hidden = true;
+      ioclFixStatus("No passphrase has been set yet — ask the Owner to set one first.", "err");
+      return;
+    }
+    $("iocl-fix-setup").hidden = st.configured;
+    $("iocl-fix-gate").hidden = !st.configured;
+  } catch (err) {
+    ioclFixStatus(`Could not check the passphrase — ${err.message || err}`, "err");
+  }
+}
+
+async function setIoclFixPassphrase() {
+  const v = $("iocl-fix-new-pass").value;
+  try {
+    await api.post("/owner-reset/secret", { new_passphrase: v });
+    $("iocl-fix-new-pass").value = "";
+    $("iocl-fix-setup").hidden = true;
+    $("iocl-fix-gate").hidden = false;
+    ioclFixStatus("Passphrase set. Enter it to open the form.", "ok");
+  } catch (err) {
+    ioclFixStatus(`${err.message || err}`, "err");
+  }
+}
+
+async function unlockIoclFixForm() {
+  const v = $("iocl-fix-pass").value;
+  try {
+    await api.post("/owner-reset/unlock", { passphrase: v });
+    ioclFixPass = v;
+    $("iocl-fix-pass").value = "";
+    $("iocl-fix-gate").hidden = true;
+    $("iocl-fix-body").hidden = false;
+    $("iocl-fix-hs-last").value = val("hs-y");
+    $("iocl-fix-hs-current").value = val("hs-c");
+    $("iocl-fix-ms-last").value = val("ms-y");
+    $("iocl-fix-ms-current").value = val("ms-c");
+    ioclFixStatus("");
+  } catch (err) {
+    ioclFixStatus(`${err.message || err}`, "err");
+  }
+}
+
+function closeIoclFixPanel() {
+  // Forget the passphrase on close, same reasoning as the reading reset - a
+  // panel left unlocked on screen must not by itself be enough to correct a
+  // reading later.
+  ioclFixPass = "";
+  const body = $("iocl-fix-body");
+  if (body) body.hidden = true;
+  const gate = $("iocl-fix-gate");
+  if (gate) gate.hidden = false;
+  const panel = $("iocl-fix-panel");
+  if (panel) panel.hidden = true;
+}
+
+async function applyIoclFix() {
+  const num = (id) => ($(id).value === "" ? null : Number($(id).value));
+  const body = {
+    passphrase: ioclFixPass,
+    hs_last: num("iocl-fix-hs-last"),
+    hs_current: num("iocl-fix-hs-current"),
+    ms_last: num("iocl-fix-ms-last"),
+    ms_current: num("iocl-fix-ms-current"),
+    reason: $("iocl-fix-reason").value,
+  };
+  try {
+    await api.post(`/daily-trial-balance/${val("tb-date")}/correct-iocl-readings`, body);
+    ioclFixStatus(`Corrected. Sections 5/6/7/8 recomputed for ${val("tb-date")}.`, "ok");
+    $("iocl-fix-reason").value = "";
+    await load(); // the form behind the panel is now out of date
+  } catch (err) {
+    ioclFixStatus(`${err.message || err}`, "err");
+  }
+}
 
 // Section 9 is a running ledger that grows a row a day and is never pruned - by
 // SEP15 it already carried three weeks. The client keeps 7 days (2026-09-15), so
@@ -1823,6 +1931,14 @@ async function init() {
     } else {
       $("reopen-btn").style.display = "none";
     }
+    // Correct IOCL Readings is Manager or Owner - unlike Reopen, and unlike
+    // Daily Sales' own reading reset (Owner-only). visibility toggled per-day
+    // in render() (only once a day is actually closed).
+    $("iocl-fix-open-btn").addEventListener("click", openIoclFixPanel);
+    $("iocl-fix-set-btn").addEventListener("click", setIoclFixPassphrase);
+    $("iocl-fix-unlock-btn").addEventListener("click", unlockIoclFixForm);
+    $("iocl-fix-apply-btn").addEventListener("click", applyIoclFix);
+    $("iocl-fix-close-btn").addEventListener("click", closeIoclFixPanel);
     $("post-check-all").addEventListener("change", (e) => {
       for (const c of document.querySelectorAll(".post-pick")) c.checked = e.target.checked;
     });

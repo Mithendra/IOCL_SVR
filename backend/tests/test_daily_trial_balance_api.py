@@ -97,6 +97,56 @@ def test_section3_unavailable_without_a_summary(client, auth_headers):
     assert view["computed"]["section1"]["hs"]["consumption"] is None
 
 
+def test_daily_expenses_payment_mode_only_cash_reduces_cash_projection(client, auth_headers):
+    """Client, 2026-09-28: a till only balances against money that actually
+    moved cash - a Salary Advance paid in cash reduces 4.2 the same way Beta/
+    Testing already does; the same category paid by bank or on credit terms
+    never touched the till and must not. Every row still posts to Monthly
+    Expenses regardless of mode - untouched by this."""
+    _seed_summary(client, auth_headers)
+    baseline = client.put(
+        f"/daily-trial-balance/{DATE}", json={"s1_hs_yesterday": 100, "s1_hs_current": 60},
+        headers=auth_headers("Manager"),
+    ).json()
+    base_todaysale = baseline["computed"]["derived"]["section4"]["todaysale"]
+
+    cash_view = client.put(
+        f"/daily-trial-balance/{DATE}",
+        json={"manual": {"section3": {"daily_expenses": [
+            {"type": "Salary Advances Ravindra", "amount": 10000, "payment_mode": "Cash"},
+        ]}}},
+        headers=auth_headers("Manager"),
+    ).json()
+    assert cash_view["computed"]["derived"]["section3"]["daily_expenses_cash_total"] == 10000
+    assert cash_view["computed"]["derived"]["section4"]["todaysale"] == round(base_todaysale - 10000, 4)
+
+    bank_view = client.put(
+        f"/daily-trial-balance/{DATE}",
+        json={"manual": {"section3": {"daily_expenses": [
+            {"type": "RTGS Bank Charges", "amount": 200, "payment_mode": "Bank"},
+        ]}}},
+        headers=auth_headers("Manager"),
+    ).json()
+    assert bank_view["computed"]["derived"]["section3"]["daily_expenses_cash_total"] == 0
+    assert bank_view["computed"]["derived"]["section4"]["todaysale"] == base_todaysale
+    # Still posts its full amount regardless of mode - Payment Mode only
+    # decides cash-projection impact, never whether it's a real expense.
+    assert bank_view["computed"]["derived"]["section3"]["daily_expenses_total"] == 200
+
+    # A row with no payment_mode at all (every day saved before this feature
+    # existed) must recompute exactly as before - not silently start
+    # subtracting something nobody marked.
+    no_mode_view = client.put(
+        f"/daily-trial-balance/{DATE}",
+        json={"manual": {"section3": {"daily_expenses": [
+            {"type": "Unload Beta", "amount": 500},
+        ]}}},
+        headers=auth_headers("Manager"),
+    ).json()
+    assert no_mode_view["computed"]["derived"]["section3"]["daily_expenses_cash_total"] == 0
+    assert no_mode_view["computed"]["derived"]["section4"]["todaysale"] == base_todaysale
+
+
 def test_finalize_locks_further_edits(client, auth_headers, conn):
     _seed_summary(client, auth_headers)
     client.put(f"/daily-trial-balance/{DATE}", json={"s1_hs_yesterday": 100, "s1_hs_current": 60},

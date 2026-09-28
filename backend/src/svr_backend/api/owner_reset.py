@@ -85,7 +85,12 @@ class ResetIn(BaseModel):
 
 @router.get("/status")
 def status_(
-    _: Principal = Depends(require("Owner")),
+    # Manager as well as Owner (2026-09-28): Daily Trial Balance's IOCL-reading
+    # correction shares this same passphrase and is Manager-or-Owner by the
+    # client's own request, unlike this reading reset (Owner-only, unchanged
+    # below) - so checking whether one is configured has to be too. Setting or
+    # changing it (POST /secret below) stays Owner-only either way.
+    _: Principal = Depends(require("Manager", "Owner")),
     conn: sqlite3.Connection = Depends(get_db),
 ) -> dict:
     """Whether a passphrase exists yet. Never returns the hash itself."""
@@ -137,7 +142,8 @@ def set_secret(
 @router.post("/unlock")
 def unlock(
     body: Unlock,
-    _: Principal = Depends(require("Owner")),
+    # Manager as well as Owner - see /status above for why.
+    _: Principal = Depends(require("Manager", "Owner")),
     conn: sqlite3.Connection = Depends(get_db),
 ) -> dict:
     """Open the form. The passphrase is required again on the reset itself, so a
