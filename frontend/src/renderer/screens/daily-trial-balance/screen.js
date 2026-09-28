@@ -367,6 +367,10 @@ function buildManualSections() {
   const header = $("tb-prepared");
   if (header) header.innerHTML = optionMarkup("staff", null);
   syncDuplicateFields();
+  // Not autofillPreparedBy() here - render() (called from load(), right after
+  // this) is what actually decides the field's value for whichever day gets
+  // shown first, and calling it here just meant that render() undid it a
+  // moment later on a blank day.
   wireLiveRecalc();
 
   stampSection8();
@@ -437,6 +441,34 @@ function stampSection8() {
 // appears in the header and again at 8.9. Mirror any change across every control
 // bound to the same path, so readManual() cannot pick up a stale one and quietly
 // discard what the operator typed in the other.
+// Whoever is logged in fills "Prepared by" by default (client, 2026-09-28:
+// "the system should pull his name by default... minimize the data entry
+// points") - but only when that name is actually one of the real Staff
+// entries, and only while the field is still blank. Today's shared role
+// logins (gsales/mmanager/owner) won't match anything here and the field
+// behaves exactly as before; this starts working the moment a real staff
+// member gets their own login whose name matches the Staff list. Never
+// overrides an already-loaded saved day - render() sets the real value
+// from the record afterward, same as any other field.
+//
+// "Prepared by" ONLY - not "Verified by" or "Sent to..." on the same
+// signoff block. Those are deliberately a second, different person's job
+// (checking the preparer's own work), not the same name auto-filled twice.
+function autofillPreparedBy() {
+  if (!me || !me.full_name) return;
+  const staff = OPTIONS.staff || [];
+  const match = staff.find(
+    (s) => s.trim().toLowerCase() === me.full_name.trim().toLowerCase()
+  );
+  if (!match) return;
+  document.querySelectorAll('[data-manual="section8.prepared_by"]').forEach((el) => {
+    if (!el.value) {
+      el.value = match;
+      el.dispatchEvent(new window.Event("change"));
+    }
+  });
+}
+
 function syncDuplicateFields() {
   document.querySelectorAll("[data-manual]").forEach((el) => {
     el.addEventListener("change", () => {
@@ -1422,6 +1454,14 @@ function render(view) {
     iocFixBtn.hidden = !(canFinalize() && locked);
     if (!locked) closeIoclFixPanel();
   }
+  // After render(), not just once at init - a blank NEW day (today, or any
+  // date with nothing saved yet) leaves Prepared by blank same as before this
+  // ran once in buildManualSections(), which load()'s own render() call
+  // immediately overwrote back to "" for a fresh day. Re-applying here means
+  // it actually sticks on the day the operator is looking at, and an
+  // already-saved value (this function's own !el.value check) is still never
+  // touched.
+  autofillPreparedBy();
   $("body").style.display = "block";
 }
 
