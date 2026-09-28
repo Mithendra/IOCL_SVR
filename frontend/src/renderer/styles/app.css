@@ -733,6 +733,16 @@ input:disabled {
   font-size: 20px;
   cursor: pointer;
 }
+/* Monthly Expenses' "+ New Category" sits inside the "1. Add Expense" title
+   bar itself, not under its own table - .add-row-btn's default `display:
+   block; margin: 6px 0 0 auto` (meant for a lone button below a table) instead
+   dropped it onto its own line under the heading text (2026-09-27/28
+   re-verification). */
+.section-title .add-row-btn {
+  display: inline-block;
+  vertical-align: middle;
+  margin: 0 0 0 10px;
+}
 .export-bar {
   display: flex;
   justify-content: flex-end;

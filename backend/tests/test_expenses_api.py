@@ -69,3 +69,27 @@ def test_delete_expense_audited(client, auth_headers, conn):
     assert conn.execute(
         "SELECT COUNT(*) c FROM audit_log WHERE table_name='monthly_expense' AND action='delete'"
     ).fetchone()["c"] == 1
+
+
+# The 11 named categories the client gave (migration 0048), plus "Power Bill"
+# retired for real (migration 0051) - it pre-dated and duplicated "Electricity
+# - Monthly Power Bill", and both showing up active risked splitting one real
+# expense across two categories (2026-09-27/28 cross-check with Daily Trial
+# Balance's own category wording).
+def test_active_categories_are_the_11_named_ones_only(client, auth_headers):
+    names = {c["name"] for c in client.get("/expenses/categories", headers=auth_headers("Manager")).json()}
+    assert names == {
+        "Fuel Procurement",
+        "Fuel Transport",
+        "Employee payroll - Middle of Month",
+        "Employee payroll - End of Month",
+        "Electricity - Monthly Power Bill",
+        "Monthly Wi-Fi",
+        "Equipment maintenance & repairs",
+        "Calibration, testing & inspection",
+        "Licences, permits & statutory compliance",
+        "Employee Insurance",
+        "POS - Maintenance",
+    }
+    assert "Power Bill" not in names
+    assert "Rent" not in names
