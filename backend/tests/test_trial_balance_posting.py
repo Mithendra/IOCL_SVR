@@ -440,14 +440,14 @@ def test_a_dropdown_value_can_be_removed_and_the_lists_come_back_without_it(
 ):
     h = auth_headers("Sales")
     client.post("/daily-trial-balance/options",
-                json={"list_key": "card_types", "value": "Scratch Card"}, headers=h)
+                json={"list_key": "banks", "value": "Scratch Card"}, headers=h)
     assert "Scratch Card" in client.get("/daily-trial-balance/options",
-                                        headers=h).json()["card_types"]
+                                        headers=h).json()["banks"]
 
     r = client.post("/daily-trial-balance/options/remove",
-                    json={"list_key": "card_types", "value": "Scratch Card"}, headers=h)
+                    json={"list_key": "banks", "value": "Scratch Card"}, headers=h)
     assert r.status_code == 200, r.text[:200]
-    assert "Scratch Card" not in r.json()["card_types"]
+    assert "Scratch Card" not in r.json()["banks"]
 
 
 def test_removing_an_option_leaves_saved_entries_alone(client, auth_headers, conn):
@@ -477,7 +477,7 @@ def test_removing_an_option_leaves_saved_entries_alone(client, auth_headers, con
 
 def test_removing_something_that_is_not_there_says_so(client, auth_headers):
     r = client.post("/daily-trial-balance/options/remove",
-                    json={"list_key": "card_types", "value": "Never Existed"},
+                    json={"list_key": "banks", "value": "Never Existed"},
                     headers=auth_headers("Sales"))
     assert r.status_code == 404
 
@@ -499,6 +499,7 @@ def test_fixed_control_values_cannot_be_deleted_only_added(client, auth_headers,
     for key, value in (
         ("yes_no", "Yes"), ("payment_type", "Full"), ("payment_modes", "Cash"),
         ("credit_payment_modes", "Credit (CR)"), ("expense_payment_mode", "Cash"),
+        ("card_types", "Visa"),
     ):
         r = client.post("/daily-trial-balance/options/remove",
                         json={"list_key": key, "value": value}, headers=h)
@@ -514,12 +515,17 @@ def test_fixed_control_values_cannot_be_deleted_only_added(client, auth_headers,
                     json={"list_key": "payment_modes", "value": "UPI"}, headers=h)
     assert r.status_code == 201
 
-    # A real name list still deletes exactly as before.
-    client.post("/daily-trial-balance/options",
-                json={"list_key": "creditors", "value": "Temp Test Creditor"}, headers=h)
-    r = client.post("/daily-trial-balance/options/remove",
-                    json={"list_key": "creditors", "value": "Temp Test Creditor"}, headers=h)
-    assert r.status_code == 200
+    # Real name lists, in other Daily Sales Entry sections too, still delete
+    # exactly as before - Section 5/6's Creditor/Customer Name and Section 4's
+    # Card Holder Name are people, not a fixed set a formula depends on.
+    for key, value in (
+        ("creditors", "Temp Test Creditor"), ("card_holders", "Temp Test Holder"),
+    ):
+        client.post("/daily-trial-balance/options",
+                    json={"list_key": key, "value": value}, headers=h)
+        r = client.post("/daily-trial-balance/options/remove",
+                        json={"list_key": key, "value": value}, headers=h)
+        assert r.status_code == 200, f"{key}: {r.text[:200]}"
 
 
 def test_collected_by_has_no_two_name_pairings(client, auth_headers):

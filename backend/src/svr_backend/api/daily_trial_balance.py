@@ -514,6 +514,10 @@ OPTION_LISTS = (
 FIXED_CONTROL_LISTS = frozenset({
     "yes_no", "payment_type", "payment_modes", "credit_payment_modes",
     "expense_payment_mode",
+    # Section 4's Card Type (Visa/Master/I.O.C.L ExtraPower) - a fixed set of
+    # card categories, not a customer's name, same principle as the five
+    # above (2026-09-29 cross-check across every Daily Sales Entry section).
+    "card_types",
 })
 
 
