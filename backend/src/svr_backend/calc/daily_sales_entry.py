@@ -34,7 +34,7 @@ OIL_ITEMS: tuple[tuple[str, str], ...] = (
     ("oil3", "Acid Water Total 1 Lts"),
     ("oil6", "Battery Water Total 1 Lts"),
     ("oil4", "Battery Water Total 5 Lts"),
-    ("oil7", "20/40 Engine Total in 05. Lts"),
+    ("oil7", "20/40 Engine Total in 1/2 Lts"),
     ("oil5", "20/40 Engine Total in 1 Lts"),
 )
 OIL_KEYS: tuple[str, ...] = tuple(key for key, _ in OIL_ITEMS)

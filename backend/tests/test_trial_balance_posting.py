@@ -489,6 +489,39 @@ def test_an_unknown_list_is_refused_rather_than_silently_doing_nothing(client, a
     assert r.status_code == 400
 
 
+def test_fixed_control_values_cannot_be_deleted_only_added(client, auth_headers, conn):
+    """2026-09-29: Full, No and Cash all vanished from three separate lists by
+    mistake on the same real day - each one a value the calc engine matches on
+    literally (Payment Mode's cash-basis fix, for one), not a name. Adding a
+    new control value is still fine; only removing one of the existing set is
+    refused. A genuine name list (creditors) is completely unaffected."""
+    h = auth_headers("Manager")
+    for key, value in (
+        ("yes_no", "Yes"), ("payment_type", "Full"), ("payment_modes", "Cash"),
+        ("credit_payment_modes", "Credit (CR)"), ("expense_payment_mode", "Cash"),
+    ):
+        r = client.post("/daily-trial-balance/options/remove",
+                        json={"list_key": key, "value": value}, headers=h)
+        assert r.status_code == 403, f"{key}: {r.text[:200]}"
+        assert conn.execute(
+            "SELECT 1 FROM trial_balance_option WHERE list_key = ? AND value = ?",
+            (key, value),
+        ).fetchone() is not None, f"{key}/{value} was deleted despite the 403"
+
+    # Adding a new control value is still allowed - only deleting an existing
+    # one is refused.
+    r = client.post("/daily-trial-balance/options",
+                    json={"list_key": "payment_modes", "value": "UPI"}, headers=h)
+    assert r.status_code == 201
+
+    # A real name list still deletes exactly as before.
+    client.post("/daily-trial-balance/options",
+                json={"list_key": "creditors", "value": "Temp Test Creditor"}, headers=h)
+    r = client.post("/daily-trial-balance/options/remove",
+                    json={"list_key": "creditors", "value": "Temp Test Creditor"}, headers=h)
+    assert r.status_code == 200
+
+
 def test_collected_by_has_no_two_name_pairings(client, auth_headers):
     """The pairings belong to 'staff' - 8.16 signs a shift off with two people -
     and must not follow the individuals into Section 6 (client, 2026-09-26)."""

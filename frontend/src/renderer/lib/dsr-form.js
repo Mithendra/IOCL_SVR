@@ -68,7 +68,7 @@ const BANDS = {
 const OIL_ITEMS = [
   "2T/1.50 ML Total#", "2T/2.40 ML Total#", "Acid Water Total 1 Lts",
   "Battery Water Total 1 Lts", "Battery Water Total 5 Lts",
-  "20/40 Engine Total in 05. Lts", "20/40 Engine Total in 1 Lts",
+  "20/40 Engine Total in 1/2 Lts", "20/40 Engine Total in 1 Lts",
 ];
 
 const EXPENSE_LABELS = [

@@ -499,6 +499,23 @@ OPTION_LISTS = (
     "expense_payment_mode",
 )
 
+# The lists that are a fixed, small set of CONTROL VALUES the calc engine or a
+# business rule matches on literally - never a growing list of real people or
+# customers. Deleting "Cash" from expense_payment_mode, or "Full" from
+# payment_type, silently breaks a formula for every day afterward rather than
+# just losing a name off a dropdown - and it already happened once by mistake
+# (2026-09-29: Full, No and Cash all vanished from three separate lists on the
+# same day, all restored by hand). "+ New" still works on these - a station
+# genuinely adding a payment mode is fine - only "- Delete" is refused.
+#
+# Every other list here is real people, real customers, or real free-text
+# descriptions (creditors, customers, staff, banks, card_types, ...) - those
+# keep working exactly as before, add and delete both.
+FIXED_CONTROL_LISTS = frozenset({
+    "yes_no", "payment_type", "payment_modes", "credit_payment_modes",
+    "expense_payment_mode",
+})
+
 
 class OptionCreate(BaseModel):
     list_key: str
@@ -622,7 +639,10 @@ def remove_option(
     Removing an OPTION does not touch any RECORD. Every saved entry stores the
     text that was chosen, not a reference to this table, so yesterday's credit
     still names the person who took it even after they leave the station. That
-    is the whole reason this is safe to expose.
+    is the whole reason this is safe to expose - EXCEPT for FIXED_CONTROL_LISTS,
+    where the text chosen is also what a formula matches on literally, so
+    deleting one breaks every day's calculation afterward, not just a dropdown
+    (2026-09-29, after exactly that happened by mistake).
     """
     key = body.list_key.strip()
     value = " ".join(body.value.split())
@@ -630,6 +650,13 @@ def remove_option(
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,
             f"Unknown list '{key}' - expected one of {', '.join(OPTION_LISTS)}",
+        )
+    if key in FIXED_CONTROL_LISTS:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            f'"{value}" cannot be removed - {key} is a fixed set of values a '
+            "calculation depends on, not a list of names. Adding a new one is "
+            "still fine.",
         )
     row = conn.execute(
         "SELECT id FROM trial_balance_option WHERE list_key = ? AND value = ?", (key, value)

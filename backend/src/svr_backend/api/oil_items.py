@@ -224,6 +224,16 @@ def update_oil_item(
                 "last_updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE item_key = ?",
                 (label, principal.login_name, item_key),
             )
+            # Rate Master's own item_label, on every dated row for this item, not
+            # just the latest - it is display metadata (what to call the item),
+            # not a rate that actually changed on that date, so there is no new
+            # historical fact to add a row for. Found missing 2026-09-29, when a
+            # label rename left it stale and a form prefill would have silently
+            # failed to find a rate for a row that looked perfectly normal.
+            conn.execute(
+                "UPDATE rate_master SET item_label = ? WHERE item_key = ?",
+                (label, item_key),
+            )
         record_write(
             conn, table="oil_item", record_id=item_key, action="update",
             actor=principal.login_name, old=before,

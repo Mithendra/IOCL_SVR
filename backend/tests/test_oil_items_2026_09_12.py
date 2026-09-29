@@ -42,7 +42,7 @@ def test_the_form_carries_the_clients_seven_rows_in_order():
         "Acid Water Total 1 Lts",
         "Battery Water Total 1 Lts",
         "Battery Water Total 5 Lts",
-        "20/40 Engine Total in 05. Lts",
+        "20/40 Engine Total in 1/2 Lts",
         "20/40 Engine Total in 1 Lts",
     ]
     # Display order is NOT key order: a key identifies a product, so the three
@@ -139,7 +139,7 @@ def test_the_inferred_rates_were_superseded_by_the_clients_own_sheet(conn):
     assert rates["oil4"]["sell_rate"] == 120.00   # Battery Water Total 5 Lts
     assert rates["oil5"]["sell_rate"] == 270.00   # 20/40 Engine Total in 1 Lts
     assert rates["oil6"]["sell_rate"] == 20.00    # Battery Water Total 1 Lts
-    assert rates["oil7"]["sell_rate"] == 140.00   # 20/40 Engine Total in 05. Lts
+    assert rates["oil7"]["sell_rate"] == 140.00   # 20/40 Engine Total in 1/2 Lts
     # oil2 (2T/2.40 ML) is not on SEP12 at all - the client confirmed on
     # 2026-09-12 that it stays on the forms, at the 17.00 the 2026-09-09/10 Daily
     # Sales Reports price it at, which is the only evidence on file for that row

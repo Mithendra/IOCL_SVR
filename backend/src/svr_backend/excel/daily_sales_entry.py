@@ -398,7 +398,10 @@ _OIL_MATCH_HINTS: dict[str, tuple[str, ...]] = {
         "battery water total 5", "battery water 5 lt",
         "acid water total 5", "acid water 5 lt",
     )),
-    "oil7": _norm_hints(("20/40 engine total in 05", "20 40 engine total in 0.5")),
+    "oil7": _norm_hints((
+        "20/40 engine total in 05", "20 40 engine total in 0.5",
+        "20/40 engine total in 1/2",
+    )),
     "oil5": _norm_hints((
         "20/40 engine total in 1 lt", "20 40 engine total in 1 lt",
         "20/40 engine total in lts", "20 40 engine total in lts",
