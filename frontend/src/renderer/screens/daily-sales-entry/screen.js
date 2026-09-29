@@ -227,7 +227,25 @@ function listOptions(listKey, chosen) {
 const NEW_CELL = '<td class="rownew">' +
   '<button type="button" class="add-row-btn row-new" title="Add a value to this row’s list">+ New</button>' +
   '<button type="button" class="add-row-btn row-del" title="Remove the selected value from its list">− Delete</button>' +
+  '<button type="button" class="add-row-btn row-clear" title="Blank out every field in this row only - the dropdown lists are untouched">Clear</button>' +
   "</td>";
+
+// Blank every field in one row, without touching any dropdown list (that is
+// what -Delete is for, and the two must never be confused - client, 2026-09-29,
+// after "-Delete" was clicked meaning to clear a row and instead opened the
+// "remove this value from the list" panel). Leaves the row itself in place, the
+// same as clearing it by hand - a blank row is already skipped everywhere
+// downstream (Credit Master's pull ignores a row with no name or zero amount).
+function clearRow(tr) {
+  if (!window.confirm("Clear every field in this row?")) return;
+  tr.querySelectorAll("input, select").forEach((el) => {
+    el.value = "";
+    delete el.dataset.typed;
+    delete el.dataset.fromType;
+  });
+  delete tr.dataset.signature;
+  refresh();
+}
 
 // Type: HS or MS, chosen not typed (client, 2026-09-26 - "less keyed-in values
 // whenever and whereever possible"). Not one of the managed lists on purpose:
@@ -445,7 +463,7 @@ function addCcRow() {
   tr.querySelector(".cc-fuel").addEventListener("change", () => {
     applyRateFromFuel(tr, ".cc-fuel", ".cc-rate");
   });
-  watchAmountOverride(tr, ".cc-amount");
+  watchAmountOverride(tr, ".cc-amount", ".cc-ltrs", ".cc-rate");
   $("cc-rows").appendChild(tr);
   return tr;
 }
@@ -472,12 +490,29 @@ function showComputedAmount(el, tr, ltrsSel, rateSel, value) {
 
 // Clearing an overridden Amount hands it back to the calculation - otherwise
 // "delete what I typed" would leave the row stuck on a blank override.
-function watchAmountOverride(tr, sel = ".nc-amount") {
+//
+// When Amount is typed over, Ltrs is the one left behind - it still shows
+// whatever was there before the override (or nothing), no longer matching the
+// Amount the operator actually meant. Once an Amount is typed, keep Ltrs in
+// step with it (Ltrs = Amount / Rate) so the row never saves a Ltrs/Rate/Amount
+// combination that doesn't multiply out - the same figure Credit Master and the
+// Excel export both carry forward as "In Ltrs" (client, 2026-09-29).
+function watchAmountOverride(tr, sel = ".nc-amount", ltrsSel = null, rateSel = null) {
   const amt = tr.querySelector(sel);
+  const syncLtrs = () => {
+    if (!ltrsSel || !rateSel || amt.dataset.typed !== "1") return;
+    const ltrsEl = tr.querySelector(ltrsSel);
+    const rateVal = parseFloat(tr.querySelector(rateSel).value);
+    const amtVal = parseFloat(amt.value);
+    if (!ltrsEl || !rateVal || Number.isNaN(amtVal)) return;
+    ltrsEl.value = (amtVal / rateVal).toFixed(2);
+  };
   amt.addEventListener("input", () => {
     if (amt.value.trim() === "") delete amt.dataset.typed;
     else amt.dataset.typed = "1";
+    syncLtrs();
   });
+  if (rateSel) tr.querySelector(rateSel).addEventListener("input", syncLtrs);
 }
 
 function addNcRow() {
@@ -501,7 +536,15 @@ function addNcRow() {
   tr.querySelector(".nc-type").addEventListener("change", () => {
     applyCreditRate(tr);
   });
-  watchAmountOverride(tr, ".nc-amount");
+  watchAmountOverride(tr, ".nc-amount", ".nc-ltrs", ".nc-rate");
+  // Every row here is, by definition, a credit being issued (client,
+  // 2026-09-26, migration 0044: "if there is a payment mode it's a credit" -
+  // the list only ever holds "Credit (CR)"). Default it so the operator isn't
+  // asked to pick the one value that always applies.
+  const modeSel = tr.querySelector(".nc-mode");
+  if (modeSel && (optionLists.credit_payment_modes || []).includes("Credit (CR)")) {
+    modeSel.value = "Credit (CR)";
+  }
   $("nc-rows").appendChild(tr);
   return tr;
 }
@@ -536,7 +579,12 @@ function applyRateFromFuel(tr, typeSel, rateSel) {
   if (cell.value === "" || cell.dataset.fromType === "1") {
     cell.value = rate;
     cell.dataset.fromType = "1";
-    refresh();
+    // A real "input" event, not just the value assignment above - so this
+    // counts as a rate change to watchAmountOverride's own listener too. Typing
+    // Amount before picking the Fuel Type (Amount arrives, THEN Rate) left Ltrs
+    // permanently blank otherwise: Rate went from "" straight to a real number
+    // without ever firing the event the sync depends on (2026-09-29).
+    cell.dispatchEvent(new window.Event("input", { bubbles: true }));
   }
 }
 
@@ -1655,7 +1703,10 @@ function populateInputs(payload) {
     } else {
       delete amt.dataset.typed;
     }
-    put(tr.querySelector(".nc-mode"), n.payment_mode);
+    // A row saved before the mode split (migration 0044) may still carry one of
+    // the old Cash/Phone Pay/Credit Card values - kept as-is. Anything else
+    // (blank, or never saved) defaults to the one real answer here.
+    put(tr.querySelector(".nc-mode"), n.payment_mode || "Credit (CR)");
     if (n.signature) tr.dataset.signature = n.signature;
     else delete tr.dataset.signature;
   });
@@ -2031,7 +2082,9 @@ async function init() {
       return;
     }
     const rowDel = e.target.closest(".row-del");
-    if (rowDel) openDeleteBox(rowDel.closest("tr"));
+    if (rowDel) { openDeleteBox(rowDel.closest("tr")); return; }
+    const rowClear = e.target.closest(".row-clear");
+    if (rowClear) clearRow(rowClear.closest("tr"));
   });
   // Redisplay a typed date when the box is left. Capture phase: blur does not
   // bubble.
