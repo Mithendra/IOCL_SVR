@@ -30,17 +30,28 @@ PUMP_SIDE: dict[str, str] = {
 # --- Section 4.2's other half -------------------------------------------------
 #
 # The Trial Balance's "Total Today Sale Amount After Expenses (Beta, Testing and
-# Density)" is the day's own sales less two expense rows off the Daily Sales
-# Entry Expenses block - "Daily Diesel(5L) & Petrol(5L) + Density Testing +
-# Beta" and "Any Other Expenses". Both rows live on the DSR and nowhere on the
-# Trial Balance, so they have to be read back from the day's entries. The third
-# row, "Last Night Cash Hand-off...", is deliberately excluded - it is a custody
-# record (who is holding last night's cash), not an expense.
+# Density)" is the day's own sales less the real expense rows off the Daily
+# Sales Entry Expenses block. That block is not a fixed three rows - "+ Add
+# row" lets an operator type a brand-new one with its own free-text
+# description (client, 2026-09-13) - so this is a DENY-list, not an allow-list:
+# every row counts EXCEPT the two named ones below, not just the two named
+# ones matched by name. An allow-list would silently drop a new row someone
+# adds tomorrow from both 4.2's math and Monthly Expenses - found and fixed
+# 2026-09-29, the same day the two named exclusions were themselves decided.
 #
-# "Any Other Expenses" folded in 2026-09-29: the station's own SEP29 sheet
-# subtracts both rows in its 4.2 formula, and treating only the first left the
-# app under-deducting by exactly whatever was typed in the second - found as a
-# real ₹150/₹149.98 gap on SEP28's office pump, cross-checked against the sheet.
+#   - "Daily Diesel(5L) & Petrol(5L) + Density Testing + Beta" - NOT a real
+#     expense. The litres drawn for the test go back into the tank, so
+#     nothing actually leaves the business (client, 2026-09-29). Still
+#     reduces 4.2's cash-basis total below - that part predates this file's
+#     rewrite and has not changed - but is never shown as a line or posted.
+#   - "Last Night Cash Hand-off Person's Name-Signature-Amount" - a custody
+#     record (who is holding last night's cash), not an expense. Excluded from
+#     everything: 4.2's total, the visible list, and posting.
+#
+# Everything else - "Any Other Expenses" and any row an operator adds beyond
+# the three printed ones - reduces 4.2, is shown, and posts to Monthly
+# Expenses under its own typed wording, the same way a new Trial Balance
+# expense category already does (posting.py's `_expense_category_id`).
 #
 # Matched by LABEL, not by position. `expenses` is a bare list aligned by index
 # with `expense_labels`, and reading a fixed index is exactly the fragility that
@@ -64,18 +75,18 @@ def _is_beta_testing(label: str) -> bool:
     return hits >= 2
 
 
-def _is_any_other_expense(label: str) -> bool:
+def _is_night_cash_handoff(label: str) -> bool:
     n = _norm_label(label)
     if not n:
         return False
-    return "any" in n and "other" in n
+    return "night" in n and ("cash" in n or "hand" in n)
 
 
 def beta_testing_rows(conn: sqlite3.Connection, shift_date: str) -> list[dict] | None:
-    """The individual Daily Sales Entry Section 3 rows behind Section 4.2's
-    deduction, one per pump per matched row, so the Trial Balance screen can
-    show them the same way it already shows pulled Credits/Remittances instead
-    of folding them into one opaque number (client, 2026-09-29: "should be
+    """Every Daily Sales Entry Section 3 expense row behind Section 4.2's
+    deduction, one per pump per row, so the Trial Balance screen can show them
+    the same way it already shows pulled Credits/Remittances instead of
+    folding them into one opaque number (client, 2026-09-29: "should be
     visible... same as like Credits, Expenses and Remittances").
 
     None when the day has no Daily Sales Entry at all - callers must not treat
@@ -96,7 +107,7 @@ def beta_testing_rows(conn: sqlite3.Connection, shift_date: str) -> list[dict] |
         side = PUMP_SIDE.get(entry["pump_serial"], entry["pump_serial"])
         if not labels:
             # Pre-label records: position 0 was always the Beta/Testing row -
-            # "Any Other Expenses" did not exist on the form yet to miss.
+            # nothing else existed on the form yet to miss.
             if amounts and not is_blank(amounts[0]):
                 rows.append({
                     "pump": side, "label": "Beta/Testing/Density",
@@ -106,20 +117,21 @@ def beta_testing_rows(conn: sqlite3.Connection, shift_date: str) -> list[dict] |
         for i, lab in enumerate(labels):
             if i >= len(amounts) or is_blank(amounts[i]):
                 continue
+            if _is_night_cash_handoff(lab):
+                continue
+            amt = round(parse_amt(amounts[i]), 4)
             if _is_beta_testing(lab):
-                # NOT a real expense, and not shown or posted as one (client,
-                # 2026-09-29): the litres drawn for the test go straight back
-                # into the tank, so nothing actually left the business. Still
-                # counted in 4.2's own deduction below - that has not changed,
-                # only whether it appears as a postable line.
                 rows.append({
                     "pump": side, "label": "Beta/Testing/Density",
-                    "amount": round(parse_amt(amounts[i]), 4), "postable": False,
+                    "amount": amt, "postable": False,
                 })
-            elif _is_any_other_expense(lab):
+            else:
+                # "Any Other Expenses", or a brand-new row an operator typed
+                # via "+ Add row" - either way, a real expense, shown and
+                # posted under its own wording.
                 rows.append({
-                    "pump": side, "label": "Any Other Expenses",
-                    "amount": round(parse_amt(amounts[i]), 4), "postable": True,
+                    "pump": side, "label": str(lab).strip() or "Any Other Expenses",
+                    "amount": amt, "postable": True,
                 })
     return rows if found else None
 
