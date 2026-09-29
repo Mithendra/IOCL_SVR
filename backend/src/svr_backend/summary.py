@@ -30,15 +30,22 @@ PUMP_SIDE: dict[str, str] = {
 # --- Section 4.2's other half -------------------------------------------------
 #
 # The Trial Balance's "Total Today Sale Amount After Expenses (Beta, Testing and
-# Density)" is the day's own sales less ONE expense row - the first line of the
-# Daily Sales Entry Expenses block, "Daily Diesel(5L) & Petrol(5L) + Density
-# Testing + Beta". That row lives on the DSR and nowhere on the Trial Balance, so
-# it has to be read back from the day's entries.
+# Density)" is the day's own sales less two expense rows off the Daily Sales
+# Entry Expenses block - "Daily Diesel(5L) & Petrol(5L) + Density Testing +
+# Beta" and "Any Other Expenses". Both rows live on the DSR and nowhere on the
+# Trial Balance, so they have to be read back from the day's entries. The third
+# row, "Last Night Cash Hand-off...", is deliberately excluded - it is a custody
+# record (who is holding last night's cash), not an expense.
+#
+# "Any Other Expenses" folded in 2026-09-29: the station's own SEP29 sheet
+# subtracts both rows in its 4.2 formula, and treating only the first left the
+# app under-deducting by exactly whatever was typed in the second - found as a
+# real ₹150/₹149.98 gap on SEP28's office pump, cross-checked against the sheet.
 #
 # Matched by LABEL, not by position. `expenses` is a bare list aligned by index
-# with `expense_labels`, and reading index 0 is exactly the fragility that broke
-# every stored oil row when the client reordered them on 2026-09-12. Position is
-# the fallback, never the first choice.
+# with `expense_labels`, and reading a fixed index is exactly the fragility that
+# broke every stored oil row when the client reordered them on 2026-09-12.
+# Position is the fallback, never the first choice.
 
 _BETA_PUNCT = re.compile(r"[^a-z0-9]+")
 
@@ -57,8 +64,17 @@ def _is_beta_testing(label: str) -> bool:
     return hits >= 2
 
 
+def _is_any_other_expense(label: str) -> bool:
+    n = _norm_label(label)
+    if not n:
+        return False
+    return "any" in n and "other" in n
+
+
 def beta_testing_expense(conn: sqlite3.Connection, shift_date: str) -> float | None:
-    """The day's Beta/Density/Testing expense, summed across both pumps.
+    """The day's Beta/Density/Testing + Any Other Expenses total, summed across
+    both pumps - the two Daily Sales Entry Section 3 rows that reduce Section
+    4.2's cash-basis sale figure.
 
     None when the day has no Daily Sales Entry at all - the caller must not treat
     that as zero, because "no expense recorded" and "no form submitted" mean very
@@ -73,13 +89,17 @@ def beta_testing_expense(conn: sqlite3.Connection, shift_date: str) -> float | N
         amounts = payload.get("expenses") or []
         labels = payload.get("expense_labels") or []
         found = True
-        idx = next(
-            (i for i, lab in enumerate(labels) if _is_beta_testing(lab)),
-            0 if amounts else None,
-        )
-        if idx is None or idx >= len(amounts):
+        if not labels:
+            # Pre-label records: position 0 was always the Beta/Testing row -
+            # "Any Other Expenses" did not exist on the form yet to miss.
+            if amounts and not is_blank(amounts[0]):
+                total += parse_amt(amounts[0])
             continue
-        total += parse_amt(amounts[idx]) if not is_blank(amounts[idx]) else 0.0
+        for i, lab in enumerate(labels):
+            if i >= len(amounts) or is_blank(amounts[i]):
+                continue
+            if _is_beta_testing(lab) or _is_any_other_expense(lab):
+                total += parse_amt(amounts[i])
     return round(total, 4) if found else None
 
 
