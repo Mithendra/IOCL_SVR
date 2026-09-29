@@ -100,21 +100,26 @@ def beta_testing_rows(conn: sqlite3.Connection, shift_date: str) -> list[dict] |
             if amounts and not is_blank(amounts[0]):
                 rows.append({
                     "pump": side, "label": "Beta/Testing/Density",
-                    "amount": round(parse_amt(amounts[0]), 4),
+                    "amount": round(parse_amt(amounts[0]), 4), "postable": False,
                 })
             continue
         for i, lab in enumerate(labels):
             if i >= len(amounts) or is_blank(amounts[i]):
                 continue
             if _is_beta_testing(lab):
+                # NOT a real expense, and not shown or posted as one (client,
+                # 2026-09-29): the litres drawn for the test go straight back
+                # into the tank, so nothing actually left the business. Still
+                # counted in 4.2's own deduction below - that has not changed,
+                # only whether it appears as a postable line.
                 rows.append({
                     "pump": side, "label": "Beta/Testing/Density",
-                    "amount": round(parse_amt(amounts[i]), 4),
+                    "amount": round(parse_amt(amounts[i]), 4), "postable": False,
                 })
             elif _is_any_other_expense(lab):
                 rows.append({
                     "pump": side, "label": "Any Other Expenses",
-                    "amount": round(parse_amt(amounts[i]), 4),
+                    "amount": round(parse_amt(amounts[i]), 4), "postable": True,
                 })
     return rows if found else None
 

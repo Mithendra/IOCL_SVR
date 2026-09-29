@@ -972,12 +972,15 @@ def upsert_trial_balance(
                 **(manual.get("section4") or {}),
                 "pulled_old_credits": ctx.get("old_credits") or [],
             }
-        # Beta/Testing/Density + Any Other Expenses - always pulled, unlike the
-        # two pairs above, since there is no typed alternative on Trial Balance
-        # for either of these (client, 2026-09-29).
+        # Any Other Expenses - always pulled, unlike the two pairs above,
+        # since there is no typed alternative on Trial Balance for it (client,
+        # 2026-09-29). Beta/Testing/Density is excluded here too - not a real
+        # expense (the litres go back into the tank), so it is never posted.
         manual_for_posting["section4"] = {
             **(manual_for_posting.get("section4") or {}),
-            "pulled_dse_expenses": ctx.get("beta_testing_rows") or [],
+            "pulled_dse_expenses": [
+                r for r in (ctx.get("beta_testing_rows") or []) if r.get("postable")
+            ],
         }
         posting.sync_lines(conn, shift_date, manual_for_posting, principal.login_name)
         record_write(
