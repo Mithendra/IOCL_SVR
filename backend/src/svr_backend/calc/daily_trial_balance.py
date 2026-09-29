@@ -430,6 +430,14 @@ def derive_manual(
             "remittance_total": _rows_total(s4_remittance_rows),
             "pulled_old_credits": _rows_as_list((day_sales or {}).get("old_credits")),
             "remittance_source": s4_remittance_source,
+            # Beta/Testing/Density + Any Other Expenses, straight off Daily
+            # Sales Entry - shown so 4.2 is never one opaque number (client,
+            # 2026-09-29). Not part of any total here; 4.2 already has this
+            # folded in via `beta_testing` above.
+            "pulled_dse_expenses": _rows_as_list((day_sales or {}).get("expense_rows")),
+            "pulled_dse_expenses_total": _rows_total(
+                _rows_as_list((day_sales or {}).get("expense_rows"))
+            ),
             # The sheet's side panel. It started as Difference less the Yes
             # Bank return (SEP12: 8516.1478 - 8525.95 = -9.8022) and the client
             # extended it on SEP16 with two more lines, because the raw

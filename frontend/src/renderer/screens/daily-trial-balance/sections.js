@@ -167,7 +167,8 @@ export const SECTIONS = [
           ["4.1", "Yesterday SVR Cash/Book Value", "yesterday"],
           ["4.2", "Total Today Sale Amount After Expenses (Beta, Testing and Density)",
             { derived: "section4.todaysale" },
-            "Computed from the day's Daily Sales Entries: sales less Beta/Density/Testing"],
+            "Computed from the day's Daily Sales Entries: sales less Beta/Density/Testing " +
+            "and Any Other Expenses - see the rows below"],
           ["4.3", "Total - Projected", { derived: "section4.total3" }],
           // SEP15!D52 = D47. It is 3.14's total, not a number to key again
           // (client, 2026-09-24).
@@ -178,6 +179,24 @@ export const SECTIONS = [
             "OK within ₹50 — above that, call/inform management immediately"],
         ],
         note: { key: "special_note" },
+      },
+      {
+        // What actually makes up 4.2's deduction, pulled from Daily Sales
+        // Entry's own Section 3 - visible the same way pulled Credits and
+        // Remittances already are, not folded into one opaque number (client,
+        // 2026-09-29: "should be visible... same as like Credits, Expenses and
+        // Remittances"). Also posts to Monthly Expenses on save, same as those.
+        type: "mirrorRows",
+        key: "pulled_dse_expenses_view",
+        from: "section4.pulled_dse_expenses",
+        title: "What makes up 4.2",
+        columns: [
+          { key: "pump", label: "Pump" },
+          { key: "label", label: "Pulled from Daily Sales Entry" },
+          { key: "amount", label: "Amount", money: true },
+        ],
+        total: "section4.pulled_dse_expenses_total",
+        totalLabel: "Total (already subtracted in 4.2 above)",
       },
       {
         type: "rows",

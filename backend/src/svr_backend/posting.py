@@ -47,6 +47,13 @@ BLOCKS: dict[str, tuple[str, str]] = {
     # sync_lines), they are the ones actually in effect.
     "section3.pulled_new_credits":       ("credit",      "pulled_new_credits"),
     "section4.pulled_old_credits":       ("remittance",  "pulled_old_credits"),
+    # Beta/Testing/Density + Any Other Expenses, straight off Daily Sales
+    # Entry's own Section 3 (client, 2026-09-29: "same practice like... credits
+    # or remittances... we can post it Expenses as well"). Always pulled - there
+    # is no typed alternative on Trial Balance for these two, unlike the pair
+    # above, so this block is injected unconditionally rather than only when a
+    # typed block is empty.
+    "section4.pulled_dse_expenses":      ("expense",     "pulled_dse_expenses"),
 }
 
 _LABEL_FIELDS = ("category", "type", "label")
@@ -54,7 +61,10 @@ _LABEL_FIELDS = ("category", "type", "label")
 # Which blocks' rows carry the richer Section 5/6 fields worth persisting as
 # extra_json - every other block's "extra" is the same row lines_from_manual
 # already looked at, uninteresting to keep a second copy of.
-_PULLED_BLOCKS = ("section3.pulled_new_credits", "section4.pulled_old_credits")
+_PULLED_BLOCKS = (
+    "section3.pulled_new_credits", "section4.pulled_old_credits",
+    "section4.pulled_dse_expenses",
+)
 
 # A salary, a bi-weekly or month-end salary run, or a staff advance is an
 # EXPENSE - wherever on the form it was typed (client, 2026-09-25: "Any Salary or
@@ -226,11 +236,21 @@ def _creditor_name(label: str) -> str:
 def post_line(conn: sqlite3.Connection, row: sqlite3.Row, actor: str) -> tuple[str, int]:
     """Write one line into its master form. Returns (table, id)."""
     if row["category"] == "expense":
+        # Pump note, when this line came from the pulled DSE expenses block -
+        # both pumps can carry a Beta/Testing/Density row the same day, and
+        # without this two Monthly Expenses lines would read identically apart
+        # from their amount.
+        try:
+            extra = json.loads(row["extra_json"]) if row["extra_json"] else {}
+        except (TypeError, ValueError):
+            extra = {}
+        pump_note = f" ({extra['pump'].title()})" if extra.get("pump") else ""
         cur = conn.execute(
             "INSERT INTO monthly_expense (expense_date, category_id, amount, description, "
             "created_by, last_updated_by) VALUES (?, ?, ?, ?, ?, ?)",
             (row["shift_date"], _expense_category_id(conn, row["label"]), row["amount"],
-             f"Daily Trial Balance {row['shift_date']} — {row['label']}", actor, actor),
+             f"Daily Trial Balance {row['shift_date']} — {row['label']}{pump_note}",
+             actor, actor),
         )
         target = ("monthly_expense", int(cur.lastrowid))
         record_write(conn, table="monthly_expense", record_id=target[1], action="create",

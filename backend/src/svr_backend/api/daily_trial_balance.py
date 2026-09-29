@@ -60,7 +60,7 @@ from svr_backend.params import get_param
 from svr_backend.rates import latest_effective_rates
 from svr_backend.summary import (
     PUMP_SIDE,
-    beta_testing_expense,
+    beta_testing_rows,
     build_summary,
     nozzles_tested,
 )
@@ -148,7 +148,9 @@ def _context(conn: sqlite3.Connection, shift_date: str, row: sqlite3.Row | None)
     oil_combined = summary["combined"]["oil_total"]["combined"]
     has_entry = any_present
     day_sales_total = round(gas_combined + oil_combined, 4) if has_entry else None
-    beta_testing = beta_testing_expense(conn, shift_date)
+    beta_testing_row_list = beta_testing_rows(conn, shift_date)
+    beta_testing = round(sum(r["amount"] for r in beta_testing_row_list), 4) \
+        if beta_testing_row_list is not None else None
 
     rates = latest_effective_rates(conn, shift_date)
     buy_hs = rates["HS"]["buy_rate"] if "HS" in rates else None
@@ -227,6 +229,10 @@ def _context(conn: sqlite3.Connection, shift_date: str, row: sqlite3.Row | None)
         "summary_status": summary["status"],
         "day_sales_total": day_sales_total,
         "beta_testing_expense": beta_testing,
+        # The individual rows behind that total (client, 2026-09-29: visible the
+        # same way pulled Credits/Remittances already are, not folded into one
+        # opaque number) - also what posting.py posts to Monthly Expenses.
+        "beta_testing_rows": beta_testing_row_list or [],
         # Section 5/6 rows, pulled from Daily Sales Entry the same way Section
         # 2 is - client, 2026-09-27, route confirmed direct rather than via
         # Daily Sales Summary. See credit_pull.py.
@@ -394,6 +400,7 @@ def _view(conn: sqlite3.Connection, shift_date: str) -> dict:
         {
             "sales_total": ctx["day_sales_total"],
             "beta_testing": ctx["beta_testing_expense"],
+            "expense_rows": ctx.get("beta_testing_rows"),
             "new_credits": ctx.get("new_credits"),
             "old_credits": ctx.get("old_credits"),
         },
@@ -434,6 +441,7 @@ def _view(conn: sqlite3.Connection, shift_date: str) -> dict:
             "testing_nozzles_hs": ctx["testing_nozzles_hs"],
             "testing_nozzles_ms": ctx["testing_nozzles_ms"],
             "testing_litres_per_nozzle": ctx["testing_litres_per_nozzle"],
+            "beta_testing_rows": ctx["beta_testing_rows"],
         },
         "computed": result,
         "finalized_by": row["finalized_by"] if row else None,
@@ -832,6 +840,7 @@ def calc_trial_balance(
         {
             "sales_total": ctx["day_sales_total"],
             "beta_testing": ctx["beta_testing_expense"],
+            "expense_rows": ctx.get("beta_testing_rows"),
             "new_credits": ctx.get("new_credits"),
             "old_credits": ctx.get("old_credits"),
         },
@@ -963,6 +972,13 @@ def upsert_trial_balance(
                 **(manual.get("section4") or {}),
                 "pulled_old_credits": ctx.get("old_credits") or [],
             }
+        # Beta/Testing/Density + Any Other Expenses - always pulled, unlike the
+        # two pairs above, since there is no typed alternative on Trial Balance
+        # for either of these (client, 2026-09-29).
+        manual_for_posting["section4"] = {
+            **(manual_for_posting.get("section4") or {}),
+            "pulled_dse_expenses": ctx.get("beta_testing_rows") or [],
+        }
         posting.sync_lines(conn, shift_date, manual_for_posting, principal.login_name)
         record_write(
             conn, table=TABLE, record_id=rid, action="update", actor=principal.login_name,

@@ -267,6 +267,15 @@ def test_the_whole_chain_for_both_days(client, auth_headers):
     # figures are well inside the Rs 50 limit, so nothing is blocked either way.
     assert round(s4["total_difference"], 2) == -12.16
 
+    # SEP16's road DSR has a real Beta/Testing/Density row (O22 = 1,485.30),
+    # which now posts to Monthly Expenses the same as Credits/Remittances
+    # already did (client, 2026-09-29) - so Close & Sign Off refuses until it
+    # is posted, same gate that already applied to the other two categories.
+    post16 = client.post("/daily-trial-balance/2026-09-16/post",
+                          headers=auth_headers("Manager"))
+    assert post16.status_code == 200, (
+        f"SEP16 posting failed: {post16.status_code} {post16.text[:400]}")
+
     fin16 = client.post("/daily-trial-balance/2026-09-16/finalize",
                         headers=auth_headers("Manager"))
     assert fin16.status_code == 200, (

@@ -71,6 +71,54 @@ def _is_any_other_expense(label: str) -> bool:
     return "any" in n and "other" in n
 
 
+def beta_testing_rows(conn: sqlite3.Connection, shift_date: str) -> list[dict] | None:
+    """The individual Daily Sales Entry Section 3 rows behind Section 4.2's
+    deduction, one per pump per matched row, so the Trial Balance screen can
+    show them the same way it already shows pulled Credits/Remittances instead
+    of folding them into one opaque number (client, 2026-09-29: "should be
+    visible... same as like Credits, Expenses and Remittances").
+
+    None when the day has no Daily Sales Entry at all - callers must not treat
+    that as "nothing to deduct", since a day with no entry is a different claim
+    from a day with entries and no expenses typed.
+    """
+    found = False
+    rows: list[dict] = []
+    for entry in conn.execute(
+        "SELECT pump_serial, payload FROM daily_sales_entry WHERE shift_date = ? "
+        "ORDER BY pump_serial",
+        (shift_date,),
+    ):
+        payload = json.loads(entry["payload"] or "{}")
+        amounts = payload.get("expenses") or []
+        labels = payload.get("expense_labels") or []
+        found = True
+        side = PUMP_SIDE.get(entry["pump_serial"], entry["pump_serial"])
+        if not labels:
+            # Pre-label records: position 0 was always the Beta/Testing row -
+            # "Any Other Expenses" did not exist on the form yet to miss.
+            if amounts and not is_blank(amounts[0]):
+                rows.append({
+                    "pump": side, "label": "Beta/Testing/Density",
+                    "amount": round(parse_amt(amounts[0]), 4),
+                })
+            continue
+        for i, lab in enumerate(labels):
+            if i >= len(amounts) or is_blank(amounts[i]):
+                continue
+            if _is_beta_testing(lab):
+                rows.append({
+                    "pump": side, "label": "Beta/Testing/Density",
+                    "amount": round(parse_amt(amounts[i]), 4),
+                })
+            elif _is_any_other_expense(lab):
+                rows.append({
+                    "pump": side, "label": "Any Other Expenses",
+                    "amount": round(parse_amt(amounts[i]), 4),
+                })
+    return rows if found else None
+
+
 def beta_testing_expense(conn: sqlite3.Connection, shift_date: str) -> float | None:
     """The day's Beta/Density/Testing + Any Other Expenses total, summed across
     both pumps - the two Daily Sales Entry Section 3 rows that reduce Section
@@ -80,27 +128,10 @@ def beta_testing_expense(conn: sqlite3.Connection, shift_date: str) -> float | N
     that as zero, because "no expense recorded" and "no form submitted" mean very
     different things to Section 4.2.
     """
-    found = False
-    total = 0.0
-    for row in conn.execute(
-        "SELECT payload FROM daily_sales_entry WHERE shift_date = ?", (shift_date,)
-    ):
-        payload = json.loads(row["payload"] or "{}")
-        amounts = payload.get("expenses") or []
-        labels = payload.get("expense_labels") or []
-        found = True
-        if not labels:
-            # Pre-label records: position 0 was always the Beta/Testing row -
-            # "Any Other Expenses" did not exist on the form yet to miss.
-            if amounts and not is_blank(amounts[0]):
-                total += parse_amt(amounts[0])
-            continue
-        for i, lab in enumerate(labels):
-            if i >= len(amounts) or is_blank(amounts[i]):
-                continue
-            if _is_beta_testing(lab) or _is_any_other_expense(lab):
-                total += parse_amt(amounts[i])
-    return round(total, 4) if found else None
+    rows = beta_testing_rows(conn, shift_date)
+    if rows is None:
+        return None
+    return round(sum(r["amount"] for r in rows), 4)
 
 
 def nozzles_tested(conn: sqlite3.Connection, shift_date: str) -> dict[str, int] | None:
