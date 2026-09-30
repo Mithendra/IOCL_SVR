@@ -224,7 +224,7 @@ function listOptions(listKey, chosen) {
 // it (client, 2026-09-25: "no more + symbols for sure at the end of each row
 // +New"). Six loose "+" buttons under the dropdowns of a three-row section
 // become three, in line.
-const NEW_CELL = '<td class="rownew">' +
+const NEW_CELL = '<td class="rownew w-new">' +
   '<button type="button" class="add-row-btn row-new" title="Add a value to this row’s list">+ New</button>' +
   '<button type="button" class="add-row-btn row-del" title="Remove the selected value from its list">− Delete</button>' +
   '<button type="button" class="add-row-btn row-clear" title="Blank out every field in this row only - the dropdown lists are untouched">Clear</button>' +

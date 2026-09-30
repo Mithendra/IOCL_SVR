@@ -1823,7 +1823,11 @@ details.tb-collapsible[open] > summary {
 .write-in.tight .w-amt      { width: 110px; }
 .write-in.tight .w-txn      { width: 110px; }
 .write-in.tight .w-date     { width: 150px; }
-.write-in.tight .w-new      { width: 148px; }
+/* Three buttons now, not two ("Clear" added 2026-09-30) - 148px fit "+ New"
+   and "- Delete" but let the row spill into Amount/Payment Mode once a third
+   button joined them (client, 2026-09-30, screenshot: "the field +new
+   overlapping the last column"). */
+.write-in.tight .w-new      { width: 190px; }
 /* Section 6's four collection columns (client, 2026-09-25). Each is a short
    list, so each is sized to its own longest value rather than to its heading -
    the headings wrap, the values must not. */
