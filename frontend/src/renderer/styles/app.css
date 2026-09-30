@@ -1989,3 +1989,18 @@ details.tb-collapsible[open] > summary {
   border-radius: 10px;
   font-size: 18px;
 }
+
+/* ---- Fuel Procurement ------------------------------------------------- */
+.fp-fuel { font-weight: 700; color: var(--io-blue-dark); }
+.fp-lost { color: var(--io-red); font-weight: 700; }
+.fp-row-posted td { background: #f7f8fb; }
+.fp-row-posted input:disabled { background: #eef1f7; color: var(--io-blue-dark); }
+/* Section 1's own table - six columns of short numbers, not the free-text
+   width every other plain table assumes (client, 2026-09-30: "we don't need
+   that very big lengthy columns"). */
+.fp-load-table { table-layout: fixed; }
+.fp-load-table th:first-child,
+.fp-load-table td:first-child { width: 54px; }
+.fp-load-table th:not(:first-child),
+.fp-load-table td:not(:first-child) { width: 120px; }
+.fp-load-table td input { text-align: right; }

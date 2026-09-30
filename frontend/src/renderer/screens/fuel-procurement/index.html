@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>SVR - Fuel Procurement</title>
+    <link rel="stylesheet" href="../../styles/app.css" />
+  </head>
+  <body>
+    <div class="sheet">
+      <div class="flamebar"></div>
+      <div class="header">
+        <div class="header-logo"><img src="../../assets/iocl-logo.png" alt="IndianOil" /></div>
+        <div>
+          <p>Ponnur &nbsp;&bull;&nbsp; Fuel Procurement &mdash; HS/MS Loads from IOCL</p>
+        </div>
+        <div class="header-right"><div class="doc-tag">Manager / Owner</div></div>
+      </div>
+      <div class="last-updated-bar"><span>Signed in as: <b id="who">&mdash;</b></span></div>
+
+      <div class="body-pad">
+        <p style="font-size:11px;color:var(--io-red);margin:0 0 10px">
+          There is no invoice from IOCL &mdash; the load's cost is whatever the IOCL bank-debit
+          statement shows, typed by hand. This is separate from Daily Trial Balance's own
+          "10. Load/Unload Details", which keeps tracking the sensor/IOCL-load reconciliation.
+        </p>
+
+        <!-- ============================= SECTION 1 ============================= -->
+        <div class="section-title">1. Record a New Load</div>
+        <table style="margin-bottom:0;border-radius:6px 6px 0 0;border-top:1px solid var(--line)">
+          <tr>
+            <td style="border-bottom:none;width:50%">
+              <label style="display:block;font-size:11px;text-transform:uppercase;opacity:.7">Date</label>
+              <input type="date" id="f-date" />
+            </td>
+            <td style="border-bottom:none">
+              <label style="display:block;font-size:11px;text-transform:uppercase;opacity:.7">Vehicle / DO Ref</label>
+              <input id="f-ref" placeholder="TN-xx-xxxx / DO no." />
+            </td>
+          </tr>
+        </table>
+        <div class="tb-scrollx">
+          <table class="fp-load-table">
+            <tr>
+              <th>Fuel</th><th>IOCL&nbsp;Load&nbsp;(L)</th><th>Received&nbsp;(L)</th><th>Lost&nbsp;(L)</th>
+              <th>Rate&nbsp;(&#8377;/L)</th><th>Amount</th>
+            </tr>
+            <tr>
+              <td class="fp-fuel">HS</td>
+              <td><input id="f-hs-load" /></td>
+              <td><input id="f-hs-recv" /></td>
+              <td><input id="f-hs-lost" disabled placeholder="auto" /></td>
+              <td><input id="f-hs-rate" /></td>
+              <td><input id="f-hs-amt" disabled placeholder="auto" /></td>
+            </tr>
+            <tr>
+              <td class="fp-fuel">MS</td>
+              <td><input id="f-ms-load" /></td>
+              <td><input id="f-ms-recv" /></td>
+              <td><input id="f-ms-lost" disabled placeholder="auto" /></td>
+              <td><input id="f-ms-rate" /></td>
+              <td><input id="f-ms-amt" disabled placeholder="auto" /></td>
+            </tr>
+            <tr class="total-row">
+              <td colspan="5">Total Cost (this load)</td>
+              <td class="num"><input id="f-total" disabled placeholder="auto" /></td>
+            </tr>
+          </table>
+        </div>
+        <button type="button" class="add-row-btn" id="add-load-btn">Add This Load</button>
+        <button type="button" class="add-row-btn" id="add-post-load-btn">Add &amp; Post to Expense Master</button>
+        <p id="form-status" class="status-line"></p>
+
+        <!-- ============================= SECTION 2 ============================= -->
+        <div class="section-title">2. Search</div>
+        <table>
+          <tr><th>Start</th><th>End</th><th>Fuel</th><th>Status</th><th></th></tr>
+          <tr>
+            <td><input type="date" id="s-start" /></td>
+            <td><input type="date" id="s-end" /></td>
+            <td>
+              <select id="s-fuel">
+                <option value="">&mdash; Both &mdash;</option>
+                <option>HS</option>
+                <option>MS</option>
+              </select>
+            </td>
+            <td>
+              <select id="s-status">
+                <option value="">&mdash; All &mdash;</option>
+                <option value="draft">Not Posted</option>
+                <option value="posted">Posted</option>
+              </select>
+            </td>
+            <td>
+              <button type="button" class="add-row-btn" style="margin:0 4px 0 0" id="search-btn">Search</button>
+              <button type="button" class="add-row-btn" style="margin:0" id="clear-btn">Clear</button>
+            </td>
+          </tr>
+        </table>
+
+        <!-- ============================= SECTION 3 ============================= -->
+        <div class="section-title">3. Loads This Range
+          <button type="button" class="add-row-btn" id="export-btn">Export to Excel</button>
+        </div>
+        <div class="tb-scrollx">
+          <table>
+            <tr>
+              <th>Date</th><th>Fuel</th><th>IOCL Load (L)</th><th>Received (L)</th><th>Lost (L)</th>
+              <th>Rate</th><th>Amount</th><th>Vehicle&nbsp;/&nbsp;Ref</th><th>Status</th><th>Save</th><th></th>
+            </tr>
+            <tbody id="hist-rows"></tbody>
+          </table>
+        </div>
+        <p class="status-line" id="hist-status"></p>
+
+        <!-- ============================= SECTION 4 ============================= -->
+        <div class="section-title">4. Load Summary &mdash; Month by Month
+          <button type="button" class="add-row-btn" id="export-month-btn">Export to Excel</button>
+        </div>
+        <div class="tb-scrollx">
+          <table>
+            <tr>
+              <th>Month</th><th>Loads</th><th>Litres&nbsp;HS</th><th>Litres&nbsp;MS</th>
+              <th>Lost&nbsp;HS</th><th>Lost&nbsp;MS</th><th>Cost&nbsp;HS</th><th>Cost&nbsp;MS</th><th>Total&nbsp;Cost</th>
+            </tr>
+            <tbody id="month-rows"></tbody>
+          </table>
+        </div>
+
+        <div class="summary-box">
+          <h3>5. Summary (filtered range)</h3>
+          <div class="summary-row"><span>Total Litres HS</span><span id="sum-hs">&mdash;</span></div>
+          <div class="summary-row"><span>Total Litres MS</span><span id="sum-ms">&mdash;</span></div>
+          <div class="summary-row"><span>Cost HS</span><span id="sum-cost-hs">&mdash;</span></div>
+          <div class="summary-row"><span>Cost MS</span><span id="sum-cost-ms">&mdash;</span></div>
+          <div class="summary-row"><span>Total Lost (HS+MS)</span><span id="sum-lost">&mdash;</span></div>
+          <div class="summary-row"><span>Not Yet Posted</span><span id="sum-unposted">&mdash;</span></div>
+          <div class="summary-row net"><span>Grand Total Cost</span><span id="sum-total">&mdash;</span></div>
+        </div>
+
+        <p style="margin-top:18px"><a href="../../index.html">&larr; Back to menu</a></p>
+      </div>
+    </div>
+    <script type="module" src="../../lib/screen-shell.js"></script>
+    <script type="module" src="./screen.js"></script>
+  </body>
+</html>
