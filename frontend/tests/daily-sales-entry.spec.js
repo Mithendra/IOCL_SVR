@@ -301,11 +301,14 @@ test("mandatory fields carry a star, and Save acts on them", async ({ page }) =>
   );
 });
 
-test("Expenses takes extra rows, and an added row keeps its description", async ({ page }) => {
+test("Expenses takes extra rows, picking a type from a reusable list", async ({ page }) => {
   // Client, 2026-09-13: "in section three expenses you should be able to add more
-  // rows if needed." The three printed rows have fixed labels; an added row types
-  // its own, and that text has to be saved with the amount or the figure comes
-  // back with no name against it.
+  // rows if needed." The three printed rows have fixed labels. An added row used
+  // to type its own free text; client, 2026-09-30, it now picks from the same
+  // "expenses" list Daily Trial Balance's own Category dropdowns read, with its
+  // own "+ New Expense Type" to define one that isn't there yet - so the same
+  // real expense is always saved under one consistent name, not several slightly
+  // different spellings across days.
   const DATE = "2026-04-19";
   await login(page);
   await page.goto(SCREEN);
@@ -313,13 +316,21 @@ test("Expenses takes extra rows, and an added row keeps its description", async 
   await page.fill("#hs-current", "999999");
   await page.fill("#exp1", "500");
 
+  // Define both new expense types up front - one prompt() per click.
+  const names = ["Tyre puncture - auto", "Water cans"];
+  for (const name of names) {
+    page.once("dialog", (d) => d.accept(name));
+    await page.click("#new-exp-type-btn");
+    await expect(page.locator("#save-status")).toContainText(`"${name}" added`);
+  }
+
   await page.click('[data-add="exp"]');
   await page.click('[data-add="exp"]');
   const extra = page.locator("#exp-rows tr");
   await expect(extra).toHaveCount(2);
-  await extra.nth(0).locator(".exp-desc").fill("Tyre puncture - auto");
+  await extra.nth(0).locator(".exp-desc").selectOption("Tyre puncture - auto");
   await extra.nth(0).locator(".exp").fill("250");
-  await extra.nth(1).locator(".exp-desc").fill("Water cans");
+  await extra.nth(1).locator(".exp-desc").selectOption("Water cans");
   await extra.nth(1).locator(".exp").fill("120");
 
   // The added rows count towards the total like any other.
@@ -327,7 +338,7 @@ test("Expenses takes extra rows, and an added row keeps its description", async 
   await page.click("#save-btn");
   await expect(page.locator("#save-status")).toContainText("Saved (entry #");
 
-  // Reopen: both the amounts AND their descriptions come back.
+  // Reopen: both the amounts AND their chosen types come back.
   await page.goto(SCREEN);
   await page.fill("#shift-date", DATE);
   await expect(page.locator("#editing-note")).toContainText("Editing saved entry #");

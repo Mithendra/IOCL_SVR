@@ -262,7 +262,10 @@
           <tbody id="exp-rows"></tbody>
           <tr class="total-row"><td>Total Amt Expenses</td><td><input id="exp-total" disabled placeholder="auto" /></td></tr>
         </table>
-        <button type="button" class="add-row-btn" data-add="exp">+ Add row</button>
+        <span style="display:flex;gap:8px;justify-content:flex-end">
+          <button type="button" class="add-row-btn" style="margin:6px 0 0" data-add="exp">+ Add row</button>
+          <button type="button" class="add-row-btn" style="margin:6px 0 0" id="new-exp-type-btn">+ New Expense Type</button>
+        </span>
 
         <!-- 4. Credit Cards Swiping(s) -->
         <div class="section-title">

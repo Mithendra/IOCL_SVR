@@ -1251,13 +1251,21 @@ input:disabled {
    against: the form flowed into a 5071px column and printed across six pages. */
 .dsr-page{position:relative;width:595.3pt;height:841.9pt;
   background:#fff;color:#000;font-family:Arial,Helvetica,sans-serif;
-  overflow:hidden}
-.dsr-page .bx{position:absolute;border:0.6pt solid #000;box-sizing:border-box}
+  overflow:hidden;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+.dsr-page .bx{position:absolute;border:0.6pt solid var(--io-blue, #0033a0);
+  box-sizing:border-box}
 .dsr-page .tx{position:absolute;line-height:1.15;white-space:pre-wrap;
   box-sizing:border-box}
 .dsr-page .b{font-weight:700}
 .dsr-page .c{text-align:center}
 .dsr-page .r{text-align:right}
+/* The one line above every grid - client, 2026-09-30: "Export DSR (PDF)
+   should be colour". Deliberately not extended to every bold label: most of
+   `.b` is shared with in-grid totals (Total Amt, Total Gas & Oil Sales Amt),
+   and recolouring those inconsistently would read as an error, not a choice.
+   The title is the one line rendered before any grid content - always first,
+   so it can be reached without a class the renderer doesn't otherwise give it. */
+.dsr-page > .tx:first-child{color:var(--io-blue, #0033a0)}
 
 /* ---- The DSR form preview -------------------------------------------------
    The station's own paper form, shown at actual size before any paper is used.

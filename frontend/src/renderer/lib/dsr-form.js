@@ -278,13 +278,14 @@ export function renderDsrForm({ pumpSerial, pumpLabel, shiftDate, data } = {}) {
 export const DSR_CSS = `
 .dsr-page{position:relative;width:${PAGE.w}pt;height:${PAGE.h}pt;
   background:#fff;color:#000;font-family:Arial,Helvetica,sans-serif;
-  overflow:hidden}
-.dsr-page .bx{position:absolute;border:0.6pt solid #000;box-sizing:border-box}
+  overflow:hidden;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+.dsr-page .bx{position:absolute;border:0.6pt solid #0033a0;box-sizing:border-box}
 .dsr-page .tx{position:absolute;line-height:1.15;white-space:pre-wrap;
   box-sizing:border-box}
 .dsr-page .b{font-weight:700}
 .dsr-page .c{text-align:center}
 .dsr-page .r{text-align:right}
+.dsr-page > .tx:first-child{color:#0033a0}
 @media print{
   @page{size:A4 portrait;margin:0}
   body{margin:0;background:#fff}

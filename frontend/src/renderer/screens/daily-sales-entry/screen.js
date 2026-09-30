@@ -591,12 +591,16 @@ function applyRateFromFuel(tr, typeSel, rateSel) {
 function applyCreditRate(tr) {
   applyRateFromFuel(tr, ".nc-type", ".nc-rate");
 }
-// An extra Expenses row. Unlike the three printed ones its description is typed,
-// so the row carries both a description input and an amount - and readForm()
-// sends the descriptions alongside the amounts (client, 2026-09-13).
+// An extra Expenses row. Unlike the three printed ones its description picks
+// from the same "expenses" list Daily Trial Balance's own Category dropdowns
+// already read (client, 2026-09-30: a new line item typed here should be
+// usable, consistently spelled, wherever expenses are picked) - not free text,
+// which let the same real expense end up saved under several slightly
+// different spellings and post as several different Monthly Expenses
+// categories instead of one.
 function addExpRow(desc = "", amount = "") {
   const tr = blankRow(
-    '<td><input class="exp-desc" placeholder="What was this expense?"></td>' +
+    listCell("exp-desc", "expenses", "Expense type") +
       '<td><input class="exp" data-calc></td>'
   );
   tr.querySelector(".exp-desc").value = desc;
@@ -2100,6 +2104,30 @@ async function init() {
       ({ cc: addCcRow, nc: addNcRow, oc: addOcRow, exp: addExpRow })[btn.dataset.add]();
       refresh();
     });
+  });
+
+  // Section-level, not per-row - there is no one Expenses row to open a
+  // strip beside, unlike the New Credit / Old Credit "+ New" buttons, which
+  // sit next to the specific dropdown they add to (client, 2026-09-30: "next
+  // to + Add, there should be + New").
+  $("new-exp-type-btn").addEventListener("click", async () => {
+    const name = (window.prompt("New expense type name:") || "").trim();
+    if (!name) return;
+    const st = $("save-status");
+    try {
+      await api.post("/daily-trial-balance/options", { list_key: "expenses", value: name });
+    } catch (err) {
+      const msg = err && err.message ? String(err.message) : String(err);
+      if (!/already/i.test(msg)) {
+        st.className = "status-line err";
+        st.textContent = `Could not add "${name}" — ${msg}`;
+        return;
+      }
+    }
+    await loadOptionLists();
+    refreshLists();
+    st.className = "status-line ok";
+    st.textContent = `"${name}" added - pick it from any Expenses row's Expense Type dropdown.`;
   });
 
   $("query-btn").addEventListener("click", queryCurrent);
