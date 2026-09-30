@@ -499,7 +499,6 @@ def test_fixed_control_values_cannot_be_deleted_only_added(client, auth_headers,
     for key, value in (
         ("yes_no", "Yes"), ("payment_type", "Full"), ("payment_modes", "Cash"),
         ("credit_payment_modes", "Credit (CR)"), ("expense_payment_mode", "Cash"),
-        ("card_types", "Visa"),
     ):
         r = client.post("/daily-trial-balance/options/remove",
                         json={"list_key": key, "value": value}, headers=h)
@@ -515,11 +514,14 @@ def test_fixed_control_values_cannot_be_deleted_only_added(client, auth_headers,
                     json={"list_key": "payment_modes", "value": "UPI"}, headers=h)
     assert r.status_code == 201
 
-    # Real name lists, in other Daily Sales Entry sections too, still delete
-    # exactly as before - Section 5/6's Creditor/Customer Name and Section 4's
-    # Card Holder Name are people, not a fixed set a formula depends on.
+    # Real name/free-text lists, in other Daily Sales Entry sections too, still
+    # delete exactly as before - Section 5/6's Creditor/Customer Name and
+    # Section 4's Card Holder Name are people, and Card Type (reverted here,
+    # 2026-09-30 - nothing matches on it literally, unlike the five above) is a
+    # free-text category, not a fixed set a formula depends on.
     for key, value in (
         ("creditors", "Temp Test Creditor"), ("card_holders", "Temp Test Holder"),
+        ("card_types", "Temp Test Card Type"),
     ):
         client.post("/daily-trial-balance/options",
                     json={"list_key": key, "value": value}, headers=h)

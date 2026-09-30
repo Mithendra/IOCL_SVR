@@ -1838,7 +1838,7 @@ details.tb-collapsible[open] > summary {
    none of them can go below about 92px however short the values are. The room
    comes out of the three text columns instead. */
 .write-in.tight-oc .w-name    { width: 134px; }
-.write-in.tight-oc .w-amt     { width: 92px; }
+.write-in.tight-oc .w-amt     { width: 150px; }
 .write-in.tight-oc .w-date    { width: 134px; }
 .write-in.tight-oc .w-pay     { width: 100px; }
 .write-in.tight-oc .w-remit   { width: 98px; }

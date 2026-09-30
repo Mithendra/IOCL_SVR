@@ -519,13 +519,19 @@ OPTION_LISTS = (
 # Every other list here is real people, real customers, or real free-text
 # descriptions (creditors, customers, staff, banks, card_types, ...) - those
 # keep working exactly as before, add and delete both.
+#
+# card_types (Visa/Master/I.O.C.L ExtraPower) was added here 2026-09-29 on the
+# same "fixed category, not a name" reasoning as the five below, but that
+# reasoning doesn't actually hold for it: nothing in the calc engine or a
+# business rule matches on a card type's literal text (checked directly,
+# 2026-09-30) - it is stored and shown, never pattern-matched, so deleting one
+# breaks nothing downstream. It also broke a real, working feature: the
+# Playwright suite's own "remove a Card Type" coverage, which predates that
+# change and encodes a genuine need (an operator clears a scratch/test entry).
+# Reverted - card_types deletes like every other name list again.
 FIXED_CONTROL_LISTS = frozenset({
     "yes_no", "payment_type", "payment_modes", "credit_payment_modes",
     "expense_payment_mode",
-    # Section 4's Card Type (Visa/Master/I.O.C.L ExtraPower) - a fixed set of
-    # card categories, not a customer's name, same principle as the five
-    # above (2026-09-29 cross-check across every Daily Sales Entry section).
-    "card_types",
 })
 
 
